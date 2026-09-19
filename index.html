@@ -1671,7 +1671,7 @@ async function loadW(lat,lng,name,isRef){
     const [weatherResult,imgwResult,cloudResult]=await Promise.allSettled([
       apiWeather(lat,lng),
       findNearestIMGW(lat,lng),
-      fetchAllModelsCompare(lat,lng)
+      isGpsLocation ? fetchAllModelsCompare(lat,lng) : Promise.resolve([])
     ]);
     if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
