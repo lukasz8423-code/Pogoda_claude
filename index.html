@@ -1376,6 +1376,14 @@ function modelsHTML(){
   if(mc&&mc.length){
     const ts=mc.map(m=>m.temp),lo=Math.min(...ts),hi=Math.max(...ts),sp=Math.max(.5,hi-lo);
     body+=mc.map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((m.temp-lo)/sp*80+10).toFixed(1)}%"></u></div><b class="tn">${fnum(m.temp,1)}°</b></div>`).join("");
+    const clouds=mc.filter(m=>Number.isFinite(Number(m.cloud))).map(m=>Number(m.cloud));
+    if(clouds.length){
+      const clo=Math.min(...clouds),chi=Math.max(...clouds),csp=Math.max(1,chi-clo);
+      const cavg=clouds.reduce((a,b)=>a+b,0)/clouds.length;
+      body+=`<div class="note" style="margin:10px 0 6px;font-weight:600;color:var(--ink2)">Aktualne zachmurzenie modeli</div>`;
+      body+=mc.filter(m=>Number.isFinite(Number(m.cloud))).map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((Number(m.cloud)-clo)/csp*80+10).toFixed(1)}%"></u></div><b class="tn">${Math.round(Number(m.cloud))}%</b></div>`).join("");
+      body+=`<div class="note" style="margin:4px 0 0">Średnia modeli: ${Math.round(cavg)}% · rozrzut: ${Math.round(chi-clo)} pkt. To diagnostyka — główne zachmurzenie aplikacji nadal pozostaje bez zmian.</div>`;
+    }
   }else if(!c)body+=`<div class="note" style="margin-top:0">Porównanie modeli pojawi się po chwili.</div>`;
   if(acc)body+=`<div class="note">Trafność temperatury z historii tej aplikacji: ${acc.accuracy}% (${acc.count} zweryfikowanych prognoz).</div>`;
   return`<section class="card"><div class="ch">${mini("layers")}<span class="grow">Modele i wiarygodność</span></div>${body}
@@ -1699,7 +1707,7 @@ async function loadW(lat,lng,name,isRef){
     const ok=temps.map((t,i)=>({t,r:results[i]})).filter(x=>x.t!=null);
     if(ok.length<2)return;
     S.confidence=calcConfidence(ok.map(x=>x.t));
-    S.modelCompare=ok.map(x=>({name:x.r.model,temp:Math.round(x.t*10)/10}));
+    S.modelCompare=ok.map(x=>({name:x.r.model,temp:Math.round(x.t*10)/10,cloud:x.r.data.current?.cloud_cover??null,code:x.r.data.current?.weather_code??null}));
     softUpdate();
   }).catch(()=>{});
 }
