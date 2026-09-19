@@ -1684,13 +1684,13 @@ async function loadW(lat,lng,name,isRef){
       if(modelClouds.length>=2){
         const avg=modelClouds.reduce((a,b)=>a+b,0)/modelClouds.length;
         const raw=Number(data?.current?.cloud_cover);
-        const useConsensus=!Number.isFinite(raw)||(raw===0&&avg>=20);
+        const useConsensus=Number.isFinite(avg);
         if(useConsensus){
           const value=Math.round(avg);
           data.current.cloud_cover=value;
           S.cloudSource={type:"model-consensus",value,models:modelClouds};
         }else{
-          S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
+          S.cloudSource={type:"model-consensus",value:Math.round(avg),models:modelClouds};
         }
       }
     }
