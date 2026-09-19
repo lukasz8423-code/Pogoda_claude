@@ -1020,7 +1020,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -1111,6 +1111,17 @@ function topHTML(X){
     <span class="grow"></span>
     <button class="ib ${S.refreshing?"busy":""}" data-act="refresh" aria-label="Odśwież" ${S.refreshing?"disabled":""}>${mini("refresh")}</button>
   </header>`;
+}
+
+function gpsDiagHTML(){
+  const d=S.gpsDiag;
+  if(!d)return"";
+  return`<div class="card" style="margin:10px 0 14px;padding:12px 14px;font-size:12px;line-height:1.6;border-radius:16px">
+    <div style="font-weight:700;margin-bottom:3px">Diagnostyka lokalizacji</div>
+    <div>GPS: <b class="tn">${d.lat.toFixed(6)}, ${d.lng.toFixed(6)}</b></div>
+    <div>Dokładność GPS: <b class="tn">${Number.isFinite(d.accuracy)?Math.round(d.accuracy)+" m":"brak"}</b></div>
+    <div>Model: <b>${esc(d.model||"-")}</b> · cloud_cover: <b class="tn">${d.cloud==null?"-":Math.round(d.cloud)+"%"}</b> · WMO: <b class="tn">${d.code==null?"-":d.code}</b></div>
+  </div>`;
 }
 
 function heroHTML(X){
@@ -1493,7 +1504,7 @@ function weatherHTML(){
   applySky(X);ambientFor(X);
   const upd=S.lastUpdate?new Date(S.lastUpdate):null;
   return`<div class="${S.enter?"enter":""}">
-    ${topHTML(X)}${heroHTML(X)}${sunlineHTML(X)}
+    ${topHTML(X)}${heroHTML(X)}${gpsDiagHTML()}${sunlineHTML(X)}
     <div id="s-alerts">${alertsHTML(X)}</div>
     <div id="s-nowcast">${nowcastHTML(X)}</div>
     ${hourlyHTML(X)}
@@ -1627,7 +1638,8 @@ async function handleGPS(){
       throw new Error("Nieprawidłowe współrzędne lokalizacji.");
     }
 
-    console.log("GPS:",{lat,lng,accuracy});
+    S.gpsDiag={lat,lng,accuracy,model:activeModel.id,cloud:null,code:null};
+    console.log("GPS:",S.gpsDiag);
     await loadW(lat,lng,null,false);
   }catch(err){
     S.loading=false;
@@ -1657,6 +1669,11 @@ async function loadW(lat,lng,name,isRef){
   try{
     const [weatherResult,imgwResult]=await Promise.allSettled([apiWeather(lat,lng),findNearestIMGW(lat,lng)]);
     if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
+    if(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001){
+      S.gpsDiag.model=activeModel.id;
+      S.gpsDiag.cloud=data?.current?.cloud_cover??null;
+      S.gpsDiag.code=data?.current?.weather_code??null;
+    }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
