@@ -1083,7 +1083,7 @@ function ambientFor(X){
 // ═══════════════════════════════════════════════
 function topHTML(X){
   return`<header class="top" id="top">
-    <button class="ib" data-act="back" aria-label="Zmień miejsce">${mini("search")}</button>
+    <button class="ib" data-act="back" aria-label="Zmień miejsce" title="Zmień lokalizację">${mini("search")}</button>
     <div class="place">${mini("pin")}<span>${esc(S.city)}</span></div>
     <span class="top-t tn">${Math.round(X.T)}° ${esc(X.meta.t)}</span>
     <span class="grow"></span>
