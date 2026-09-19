@@ -1549,6 +1549,73 @@ function demoData(){
   };
 }
 
+async function handleGPS(){
+  gpsErr="";
+  netErr=false;
+
+  if(!window.isSecureContext){
+    gpsErr="Lokalizacja GPS wymaga bezpiecznego połączenia HTTPS.";
+    render();
+    return;
+  }
+
+  if(!navigator.geolocation){
+    gpsErr="Ta przeglądarka nie udostępnia lokalizacji GPS.";
+    render();
+    return;
+  }
+
+  S.loading=true;
+  render();
+
+  const getPosition=(options)=>new Promise((resolve,reject)=>{
+    navigator.geolocation.getCurrentPosition(resolve,reject,options);
+  });
+
+  try{
+    let position;
+    try{
+      position=await getPosition({
+        enableHighAccuracy:true,
+        timeout:15000,
+        maximumAge:0
+      });
+    }catch(firstErr){
+      if(firstErr?.code===1)throw firstErr;
+      position=await getPosition({
+        enableHighAccuracy:false,
+        timeout:10000,
+        maximumAge:30000
+      });
+    }
+
+    const lat=Number(position.coords.latitude);
+    const lng=Number(position.coords.longitude);
+    const accuracy=Number(position.coords.accuracy);
+
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)){
+      throw new Error("Nieprawidłowe współrzędne lokalizacji.");
+    }
+
+    console.log("GPS:",{lat,lng,accuracy});
+    await loadW(lat,lng,null,false);
+  }catch(err){
+    S.loading=false;
+
+    if(err?.code===1){
+      gpsErr="Dostęp do lokalizacji został zablokowany. Zezwól przeglądarce na dostęp do lokalizacji dla tej strony i spróbuj ponownie.";
+    }else if(err?.code===2){
+      gpsErr="Nie udało się ustalić lokalizacji urządzenia. Sprawdź, czy lokalizacja jest włączona.";
+    }else if(err?.code===3){
+      gpsErr="Ustalanie lokalizacji trwało zbyt długo. Spróbuj ponownie.";
+    }else{
+      gpsErr=err?.message||"Nie udało się pobrać lokalizacji.";
+    }
+
+    render();
+  }
+}
+
 async function loadW(lat,lng,name,isRef){
   if(isRef){S.refreshing=true;render();}
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
