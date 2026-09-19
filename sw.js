@@ -18,7 +18,7 @@ self.addEventListener("activate",e=>{
 self.addEventListener("fetch",e=>{
   const r=e.request,u=new URL(r.url);
   if(r.method!=="GET")return;
-  if(u.origin!==location.origin&&!/fonts\\.(googleapis|gstatic)\\.com$/.test(u.hostname))return;
+  if(u.origin!==location.origin&&!/fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))return;
 
   const isAppShell=u.origin===location.origin&&(
     r.mode==="navigate"||
