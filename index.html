@@ -1691,7 +1691,7 @@ async function loadW(lat,lng,name,isRef){
     }
     if(cloudCompare.length>=2){
       const now=new Date();
-      const pfx2=`${now.getFullYear()}-${pad(now.getMonth()+1)-${pad(now.getDate())}T${pad(now.getHours())}`;
+      const pfx2=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
       const ok=cloudCompare.map(r=>{
         const idx=r.data?.hourly?.time?.findIndex(t=>t.startsWith(pfx2))??-1;
         const t=idx>=0?r.data.hourly.temperature_2m[idx]:r.data?.current?.temperature_2m;
