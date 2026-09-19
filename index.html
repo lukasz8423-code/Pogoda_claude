@@ -1680,19 +1680,19 @@ async function loadW(lat,lng,name,isRef){
       S.gpsDiag.model=activeModel.id;
       S.gpsDiag.cloud=data?.current?.cloud_cover??null;
       S.gpsDiag.code=data?.current?.weather_code??null;
-      const modelClouds=cloudCompare.map(r=>Number(r.data?.current?.cloud_cover)).filter(Number.isFinite).filter(v=>v>=0&&v<=100);
-      if(modelClouds.length>=2){
-        const avg=modelClouds.reduce((a,b)=>a+b,0)/modelClouds.length;
-        const raw=Number(data?.current?.cloud_cover);
-        const useConsensus=!Number.isFinite(raw)||(raw===0&&avg>=20);
-        if(useConsensus){
-          const value=Math.round(avg);
-          data.current.cloud_cover=value;
-          S.cloudSource={type:"model-consensus",value,models:modelClouds};
-        }else{
-          S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
-        }
-      }
+    }
+    // Główne zachmurzenie ma być spójne z diagnostyką modeli dla każdej lokalizacji,
+    // nie tylko dla GPS. Gdy mamy co najmniej 2 modele, używamy ich średniej jako konsensusu.
+    const modelClouds=cloudCompare.map(r=>Number(r.data?.current?.cloud_cover))
+      .filter(Number.isFinite).filter(v=>v>=0&&v<=100);
+    if(modelClouds.length>=2){
+      const avg=modelClouds.reduce((a,b)=>a+b,0)/modelClouds.length;
+      const value=Math.round(avg);
+      data.current.cloud_cover=value;
+      S.cloudSource={type:"model-consensus",value,models:modelClouds};
+    }else{
+      const raw=Number(data?.current?.cloud_cover);
+      if(Number.isFinite(raw)) S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
