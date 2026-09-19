@@ -1033,7 +1033,15 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  const cloud=clamp(Math.round(current.cloud_cover??g(hourly.cloud_cover)??0),0,100);
+  const cloudTotal=Number(current.cloud_cover??g(hourly.cloud_cover));
+  const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
+  const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
+  const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
+  const cloudLayers=[cloudLow,cloudMid,cloudHigh].filter(Number.isFinite);
+  // Open-Meteo definiuje cloud_cover jako całkowite zachmurzenie; warstwy low/mid/high są osobnymi składowymi.
+  // Nie zastępujemy 0 średnią warstw — tylko zabezpieczamy oczywiście niespójny odczyt total=0 przy wysokich warstwach.
+  const layerEvidence=cloudLayers.length?Math.max(...cloudLayers):null;
+  const cloud=clamp(Math.round(Number.isFinite(cloudTotal)?(cloudTotal===0&&layerEvidence>=40?layerEvidence:cloudTotal):(layerEvidence??0)),0,100);
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
