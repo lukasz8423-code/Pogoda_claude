@@ -1671,7 +1671,7 @@ async function loadW(lat,lng,name,isRef){
     const [weatherResult,imgwResult,cloudResult]=await Promise.allSettled([
       apiWeather(lat,lng),
       findNearestIMGW(lat,lng),
-      isGpsLocation ? fetchAllModelsCompare(lat,lng) : Promise.resolve([])
+      fetchAllModelsCompare(lat,lng)
     ]);
     if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
@@ -1733,15 +1733,6 @@ async function loadW(lat,lng,name,isRef){
     if(data.hourly.temperature_2m?.[fi]!=null)saveForecastHistory(lat,lng,city,data.hourly.temperature_2m[fi],data.hourly.weather_code?.[fi]??0);
   }
 
-  S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,confidence:confidenceNow,minutely:null,air:null,expDay:null,enter:!isRef});
-  render();
-
-  if(isDemo)return;
-  // Dane dochodzące w tle — aktualizują tylko swoje sekcje
-  const same=()=>S.lat===lat&&S.lng===lng;
-  apiMinutely(lat,lng).then(m=>{if(same()){S.minutely=m;softUpdate();}});
-  apiAir(lat,lng).then(a=>{if(same()){S.air=a;softUpdate();}});
   if(cloudCompare.length>=2){
     const now=new Date();
     const pfx2=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
@@ -1755,6 +1746,16 @@ async function loadW(lat,lng,name,isRef){
       modelCompareNow=ok.map(x=>({name:x.r.model,temp:Math.round(x.t*10)/10,cloud:x.r.data?.current?.cloud_cover??null,code:x.r.data?.current?.weather_code??null}));
     }
   }
+
+  S.lastUpdate=Date.now();
+  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,confidence:confidenceNow,minutely:null,air:null,expDay:null,enter:!isRef});
+  render();
+
+  if(isDemo)return;
+  // Dane dochodzące w tle — aktualizują tylko swoje sekcje
+  const same=()=>S.lat===lat&&S.lng===lng;
+  apiMinutely(lat,lng).then(m=>{if(same()){S.minutely=m;softUpdate();}});
+  apiAir(lat,lng).then(a=>{if(same()){S.air=a;softUpdate();}});
 }
 
 // ═══════════════════════════════════════════════
