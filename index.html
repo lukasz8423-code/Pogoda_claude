@@ -645,7 +645,7 @@ async function fetchIMGWAll(){
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
   try{
-    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{signal:AbortSignal.timeout(8000)});
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/?_aura="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(8000)});
     if(!r.ok)throw new Error("HTTP "+r.status);
     const data=await r.json();
     console.log(`IMGW METEO: pobrano ${Array.isArray(data)?data.length:0} stacji`);
@@ -682,6 +682,15 @@ async function findNearestIMGW(lat,lng){
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const temp=parseFloat(glodowo.temperatura);
 
+    console.log("IMGW Głodowo diagnostyka:",{
+      kod_stacji:glodowo.kod_stacji,
+      nazwa:glodowo.nazwa_stacji,
+      temperatura:glodowo.temperatura,
+      temperatura_data:glodowo.temperatura_data,
+      ageMinutes,
+      dist:Math.round(dist*10)/10
+    });
+
     if(dist<=30 && Number.isFinite(temp) && (ageMinutes===null || ageMinutes<180)){
       const normalized={
         ...glodowo,
@@ -709,9 +718,11 @@ async function findNearestIMGW(lat,lng){
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      console.warn("Głodowo pominięte jako lokalne źródło:",{dist:Math.round(dist*10)/10,temp,ageMinutes});
+      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany",dist:Math.round(dist*10)/10,temp,ageMinutes});
     }
   }
+
+  if(!glodowo) console.warn("IMGW Głodowo: stacja 252190030 nie została znaleziona w feedzie METEO",{meteoAvailable:Array.isArray(meteoAll),meteoCount:Array.isArray(meteoAll)?meteoAll.length:0});
 
   if(!all||!Array.isArray(all)||all.length===0)return null;
 
