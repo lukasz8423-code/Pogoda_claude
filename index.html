@@ -115,10 +115,12 @@ a.btn{text-decoration:none;color:inherit}
 
 /* nowcast */
 .nc-sum{font-size:17px;font-weight:600;margin-bottom:12px;line-height:1.3}
-.nc-bars{display:flex;align-items:flex-end;gap:5px;height:56px}
-.nc-bars i{flex:1;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#B7E8FF,#4FB6F0);min-height:3px}
+.nc-bars{display:flex;align-items:flex-end;gap:5px;height:76px;padding-top:18px}
+.nc-bars i{position:relative;flex:1;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#B7E8FF,#4FB6F0);min-height:3px}
 .nc-bars i.z{background:rgba(255,255,255,.16)}
-.nc-ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink3);margin-top:6px}
+.nc-bars i b{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);font-size:9.5px;line-height:1;color:var(--ink2);font-weight:600;white-space:nowrap}
+.nc-bars i small{position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);font-size:8.5px;line-height:1;color:var(--ink3);font-weight:500;white-space:nowrap}
+.nc-ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink3);margin-top:9px}
 
 /* hourly */
 .hstrip{display:flex;overflow-x:auto;gap:0;margin:0 -8px;padding:0 4px 2px;scroll-snap-type:x proximity}
@@ -368,26 +370,44 @@ function buildNowcast(hourly,ci){
 }
 
 
+const LOCATIVE={
+  "Lipno":"Lipnie","Ryszewek":"Ryszewku","Tomaszewo":"Tomaszewie",
+  "Włocławek":"Włocławku","Toruń":"Toruniu","Warszawa":"Warszawie",
+  "Gdańsk":"Gdańsku","Kraków":"Krakowie","Wrocław":"Wrocławiu",
+  "Poznań":"Poznaniu","Bydgoszcz":"Bydgoszczy","Grudziądz":"Grudziądzu",
+  "Lublin":"Lublinie","Łódź":"Łodzi","Rzeszów":"Rzeszowie",
+  "Białystok":"Białymstoku","Olsztyn":"Olsztynie","Kielce":"Kielcach",
+  "Katowice":"Katowicach","Szczecin":"Szczecinie","Opole":"Opolu",
+  "Kalisz":"Kaliszu","Zakopane":"Zakopanem","Jelenia Góra":"Jeleniej Górze"
+};
+function locativeCity(city){
+  const raw=String(city??"").trim();
+  if(!raw)return raw;
+  if(LOCATIVE[raw])return LOCATIVE[raw];
+  const key=Object.keys(LOCATIVE).find(k=>k.toLowerCase()===raw.toLowerCase());
+  return key?LOCATIVE[key]:raw;
+}
+
 function advice(city,cur){
   const t=Math.round(cur?.temperature_2m??15);
   const c=cur?.weather_code??0;
+  const place=locativeCity(city);
   const isStorm=c>=95;
   const isSnow=(c>=71&&c<=77)||(c>=85&&c<=86);
   const isRain=(c>=51&&c<=67)||(c>=80&&c<=82);
   const isMist=c>=45&&c<=48;
 
-  if(isStorm)return{a:`Burza w ${city} (${t}°C)! Zostań w domu, odłącz urządzenia elektryczne.`,cl:"Zostań w domu",ac:"Obserwuj błyskawice przez okno"};
-  // Śnieg TYLKO gdy zimno
-  if(isSnow&&t<=3)return{a:`Śnieg w ${city} przy ${t}°C. Weź łopatę!`,cl:"Kożuch, czapa uszatka, ciepłe buty",ac:"Odśnieżanie lub bałwan"};
-  if(isRain)return{a:`Deszcz w ${city} (${t}°C). Parasol obowiązkowy.`,cl:"Kalosze, kurtka przeciwdeszczowa",ac:"Kawa i kanapa"};
-  if(isMist)return{a:`Mgła w ${city} (${t}°C). Jedź ostrożnie.`,cl:"Kurtka i sweter",ac:"Ostrożna jazda, włącz światła"};
-  if(t>=32)return{a:`Upał w ${city} – aż ${t}°C! Unikaj słońca między 11-15.`,cl:"Przewiewne ubranie, kapelusz, okulary",ac:"Klimatyzacja lub basen"};
-  if(t>=27)return{a:`Gorąco w ${city}, ${t}°C. Pij dużo wody.`,cl:"Lekkie ubranie, nakrycie głowy",ac:"Spacer rano lub wieczorem"};
-  if(t>=22)return{a:`Piękna pogoda w ${city}, ${t}°C! Wychodzisz?`,cl:"T-shirt lub lekka koszula",ac:"Rower, spacer, taras"};
-  if(t>=17)return{a:`Przyjemne ${t}°C w ${city}. Idealna pogoda.`,cl:"Bluza lub cienka kurtka",ac:"Spacer, rower, zakupy"};
-  if(t>=12)return{a:`Chłodnawo w ${city} (${t}°C). Weź kurtkę.`,cl:"Kurtka i bluza",ac:"Szybki spacer lub zakupy"};
-  if(t>=5)return{a:`Zimno w ${city} (${t}°C). Ubierz się ciepło.`,cl:"Kurtka, sweter, długie spodnie",ac:"Herbata i krótki spacer"};
-  return{a:`Mróz w ${city} (${t}°C)! Bez grubej kurtki ani kroku.`,cl:"Najgrubsza kurtka, szal, czapka",ac:"Dom, kaloryfer, herbata z prądem"};
+  if(isStorm)return{a:`Burza w ${place} (${t}°C)! Zostań w domu, odłącz urządzenia elektryczne.`,cl:"Zostań w domu",ac:"Obserwuj błyskawice przez okno"};
+  if(isSnow&&t<=3)return{a:`Śnieg w ${place} przy ${t}°C. Weź łopatę!`,cl:"Kożuch, czapa uszatka, ciepłe buty",ac:"Odśnieżanie lub bałwan"};
+  if(isRain)return{a:`Deszcz w ${place} (${t}°C). Parasol obowiązkowy.`,cl:"Kalosze, kurtka przeciwdeszczowa",ac:"Kawa i kanapa"};
+  if(isMist)return{a:`Mgła w ${place} (${t}°C). Jedź ostrożnie.`,cl:"Kurtka i sweter",ac:"Ostrożna jazda, włącz światła"};
+  if(t>=32)return{a:`Upał w ${place} – aż ${t}°C! Unikaj słońca między 11-15.`,cl:"Przewiewne ubranie, kapelusz, okulary",ac:"Klimatyzacja lub basen"};
+  if(t>=27)return{a:`Gorąco w ${place}, ${t}°C. Pij dużo wody.`,cl:"Lekkie ubranie, nakrycie głowy",ac:"Spacer rano lub wieczorem"};
+  if(t>=22)return{a:`Piękna pogoda w ${place}, ${t}°C! Wychodzisz?`,cl:"T-shirt lub lekka koszula",ac:"Rower, spacer, taras"};
+  if(t>=17)return{a:`Przyjemne ${t}°C w ${place}. Idealna pogoda.`,cl:"Bluza lub cienka kurtka",ac:"Spacer, rower, zakupy"};
+  if(t>=12)return{a:`Chłodnawo w ${place} (${t}°C). Weź kurtkę.`,cl:"Kurtka i bluza",ac:"Szybki spacer lub zakupy"};
+  if(t>=5)return{a:`Zimno w ${place} (${t}°C). Ubierz się ciepło.`,cl:"Kurtka, sweter, długie spodnie",ac:"Herbata i krótki spacer"};
+  return{a:`Mróz w ${place} (${t}°C)! Bez grubej kurtki ani kroku.`,cl:"Najgrubsza kurtka, szal, czapka",ac:"Dom, kaloryfer, herbata z prądem"};
 }
 
 // POPRAWIONY indeks dyskomfortu
@@ -1186,24 +1206,51 @@ function nowcastHTML(X){
   const noun=snow?"Śnieg":"Deszcz";
   let sum,sub="",bars="",ax="";
   if(m){
-    const v=m.map(x=>x.mm*4),wet=v.map(a=>a>=.1),first=wet.indexOf(true),nowWet=X.precip>=.1;
-    if(first<0&&!nowWet)sum="Bez opadów przez najbliższe 2 godziny";
-    else if(first<0)sum=`${noun} wkrótce ustanie`;
-    else if(wet[0]||nowWet){
-      const dry=wet.indexOf(false);
-      sum=dry<0?`${noun} będzie padać przez najbliższe 2 godziny`:`${noun} ustanie za ok. ${dry*15} min`;
-    }else sum=`${noun} zacznie padać za ok. ${first*15||15} min`;
+    const v=m.map(x=>x.mm*4);
+    const wet=v.map(a=>a>=.1);
+    const first=wet.indexOf(true);
+    const nowWet=X.precip>=.1;
+
+    let endTime=null;
+    if(first>=0){
+      for(let i=first+1;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
+    }else if(nowWet){
+      for(let i=0;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
+    }
+
+    const startTime=first>=0?hhmm(m[first].t):null;
+    const endLabel=endTime?hhmm(endTime):null;
+
+    if(first<0&&!nowWet){
+      sum="Bez opadów przez najbliższe 2 godziny";
+    }else if(nowWet){
+      sum=endLabel
+        ? `${noun} pada teraz i powinien potrwać do około ${endLabel}.`
+        : `${noun} pada teraz i powinien potrwać co najmniej przez najbliższe 2 godziny.`;
+    }else if(startTime){
+      sum=endLabel
+        ? `${noun} zacznie padać około ${startTime} i potrwa do około ${endLabel}.`
+        : `${noun} zacznie padać około ${startTime}.`;
+    }else{
+      sum=`${noun} w najbliższych godzinach.`;
+    }
+
     const peak=Math.max(...v);
     if(peak>=.1)sub=`Największe natężenie: ${peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne"} (${fnum(peak,1)} mm/h)`;
-    bars=v.map(a=>`<i class="${a<.1?"z":""}" style="height:${Math.round(clamp(a/4,0,1)*50+4)}px"></i>`).join("");
-    ax=`<span>Teraz</span><span>+30 min</span><span>+1 h</span><span>+1,5 h</span><span>+2 h</span>`;
+    bars=m.map((x,i)=>{
+      const a=v[i], amount=fnum(x.mm,2);
+      const label=amount==="0,00"?"0":amount+" mm";
+      return `<i class="${a<.1?"z":""}" style="height:${Math.round(clamp(a/4,0,1)*50+4)}px"><b>${label}</b><small>${hhmm(x.t)}</small></i>`;
+    }).join("");
+    ax=`<span>+15 min</span><span>+45 min</span><span>+1 h 15</span><span>+1 h 45</span><span>+2 h</span>`;
+    sub=(sub?sub+". ":"")+"Słupki pokazują ilość opadu w każdym 15-minutowym oknie (mm).";
   }else{
     const nc=buildNowcast(hourly,X.ci);
     sum=nc?nc.text:"Brak danych o opadach";
     const pts=[0,1,2,3].map(i=>hourly.precipitation_probability?.[X.ci+i]??0);
-    bars=pts.map(a=>`<i class="${a<5?"z":""}" style="height:${Math.round(a/100*50+4)}px"></i>`).join("");
-    ax=`<span>Teraz</span><span>+1 h</span><span>+2 h</span><span>+3 h</span>`;
-    sub="Szansa opadów w kolejnych godzinach";
+    bars=pts.map((a,i)=>`<i class="${a<5?"z":""}" style="height:${Math.round(a/100*50+4)}px"><b>${Math.round(a)}%</b><small>+${i+1} h</small></i>`).join("");
+    ax="";
+    sub="Szansa opadów w kolejnych godzinach.";
   }
   return`<section class="card"><div class="ch">${mini("umbrella")}<span class="grow">Opady w najbliższych godzinach</span></div>
     <div class="nc-sum">${esc(sum)}</div><div class="nc-bars">${bars}</div><div class="nc-ax tn">${ax}</div>
