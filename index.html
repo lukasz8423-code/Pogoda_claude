@@ -1302,7 +1302,8 @@ function computeCtx(){
   const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
-  const visMeters=current.visibility??g(hourly.visibility);\n  const visKm=visMeters!=null?visMeters/1000:null;
+  const visMeters=current.visibility??g(hourly.visibility);
+  const visKm=visMeters!=null?visMeters/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
@@ -1453,7 +1454,8 @@ function nowcastHTML(X){
   const noun=snow?"Śnieg":"Deszcz";
   let sum,sub="",bars="",ax="";
   if(m){
-     const v=m.map(x=>x.mm*4);\n     const wet=v.map(a=>a>=.1);
+     const v=m.map(x=>x.mm*4);
+     const wet=v.map(a=>a>=.1);
      const nowWet=isRainingNow(X);
 
      // Tekst interwału musi być zgodny z Prognozą godzinową:
