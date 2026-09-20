@@ -1019,7 +1019,7 @@ function saveHistory(city,lat,lng){
 
 function setAmbient(code,isDay){
   const amb=document.getElementById("amb");if(!amb)return;amb.innerHTML="";
-  const rain=(code>=51&&code<=82)||code>=95,snow=code>=71&&code<=86;
+  const rain=isRainCode(code)||isStormCode(code),snow=isSnowCode(code);
   const storm=code>=95,clear=code<=1,cloudy=code>=2&&code<=3;
   if(rain&&!snow){
     for(let i=0;i<32;i++){const d=document.createElement("div");d.className="rdrop";d.style.cssText=`left:${Math.random()*100}%;top:-60px;height:${35+Math.random()*40}px;animation-duration:${0.5+Math.random()*0.4}s;animation-delay:${Math.random()*2.5}s;opacity:${0.25+Math.random()*0.4}`;amb.appendChild(d);}
@@ -1035,8 +1035,8 @@ let RAF=null,sweep=0,zoom=1;
 const TOWNS=[{name:"LIPNO",x:50,y:50,c:true},{name:"Kikół",x:32,y:28},{name:"Skępe",x:74,y:52},{name:"Karnkowo",x:64,y:34},{name:"Bobrowniki",x:26,y:72},{name:"Tomaszewo",x:42,y:62}];
 
 function buildSimRadar(code,precip){
-  const storm=code>=95,heavy=(code===65||code===82||precip>=2.5)&&precip>0.1;
-  const rain=((code>=51&&code<=82)||storm||heavy)&&precip>0.05;
+  const storm=isStormCode(code),heavy=(code===65||code===82||precip>=2.5)&&precip>0.1;
+  const rain=(isRainCode(code)||storm||heavy)&&precip>0.05;
   const dotColor=storm?"#FBBF24":rain?"#F87171":"#6366F1";
   const statusTxt=storm?"⚡ Aktywna burza z wyładowaniami":
     rain?`🌧️ Opady ${precip.toFixed(1)} mm/h`:"🟢 Brak opadów w zasięgu";
@@ -1477,11 +1477,25 @@ function gpsDiagHTML(){
   </div>`;
 }
 
+function wmoCode(code){
+  const c=Number(code);
+  return Number.isFinite(c)?c:-1;
+}
+function isStormCode(code){
+  const c=wmoCode(code);
+  return c>=95&&c<=99;
+}
 function isRainCode(code){
-  return (code>=51&&code<=67)||(code>=80&&code<=82);
+  const c=wmoCode(code);
+  // 80–82 = rain showers.
+  return (c>=51&&c<=67)||(c>=80&&c<=82);
 }
 function isSnowCode(code){
-  return (code>=71&&code<=77)||(code>=85&&code<=86);
+  const c=wmoCode(code);
+  return (c>=71&&c<=77)||(c>=85&&c<=86);
+}
+function isPrecipCode(code){
+  return isRainCode(code)||isSnowCode(code)||isStormCode(code);
 }
 // Jeden wspólny sygnał "opad ciekły teraz" dla Hero, kafelków i alertów.
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
@@ -1882,8 +1896,12 @@ function wRain(X){
       const code=Number(hourly.weather_code?.[idx]);
       const time=hourly.time?.[idx];
       if(!Number.isFinite(code)||!time)continue;
-      if(isRainCode(code)){
-        next=`Najbliższy deszcz ok. ${hhmm(new Date(time))}.`;
+      if(isPrecipCode(code)){
+        next=isStormCode(code)
+          ?`Najbliższa burza ok. ${hhmm(new Date(time))}.`
+          :isSnowCode(code)
+            ?`Najbliższy śnieg ok. ${hhmm(new Date(time))}.`
+            :`Najbliższy deszcz ok. ${hhmm(new Date(time))}.`;
         break;
       }
     }
@@ -2489,6 +2507,7 @@ async function loadW(lat,lng,name,isRef){
 
   let city=name;
   if(!city)city=await apiCity(lat,lng)||`${(+lat).toFixed(3)}, ${(+lng).toFixed(3)}`;
+  document.title="Aura – "+city;
 
   let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
   try{
