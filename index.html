@@ -1747,7 +1747,7 @@ function wPress(X){
   return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, trend modelowy: ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
 }
 function wVis(X){
-  const v=X.visKm;
+  const v=Number.isFinite(Number(S.visibilityNow?.value))?Number(S.visibilityNow.value)/1000:X.visKm;
   const vt=v==null?"–":v>=20?"> 20":fnum(v,v<10?1:0);
   const w=v==null?"":v>=20?"Bardzo dobra":v>=10?"Dobra":v>=4?"Ograniczona":v>=1?"Słaba":"Mgła";
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${vt}<small>km</small></div><div class="ws">${w}${X.cloudBase?`. Podstawa chmur ok. ${X.cloudBase} m (szac.).`:X.cloud<15?". Niebo prawie bez chmur.":"."}</div></div>`;
@@ -1787,7 +1787,7 @@ function wSun(X){
 }
 function widgetsHTML(X){
   const list=[wUV(X),wWind(X),wFeels(X),wHum(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean);
-  return`<div class="grid">${list.join("")}</div>`;
+  return`<div id="s-widgets" class="grid">${list.join("")}</div>`;
 }
 
 function airHTML(){
@@ -1928,6 +1928,7 @@ function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
   const X=S.X,set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
   set("s-hero",heroHTML(X));set("s-alerts",alertsHTML(X));set("s-nowcast",nowcastHTML(X));set("s-air",airHTML());set("s-models",modelsHTML());
+  set("s-widgets",widgetsHTML(X));
 }
 
 // ── główny ekran pogody
@@ -2167,6 +2168,8 @@ async function loadW(lat,lng,name,isRef){
         // Każde pole IMGW jest niezależne: stara temperatura nie blokuje świeżej wilgotności/wiatru.
         if(tempFresh&&plausible){
           data.current.temperature_2m=imgwTemp;
+          // Bieżąca obserwacja IMGW jest źródłem "teraz"; godzina prognozy pozostaje modelem.
+          // W 48 h i godzinowej pierwszy slot jest później kotwiczony do X.T.
         }else if(tempFresh&&!plausible){
           console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
         }
@@ -2232,7 +2235,7 @@ async function loadW(lat,lng,name,isRef){
   }
 
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,confidence:confidenceNow,minutely:null,air:null,expDay:null,enter:!isRef});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,confidence:confidenceNow,minutely:null,visibilityNow:null,air:null,expDay:null,enter:!isRef});
   render();
 
   if(isDemo)return;
@@ -2250,6 +2253,7 @@ async function loadW(lat,lng,name,isRef){
       }):null;
       if(slot&&Number.isFinite(Number(slot.visibility))&&Number(slot.visibility)>=0){
         S.data.current.visibility=Number(slot.visibility);
+        S.visibilityNow={value:Number(slot.visibility),source:"Open-Meteo 15-min",time:slot.t};
       }
       softUpdate();
     }
