@@ -952,14 +952,126 @@ async function findNearestIMGW(lat,lng){
 // PORÓWNANIE WIELU MODELI + ZGODNOŚĆ MODELI
 // ══════════════════════════════════════════════
 async function fetchAllModelsCompare(lat,lng,forceFresh=false){
+  // Dla fallbacku IMGW Offline potrzebujemy pełnej prognozy wielodniowej.
+  // ICON-EU ma krótszy horyzont, więc nie blokujemy całego ensemble, jeśli
+  // któryś model zwróci mniej dni lub chwilowo nie odpowie.
   const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless"];
   const results = await Promise.allSettled(
-    modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,2,forceFresh))
+    modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,10,forceFresh))
   );
-  const valid = results
+  return results
     .map((r,i)=>({model:modelsToCheck[i],data:r.status==="fulfilled"?r.value:null}))
     .filter(r=>r.data);
-  return valid;
+}
+
+// ─────────────────────────────────────────────────────────────
+// IMGW OFFLINE → MULTI-MODEL ENSEMBLE
+// IMGW jest źródłem obserwacji, nie może być fallbackiem zerującym
+// prognozę. Gdy feed IMGW nie odpowiada, prognoza przechodzi na
+// niezależny consensus ICON-EU + ECMWF IFS + GFS.
+// ─────────────────────────────────────────────────────────────
+const OFFLINE_ENSEMBLE_MODELS=["icon_eu","ecmwf_ifs025","gfs_seamless"];
+
+function ensembleFinite(values){
+  const a=values.map(Number).filter(Number.isFinite);
+  if(!a.length)return null;
+  return a.reduce((s,v)=>s+v,0)/a.length;
+}
+function ensembleCircular(values){
+  const a=values.map(Number).filter(Number.isFinite);
+  if(!a.length)return null;
+  let sx=0,sy=0;
+  a.forEach(v=>{const r=v*Math.PI/180;sx+=Math.cos(r);sy+=Math.sin(r);});
+  const d=(Math.atan2(sy, sx)*180/Math.PI+360)%360;
+  return d;
+}
+function ensembleCode(records,field,index){
+  const candidates=records.map(r=>{
+    const v=Number(r.data?.[field]?.[index]);
+    const prob=Number(r.data?.hourly?.precipitation_probability?.[index]);
+    const precip=Number(r.data?.hourly?.precipitation?.[index]);
+    return Number.isFinite(v)?{v,prob:Number.isFinite(prob)?prob:0,precip:Number.isFinite(precip)?precip:0}:null;
+  }).filter(Boolean);
+  if(!candidates.length)return null;
+  // Przy rozbieżnych kodach wybieramy warunek o największym sygnale opadowym;
+  // dzięki temu deszcz nie zostaje zgubiony przez większość "suchych" kodów.
+  candidates.sort((a,b)=>(b.prob-a.prob)||(b.precip-a.precip));
+  return candidates[0].v;
+}
+function ensembleDailyCode(records,index){
+  const candidates=records.map(r=>{
+    const v=Number(r.data?.daily?.weather_code?.[index]);
+    const precip=Number(r.data?.daily?.precipitation_sum?.[index]);
+    const prob=Number(r.data?.daily?.precipitation_probability_max?.[index]);
+    return Number.isFinite(v)?{v,precip:Number.isFinite(precip)?precip:0,prob:Number.isFinite(prob)?prob:0}:null;
+  }).filter(Boolean);
+  if(!candidates.length)return null;
+  candidates.sort((a,b)=>(b.precip-a.precip)||(b.prob-a.prob));
+  return candidates[0].v;
+}
+function ensembleArray(records,path,indexer){
+  const vals=records.map(indexer).filter(Number.isFinite);
+  return ensembleFinite(vals);
+}
+function buildOfflineEnsemble(modelResults){
+  const records=modelResults.filter(r=>OFFLINE_ENSEMBLE_MODELS.includes(r.model)&&r.data);
+  if(!records.length)return null;
+  const base=structuredClone(records[0].data);
+  const numericCurrent=[
+    "temperature_2m","relative_humidity_2m","apparent_temperature","precipitation",
+    "rain","showers","snowfall","cloud_cover","visibility","pressure_msl",
+    "wind_speed_10m","wind_gusts_10m","uv_index","uv_index_clear_sky"
+  ];
+  for(const key of numericCurrent){
+    const v=ensembleArray(records,key,i=>Number(r.data?.current?.[key]));
+    if(v!==null)base.current[key]=key==="relative_humidity_2m"?Math.round(v):+v.toFixed(2);
+  }
+  const currentDir=ensembleCircular(records.map(r=>Number(r.data?.current?.wind_direction_10m)));
+  if(currentDir!==null)base.current.wind_direction_10m=Math.round(currentDir)%360;
+  const hKeys=[
+    "temperature_2m","relative_humidity_2m","precipitation_probability","precipitation",
+    "cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high",
+    "apparent_temperature","uv_index","uv_index_clear_sky","wind_speed_10m",
+    "wind_gusts_10m","shortwave_radiation","pressure_msl","visibility"
+  ];
+  const hLen=Math.max(...records.map(r=>r.data?.hourly?.time?.length||0));
+  for(const key of hKeys){
+    base.hourly[key]=Array.from({length:hLen},(_,i)=>{
+      const v=ensembleArray(records,key,j=>Number(r.data?.hourly?.[key]?.[i]));
+      if(v===null)return null;
+      return key==="relative_humidity_2m"?Math.round(v):+v.toFixed(2);
+    });
+  }
+  base.hourly.wind_direction_10m=Array.from({length:hLen},(_,i)=>{
+    const v=ensembleCircular(records.map(r=>Number(r.data?.hourly?.wind_direction_10m?.[i])));
+    return v===null?null:Math.round(v)%360;
+  });
+  base.hourly.weather_code=Array.from({length:hLen},(_,i)=>ensembleCode(records,"hourly",i));
+  const dLen=Math.max(...records.map(r=>r.data?.daily?.time?.length||0));
+  const dKeys=[
+    "temperature_2m_max","temperature_2m_min","precipitation_probability_max",
+    "uv_index_max","uv_index_clear_sky_max","precipitation_sum","wind_speed_10m_max"
+  ];
+  for(const key of dKeys){
+    base.daily[key]=Array.from({length:dLen},(_,i)=>{
+      const v=ensembleArray(records,key,j=>Number(r.data?.daily?.[key]?.[i]));
+      if(v===null)return null;
+      return key.startsWith("temperature")||key==="precipitation_sum"?+v.toFixed(1):+v.toFixed(1);
+    });
+  }
+  base.daily.weather_code=Array.from({length:dLen},(_,i)=>ensembleDailyCode(records,i));
+  // Czasy astronomiczne są wspólne dla lokalizacji — zachowujemy je z pierwszego
+  // dostępnego modelu zamiast sztucznie je uśredniać.
+  const cloudNow=ensembleFinite(records.map(r=>Number(r.data?.current?.cloud_cover)));
+  base.__auraEnsemble={
+    active:true,
+    mode:"IMGW_OFFLINE",
+    models:records.map(r=>r.model),
+    modelCount:records.length,
+    cloudCoverConsensus:cloudNow,
+    capturedAt:Date.now()
+  };
+  return base;
 }
 
 function calcModelAgreement(temps){
@@ -1333,7 +1445,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,ensemble:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -1347,40 +1459,36 @@ function calculateVisualCloud({low,mid,high,total,radiation,uv,uvClear,isDay}){
   const validPct=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
   const raw=validPct(total)?clamp(Number(total),0,100):null;
   const layersComplete=validPct(low)&&validPct(mid)&&validPct(high);
-  let visual;
+  let visual=raw;
   if(layersComplete){
     const L=clamp(Number(low)/100,0,1);
     const M=clamp(Number(mid)/100,0,1);
     const H=clamp(Number(high)/100,0,1);
     const optical=1-(1-L*0.78)*(1-M*0.38)*(1-H*0.12);
     visual=optical*100;
-  }else{
-    visual=raw??0;
+  }else if(raw===null){
+    visual=null;
   }
 
-  // Silny sygnał słoneczny ogranicza interpretację "całkowicie pochmurno".
+  // Solar/UV są sygnałem pomocniczym, ale nie mogą skasować wiarygodnego
+  // total cloud_cover z modelu. Szczególnie ważne w trybie ensemble.
   let solarSignal=0;
   if(isDay){
     const r=Number(radiation);
-    if(Number.isFinite(r)&&r>250) solarSignal=Math.max(solarSignal,clamp((r-250)/500,0,1));
+    if(Number.isFinite(r)&&r>250)solarSignal=Math.max(solarSignal,clamp((r-250)/500,0,1));
     const u=Number(uv),uc=Number(uvClear);
-    if(Number.isFinite(u)&&Number.isFinite(uc)&&uc>1){
+    if(Number.isFinite(u)&&Number.isFinite(uc)&&uc>1)
       solarSignal=Math.max(solarSignal,clamp((u/uc-0.45)/0.55,0,1));
-    }
   }
-
-  if(solarSignal>0){
-    visual=visual*(1-0.35*solarSignal);
+  if(raw!==null&&visual!==null){
+    // Warstwy mogą być użyte do korekty tylko wtedy, gdy nie są sprzeczne
+    // z total. Nigdy nie schodzimy poniżej 85% surowego totalu.
+    visual=Math.max(visual,raw*0.85);
+    if(solarSignal>0&&raw<85)visual=visual*(1-0.15*solarSignal);
+    visual=Math.max(visual,raw*0.85);
   }
-
-  // Nigdy nie pozwalamy, by estymacja "wizualna" była bardziej skrajna
-  // niż informacja o warstwach; total pozostaje diagnostycznym sygnałem.
-  if(Number.isFinite(raw)&&solarSignal<0.15){
-    visual=visual*0.85+raw*0.15;
-  }
-
-  visual=Math.round(clamp(visual,0,100));
-  const category=visual<20?"clear":visual<50?"partly-cloudy":visual<80?"mostly-cloudy":"overcast";
+  visual=visual===null?null:Math.round(clamp(visual,0,100));
+  const category=visual==null?"unknown":visual<20?"clear":visual<50?"partly-cloudy":visual<80?"mostly-cloudy":"overcast";
   return {visualCover:visual,category,rawTotal:raw,solarSignal:+solarSignal.toFixed(2),layersComplete};
 }
 
@@ -1419,7 +1527,15 @@ function computeCtx(){
     low:cloudLow,mid:cloudMid,high:cloudHigh,total:cloudTotal,
     radiation:rad,uv,uvClear,isDay
   });
-  const cloud=cloudEngine.visualCover;
+  // W trybie IMGW Offline główne zachmurzenie pochodzi z consensusu modeli.
+  // Nie pozwalamy warstwom/solarowi zejść do wartości typu 28%, gdy wszystkie
+  // modele wskazują >90% zachmurzenia.
+  const ensembleCloud=Number(S.ensemble?.cloudCoverConsensus);
+  const cloud=S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"&&Number.isFinite(ensembleCloud)
+    ?Math.max(cloudEngine.visualCover??0,Math.round(ensembleCloud))
+    :cloudEngine.visualCover;
+  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"&&Number.isFinite(ensembleCloud))
+    cloudEngine.visualCover=cloud;
   S.cloudEngine=cloudEngine;
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
@@ -1777,7 +1893,10 @@ function dailyRows(){
         hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
       const kv=[];
-      kv.push(`Opady ${fnum(daily.precipitation_sum?.[i]||0,1)} mm`);
+      {
+        const p=toFiniteNumber(daily.precipitation_sum?.[i]);
+        kv.push(p===null?"Opady — mm":`Opady ${fnum(p,1)} mm`);
+      }
       if(daily.uv_index_max?.[i]!=null)kv.push(`UV maks. ${fnum(daily.uv_index_max[i],1)}`);
       if(daily.wind_speed_10m_max?.[i]!=null)kv.push(`Wiatr do ${Math.round(daily.wind_speed_10m_max[i])} km/h`);
       if(daily.sunrise?.[i])kv.push(`Wschód ${hhmm(daily.sunrise[i])}`);
@@ -2210,6 +2329,9 @@ function pipelineInspectorHTML(){
   if(health.alerts.length)health.alerts.forEach(a=>alerts.push("<div class='"+(a.severity==="error"||a.severity==="critical"?"err":"err warn")+"'><b>"+esc(a.code)+"</b> — "+esc(a.message)+(a.step==null?"":" · T+"+a.step)+"</div>"));
   else alerts.push("<div class='note'>✅ Live Health Check: brak wykrytych rozbieżności.</div>");
   alerts.push("<div class='note'>ℹ️ "+esc(d.imgwForecastNote)+"</div>");
+  if(d.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
+    alerts.push("<div class='err warn'><b>[STATUS] IMGW Offline</b> → Active Ensemble: <b>"+esc((d.activeEnsemble||[]).join(" + "))+"</b> · consensus zachmurzenia: <b>"+(d.ensembleCloudConsensus==null?"—":Math.round(d.ensembleCloudConsensus)+"%")+"</b></div>");
+  }
   const fmt=v=>v==null?"—":(typeof v==="number"?fnum(v,1):esc(String(v)));
   const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v)*100)+"%":"—";
   const table="<div style='overflow:auto;margin-top:10px'><table style='width:100%;min-width:720px;border-collapse:collapse;font-size:11px'><thead><tr><th>Godzina</th><th>IMGW Stacja</th><th>IMGW Model</th><th>Open-Meteo</th><th>Aura Final</th><th>Waga T</th><th>Front</th></tr></thead><tbody>"+
@@ -2223,7 +2345,7 @@ function pipelineInspectorHTML(){
     "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'><button class='btn pri' data-act='pipeline-refresh'>Bypass Cache &amp; Re-fetch</button><button class='btn' data-act='copy-pipeline'>Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
-function pipelineDiagnosticsText(){return JSON.stringify({pipeline:S.pipelineDiag||null,liveHealth:S.liveHealth||null},null,2);}
+function pipelineDiagnosticsText(){return JSON.stringify({status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",ensemble:S.ensemble||null,pipeline:S.pipelineDiag||null,liveHealth:S.liveHealth||null},null,2);}
 
 function openRawSheet(){
   const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,zgodnosc:S.confidence||null,powietrze:S.air||null};
@@ -2660,6 +2782,10 @@ async function handleGPS(){
 async function loadW(lat,lng,name,isRef){
   S.fusion=null;
   S.cloudEngine=null;
+  S.pipelineDiag=null;
+  S.liveHealth=null;
+  S.sourceMode=null;
+  S.ensemble=null;
   const sameGps=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
   if(!sameGps)S.gpsDiag=null;
   if(isRef){
@@ -2685,6 +2811,21 @@ async function loadW(lat,lng,name,isRef){
     if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     S.cloudSource=null;
+
+    // IMGW Offline jest stanem źródła, nie powodem do zerowania prognozy.
+    // Najpierw budujemy ensemble z realnie dostępnych modeli, a dopiero potem
+    // wykonujemy pozostałe sanityzery/render.
+    const imgwOffline=imgwResult.status!=="fulfilled"||!imgwResult.value;
+    const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
+    const activeEnsembleModels=offlineEnsemble?.__auraEnsemble?.models||[];
+    if(imgwOffline&&offlineEnsemble){
+      data=offlineEnsemble;
+      S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
+      S.ensemble=offlineEnsemble.__auraEnsemble;
+    }else{
+      S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
+      S.ensemble=null;
+    }
     if(isGpsLocation){
       S.gpsDiag.model=activeModel.id;
       S.gpsDiag.cloud=data?.current?.cloud_cover??null;
@@ -2696,7 +2837,12 @@ async function loadW(lat,lng,name,isRef){
       .filter(Number.isFinite).filter(v=>v>=0&&v<=100);
     const raw=Number(data?.current?.cloud_cover);
     if(Number.isFinite(raw)){
-      S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
+      S.cloudSource={
+        type:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"model-ensemble":"open-meteo-current",
+        value:raw,
+        models:modelClouds,
+        consensus:offlineEnsemble?.__auraEnsemble||null
+      };
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
@@ -2882,6 +3028,64 @@ async function loadW(lat,lng,name,isRef){
     isDemo=true;imgwData=null;stationInfo="Dane demonstracyjne";data=demoData();
   }finally{
     WEATHER_FORCE_REFRESH=false;
+  }
+
+  // IMGW Offline musi pozostawić diagnostykę żywą nawet wtedy, gdy nie ma
+  // żadnej obserwacji stacyjnej do fuzji.
+  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
+    const ci=currentHourIndex(data,new Date());
+    const rows=[];
+    for(let step=0;step<=3;step++){
+      const idx=ci+step;
+      if(idx>=data.hourly.time.length)break;
+      rows.push({
+        step,
+        time:data.hourly.time[idx],
+        imgwStation:null,
+        imgwModel:null,
+        openMeteo:toFiniteNumber(data.hourly.temperature_2m?.[idx]),
+        auraFinal:toFiniteNumber(data.hourly.temperature_2m?.[idx]),
+        tempWeight:0,
+        humidityWeight:0,
+        windWeight:0,
+        precipitation:toFiniteNumber(data.hourly.precipitation?.[idx]),
+        precipitationModelWeight:1,
+        modelTempDrop:step>0?toFiniteNumber(data.hourly.temperature_2m?.[idx-1])-toFiniteNumber(data.hourly.temperature_2m?.[idx]):null,
+        sourceModel:"ensemble",
+        dynamicFront:false
+      });
+    }
+    const modelNames=activeEnsembleModels.map(m=>m==="icon_eu"?"ICON-EU":m==="ecmwf_ifs025"?"ECMWF IFS":m==="gfs_seamless"?"GFS":m);
+    S.pipelineDiag={
+      capturedAt:Date.now(),
+      uiCurrentHour:ci,
+      fusionCurrentHour:ci,
+      station:"IMGW Offline",
+      stationAgeMinutes:null,
+      stationDistanceKm:null,
+      imgwForecastAvailable:false,
+      imgwForecastNote:"IMGW Offline → Active Ensemble: "+modelNames.join(" + "),
+      status:"IMGW Offline → Active Ensemble",
+      sourceMode:"IMGW_OFFLINE_ENSEMBLE",
+      activeEnsemble:modelNames,
+      ensembleCloudConsensus:Number.isFinite(Number(S.ensemble?.cloudCoverConsensus))?S.ensemble.cloudCoverConsensus:null,
+      rows,
+      nullFlags:[],
+      weights:{temperature:0,humidity:0,wind:0,windDirection:0},
+      fusionBias:{},
+      bridgeSource:"ensemble",
+      dynamicFrontDetected:false,
+      stationPrecip10min:null,
+      stationPrecipAgeMinutes:null,
+      stationPrecipFresh:false,
+      modelCurrentPrecipitation:toFiniteNumber(data.current?.precipitation),
+      modelCurrentWeatherCode:toFiniteNumber(data.current?.weather_code),
+      ghostPrecipitation:false,
+      precipitationModelWeight:1,
+      ghostVisibilityDrop:false,
+      stationVisibilityGuard:null
+    };
+    runLiveDataQualityGuard();
   }
 
   // ─────────────────────────────────────────────────────────────
