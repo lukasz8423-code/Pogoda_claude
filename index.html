@@ -1664,6 +1664,7 @@ function heroHTML(X){
   const chips=[];
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
+  else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
   else if(S.imgwData){
     const im=S.imgwData,stale=im.isFresh===false;
     // Wiek liczony z czasu OBSERWACJI IMGW (UTC), a nie z czasu pobrania przez Aurę
