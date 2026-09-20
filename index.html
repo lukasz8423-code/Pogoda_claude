@@ -1016,14 +1016,20 @@ function ensembleArray(records,path,indexer){
 function buildOfflineEnsemble(modelResults){
   const records=modelResults.filter(r=>OFFLINE_ENSEMBLE_MODELS.includes(r.model)&&r.data);
   if(!records.length)return null;
+  const longestHourly=records.reduce((a,r)=>(r.data?.hourly?.time?.length||0)>(a.data?.hourly?.time?.length||0)?r:a,records[0]);
+  const longestDaily=records.reduce((a,r)=>(r.data?.daily?.time?.length||0)>(a.data?.daily?.time?.length||0)?r:a,records[0]);
   const base=structuredClone(records[0].data);
+  // Używamy osi czasu najdłuższego dostępnego modelu, ale wartości na tej osi
+  // nadal liczymy jako średnią tylko z modeli, które mają dany slot.
+  base.hourly.time=structuredClone(longestHourly.data.hourly.time||[]);
+  base.daily.time=structuredClone(longestDaily.data.daily.time||[]);
   const numericCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","precipitation",
     "rain","showers","snowfall","cloud_cover","visibility","pressure_msl",
     "wind_speed_10m","wind_gusts_10m","uv_index","uv_index_clear_sky"
   ];
   for(const key of numericCurrent){
-    const v=ensembleArray(records,key,i=>Number(r.data?.current?.[key]));
+    const v=ensembleArray(records,key,r=>Number(r.data?.current?.[key]));
     if(v!==null)base.current[key]=key==="relative_humidity_2m"?Math.round(v):+v.toFixed(2);
   }
   const currentDir=ensembleCircular(records.map(r=>Number(r.data?.current?.wind_direction_10m)));
@@ -1037,7 +1043,7 @@ function buildOfflineEnsemble(modelResults){
   const hLen=Math.max(...records.map(r=>r.data?.hourly?.time?.length||0));
   for(const key of hKeys){
     base.hourly[key]=Array.from({length:hLen},(_,i)=>{
-      const v=ensembleArray(records,key,j=>Number(r.data?.hourly?.[key]?.[i]));
+      const v=ensembleArray(records,key,r=>Number(r.data?.hourly?.[key]?.[i]));
       if(v===null)return null;
       return key==="relative_humidity_2m"?Math.round(v):+v.toFixed(2);
     });
@@ -1054,7 +1060,7 @@ function buildOfflineEnsemble(modelResults){
   ];
   for(const key of dKeys){
     base.daily[key]=Array.from({length:dLen},(_,i)=>{
-      const v=ensembleArray(records,key,j=>Number(r.data?.daily?.[key]?.[i]));
+      const v=ensembleArray(records,key,r=>Number(r.data?.daily?.[key]?.[i]));
       if(v===null)return null;
       return key.startsWith("temperature")||key==="precipitation_sum"?+v.toFixed(1):+v.toFixed(1);
     });
