@@ -643,14 +643,80 @@ async function fetchIMGWAll(){
 }
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
+async function fetchIMGWMeteoAll(){
+  try{
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    console.log(`IMGW METEO: pobrano ${Array.isArray(data)?data.length:0} stacji`);
+    return Array.isArray(data)?data:null;
+  }catch(e){
+    console.warn("IMGW METEO API niedostepne:",e.message);
+    return null;
+  }
+}
+
+function parseImgwMeteoTimestamp(value){
+  if(!value)return null;
+  const m=String(value).match(/^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?/);
+  if(!m)return null;
+  return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+}
+
+// Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
 async function findNearestIMGW(lat,lng){
-  const all=await fetchIMGWAll();
-  const fetchedAt=Date.now(); // moment, w którym Aura dostała odpowiedź IMGW (nie wiek obserwacji)
+  const [all,meteoAll]=await Promise.all([fetchIMGWAll(),fetchIMGWMeteoAll()]);
+  const fetchedAt=Date.now();
+
+  // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
+  // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
+  // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
+  const glodowo=Array.isArray(meteoAll)
+    ? meteoAll.find(s=>String(s.kod_stacji||"") === "252190030")
+    : null;
+
+  if(glodowo){
+    const dist=stationDist(lat,lng,52.8306,19.2356);
+    const observedAt=parseImgwMeteoTimestamp(glodowo.temperatura_data);
+    const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
+    const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
+    const temp=parseFloat(glodowo.temperatura);
+
+    if(dist<=30 && Number.isFinite(temp) && (ageMinutes===null || ageMinutes<180)){
+      const normalized={
+        ...glodowo,
+        id_stacji:"252190030",
+        stacja:glodowo.nazwa_stacji||"Głodowo",
+        name:"Głodowo",
+        lat:52.8306,
+        lng:19.2356,
+        dist:Math.round(dist*10)/10,
+        temperatura:temp,
+        wilgotnosc_wzgledna:parseFloat(glodowo.wilgotnosc_wzgledna),
+        predkosc_wiatru:parseFloat(glodowo.wiatr_srednia_predkosc),
+        kierunek_wiatru:parseFloat(glodowo.wiatr_kierunek),
+        cisnienie:null,
+        temperatura_gruntu:parseFloat(glodowo.temperatura_gruntu),
+        temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
+        opad_10min:parseFloat(glodowo.opad_10min),
+        opad_10min_data:glodowo.opad_10min_data||null,
+        observedAt,
+        fetchedAt,
+        ageMinutes,
+        isFresh:true,
+        sourceType:"IMGW_METEO"
+      };
+      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
+      return {best:normalized,nearby:[normalized]};
+    }else{
+      console.warn("Głodowo pominięte jako lokalne źródło:",{dist:Math.round(dist*10)/10,temp,ageMinutes});
+    }
+  }
+
   if(!all||!Array.isArray(all)||all.length===0)return null;
 
   const results=[];
   all.forEach(s=>{
-    // Dopasuj dane API do wspolrzednych ze slownika
     const known=IMGW_STATIONS.find(k=>{
       const nameMatch=s.stacja&&(
         s.stacja.toLowerCase()===k.name.toLowerCase()||
@@ -662,49 +728,32 @@ async function findNearestIMGW(lat,lng){
     });
     if(!known)return;
     const dist=stationDist(lat,lng,known.lat,known.lng);
-    results.push({
-      ...s,
-      ...known,
-      dist:Math.round(dist*10)/10
-    });
+    results.push({...s,...known,dist:Math.round(dist*10)/10});
   });
 
-  // Sortuj od najblizszej
   results.sort((a,b)=>a.dist-b.dist);
-
   if(results.length===0)return null;
 
   const best=results[0];
-  console.log(`Najblizsa stacja IMGW: ${best.stacja||best.name} (${best.dist} km)`);
+  console.log(`Najblizsza stacja IMGW SYNOP: ${best.stacja||best.name} (${best.dist} km)`);
   console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
 
-  // Sprawdz swiezosc danych - IMGW aktualizuje co godzine
-  // pole data_pomiaru = "2026-08-07", godzina_pomiaru = "10"
-  // WAZNE: API IMGW (synop) podaje godzine pomiaru w UTC (bez minut i bez oznaczenia strefy).
-  // Wczesniej data byla parsowana jako czas lokalny urzadzenia, wiec wiek obserwacji byl zawyzony
-  // o przesuniecie strefy (2 h latem, 1 h zima) i stacja czesto byla bledne uznawana za nieaktualna.
-  let ageMinutes = null, observedAt = null;
-  if(best.data_pomiaru && best.godzina_pomiaru!=null){
-    const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
+  let ageMinutes=null,observedAt=null;
+  if(best.data_pomiaru&&best.godzina_pomiaru!=null){
+    const dm=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String(best.data_pomiaru));
     const hh=parseInt(best.godzina_pomiaru,10);
-    if(dm && Number.isFinite(hh) && hh>=0 && hh<=23){
-      observedAt = Date.UTC(+dm[1],+dm[2]-1,+dm[3],hh,0,0);
+    if(dm&&Number.isFinite(hh)&&hh>=0&&hh<=23){
+      observedAt=Date.UTC(+dm[1],+dm[2]-1,+dm[3],hh,0,0);
       const rawAge=(fetchedAt-observedAt)/60000;
-      // obserwacja "z przyszlosci" (>30 min) oznacza zly zegar/strefe - nie udajemy, ze znamy wiek
-      ageMinutes = rawAge < -30 ? null : Math.max(0,Math.round(rawAge));
+      ageMinutes=rawAge < -30 ? null : Math.max(0,Math.round(rawAge));
     }
   }
-  best.observedAt = observedAt;   // ms epoch (UTC) obserwacji IMGW
-  best.fetchedAt = fetchedAt;     // ms epoch pobrania przez Aure
-  best.ageMinutes = ageMinutes;
-  // Jesli dane starsze niz 3h - traktuj jako nieaktualne, nie uzywaj do nadpisywania
-  best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
+  best.observedAt=observedAt;
+  best.fetchedAt=fetchedAt;
+  best.ageMinutes=ageMinutes;
+  best.isFresh=ageMinutes===null ? true : ageMinutes<180;
 
-  // Zwroc najblizsa stacje + liste wszystkich w promieniu 100km
-  return {
-    best,
-    nearby:results.filter(r=>r.dist<=100).slice(0,5)
-  };
+  return {best,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
 }
 
 
