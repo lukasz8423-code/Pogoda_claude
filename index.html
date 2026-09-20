@@ -2193,22 +2193,32 @@ function circularBlendDegrees(model,observed,weight){
   const delta=((o-m+540)%360)-180;
   return (m+delta*w+360)%360;
 }
-function currentHourIndex(data){
+function currentHourIndex(data,now=new Date()){
   const times=data?.hourly?.time||[];
-  const curTs=Date.parse(String(data?.current?.time||""));
-  if(!Number.isFinite(curTs)||!times.length)return 0;
+  if(!times.length)return 0;
+
+  // Jeden kanoniczny slot dla UI, fuzji i historii: bieżąca lokalna godzina
+  // zaokrąglona w dół do pełnej godziny. Nie przełączamy się na następny
+  // slot po :30 tylko dlatego, że current.time modelu ma inny znacznik.
+  const target=new Date(now);
+  target.setMinutes(0,0,0);
+  const targetTs=target.getTime();
+
   let best=0,bestDiff=Infinity;
   for(let i=0;i<times.length;i++){
     const ts=Date.parse(String(times[i]));
     if(!Number.isFinite(ts))continue;
-    const diff=Math.abs(ts-curTs);
+    const diff=Math.abs(ts-targetTs);
     if(diff<bestDiff){bestDiff=diff;best=i;}
   }
   return best;
 }
 function bridgeAlpha(hoursAhead,weight){
-  const h=clamp(Number(hoursAhead),0,3);
-  return clamp(Number(weight)*(1-smoothstep01(h/3)),0,1);
+  // Korekta stacyjna działa przez pełne 6 h, ale stopniowo ustępuje
+  // przebiegowi modelowemu. Dzięki temu pierwszy spadek nie jest gwałtowny.
+  const h=clamp(Number(hoursAhead),0,6);
+  const profile=[1,0.92,0.84,0.76,0.68,0.60,0.52];
+  return clamp((Number(weight)||0)*profile[Math.round(h)],0,1);
 }
 function hasFiniteValue(val){
   return val!==null&&val!==undefined&&val!==""&&Number.isFinite(Number(val));
@@ -2289,9 +2299,10 @@ function findHourIndexByTime(times,time){
   return best;
 }
 
-// T0 = obserwacja. T+1..T+3 = model krótkoterminowy + wygaszany bias stacji.
-// Ważne: zapisujemy wynik do GŁÓWNYCH danych data.hourly, a nie do danych źródła
-// bridgeSource. To usuwa hard switch 20°C -> 15°C w UI.
+// T0 = obserwacja. T+1..T+6 = model krótkoterminowy + wygaszany bias
+// stacji. Wszystkie moduły korzystają z tego samego kanonicznego ci.
+// Dodatkowo profil temperatury jest kotwiczony do trendu IMGW/SYNOP, jeśli
+// aplikacja ma już serię świeżych obserwacji tej samej stacji.
 function applyForecastBridge(data,fusion,modelData){
   if(!data?.hourly?.time||!fusion?.used)return;
   const target=data.hourly;
@@ -2300,8 +2311,10 @@ function applyForecastBridge(data,fusion,modelData){
   const ci=currentHourIndex(data);
   const b=fusion.bias||{};
   const weights=fusion.weights||{};
+  const stationTrendCph=Number.isFinite(Number(fusion.stationTrendCph))
+    ?Number(fusion.stationTrendCph):0;
 
-  for(let step=0;step<=3;step++){
+  for(let step=0;step<=6;step++){
     const targetIdx=ci+step;
     if(targetIdx>=target.time.length)break;
 
@@ -2309,17 +2322,18 @@ function applyForecastBridge(data,fusion,modelData){
     const si=sourceIdx>=0?sourceIdx:Math.min(targetIdx,sourceH.time.length-1);
 
     const alphaT=bridgeAlpha(step,weights.temperature);
-    const alphaH=bridgeAlpha(step,weights.humidity);
-    const alphaW=bridgeAlpha(step,weights.wind);
+    const alphaH=bridgeAlpha(Math.min(step,3),weights.humidity);
+    const alphaW=bridgeAlpha(Math.min(step,3),weights.wind);
 
     const modelT=Number(sourceH.temperature_2m?.[si]);
     const modelH=Number(sourceH.relative_humidity_2m?.[si]);
     const modelW=Number(sourceH.wind_speed_10m?.[si]);
 
     if(Number.isFinite(modelT)){
+      const trendCorrection=stationTrendCph*step;
       const corrected=Number.isFinite(b.temperature)
-        ?modelT+b.temperature*alphaT
-        :modelT;
+        ?modelT+b.temperature*alphaT+trendCorrection*alphaT
+        :modelT+trendCorrection*alphaT;
       target.temperature_2m[targetIdx]=+(step===0&&Number.isFinite(data.current.temperature_2m)
         ?data.current.temperature_2m:corrected).toFixed(1);
     }
@@ -2599,6 +2613,28 @@ async function loadW(lat,lng,name,isRef){
           fusion.used=false;
           console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
         }else if(fusion.used){
+          fusion.stationTrendCph=0;
+          try{
+            const key="aura_imgw_temp_trend_"+(+lat).toFixed(2)+"_"+(+lng).toFixed(2);
+            const nowTs=Date.now();
+            const arr=JSON.parse(localStorage.getItem(key)||"[]")
+              .filter(x=>x&&Number.isFinite(Number(x.ts))&&nowTs-Number(x.ts)<=6*3600000);
+            if(Number.isFinite(imgwTemp)){
+              const ts=Number(imgwData.observedAt)||nowTs;
+              arr.push({ts,temp:imgwTemp});
+            }
+            const clean=arr.filter(x=>Number.isFinite(Number(x.temp))).sort((a,b)=>a.ts-b.ts).slice(-12);
+            localStorage.setItem(key,JSON.stringify(clean));
+            if(clean.length>=2){
+              const first=clean[0],last=clean[clean.length-1];
+              const dt=(Number(last.ts)-Number(first.ts))/3600000;
+              if(dt>0){
+                // Trend obserwacyjny ma ograniczenie, żeby pojedynczy błędny
+                // odczyt nie wywrócił profilu 6-godzinnego.
+                fusion.stationTrendCph=clamp((Number(last.temp)-Number(first.temp))/dt,-1.5,1.5);
+              }
+            }
+          }catch{}
           const bridgeSource=cloudCompare.find(r=>r.model==="icon_d2")?.data
             ||cloudCompare.find(r=>r.model==="icon_eu")?.data
             ||cloudCompare.find(r=>r.model==="ecmwf_ifs025")?.data
