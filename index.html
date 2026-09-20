@@ -2212,6 +2212,7 @@ async function handleGPS(){
 }
 
 async function loadW(lat,lng,name,isRef){
+  S.fusion=null;
   if(isRef){S.refreshing=true;render();}
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
 
