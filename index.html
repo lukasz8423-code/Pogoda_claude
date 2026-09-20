@@ -1822,20 +1822,26 @@ function imgwDiagHTML(){
   if(!d)return "";
   const tone=d.used?"ok":(d.status==="pobieranie"?"warn":"bad");
   const details=[
-    d.count!=null?`Feed METEO: ${d.count} stacji`:null,
-    d.station?`Głodowo: ${d.found?"znaleziona":"brak"}`:null,
-    d.temperature!=null?`T: ${d.temperature}°C`:null,
-    d.ageMinutes!=null?`pomiar: ${d.ageMinutes} min temu`:null,
-    d.dist!=null?`odległość: ${d.dist} km`:null,
-    d.reason?`powód: ${d.reason}`:null,
-    d.error?`błąd: ${d.error}`:null
+    d.count!=null?"Feed METEO: "+d.count+" stacji":null,
+    d.station?"Głodowo: "+(d.found?"znaleziona":"brak"):null,
+    d.temperature!=null?"T: "+d.temperature+"°C":null,
+    d.ageMinutes!=null?"pomiar: "+d.ageMinutes+" min temu":null,
+    d.dist!=null?"odległość: "+d.dist+" km":null,
+    d.reason?"powód: "+d.reason:null,
+    d.error?"błąd: "+d.error:null
   ].filter(Boolean).join(" · ");
-  return `<div class="note" style="margin:0 2px 12px;padding:9px 11px;border:1px solid var(--line);border-radius:14px;background:rgba(8,15,32,.25)">
-    <span class="dot" style="display:inline-block;margin-right:7px;vertical-align:middle;color:var(--${tone})"></span><b>IMGW METEO: ${esc(d.status||"brak danych")}</b>
-    ${details?`<br><span style="opacity:.72">${esc(details)}</span>`:""}
-  </div>`;
+  const rawTemp=d.rawTempFields||d.tempFields||{};
+  const candidates=d.candidateTemps||[];
+  const rawTempText=Object.entries(rawTemp).map(x=>x[0]+"="+String(x[1])).join(" · ");
+  const candidateText=candidates.map(x=>x.key+"="+String(x.value)+" → "+x.num).join(" · ");
+  return "<div class=\"note\" style=\"margin:0 2px 12px;padding:9px 11px;border:1px solid var(--line);border-radius:14px;background:rgba(8,15,32,.25)\">"+
+    "<span class=\"dot\" style=\"display:inline-block;margin-right:7px;vertical-align:middle;color:var(---"+tone+")\"></span><b>IMGW METEO: "+esc(d.status||"brak danych")+"</b>"+
+    (details?"<br><span style=\"opacity:.72\">"+esc(details)+"</span>":"")+
+    (rawTempText?"<br><span style=\"display:block;margin-top:6px;font-size:11px;line-height:1.45;word-break:break-word\"><b>Pola temp:</b> "+esc(rawTempText)+"</span>":"")+
+    (candidateText?"<br><span style=\"display:block;margin-top:4px;font-size:11px;line-height:1.45;word-break:break-word\"><b>Kandydaci:</b> "+esc(candidateText)+"</span>":"")+
+    (d.rawKeys?"<br><details style=\"margin-top:6px;font-size:11px\"><summary>Cały rekord Głodowa — kliknij</summary><pre style=\"white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin-top:6px\">"+esc(JSON.stringify(d.rawStation||{},null,2))+"</pre></details>":"")+
+    "</div>";
 }
-
 function weatherHTML(){
   const X=computeCtx();S.X=X;
   applySky(X);ambientFor(X);
