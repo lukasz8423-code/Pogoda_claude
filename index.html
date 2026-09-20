@@ -2321,13 +2321,23 @@ function applyForecastBridge(data,fusion,modelData){
     const sourceIdx=findHourIndexByTime(sourceH.time,target.time[targetIdx]);
     const si=sourceIdx>=0?sourceIdx:Math.min(targetIdx,sourceH.time.length-1);
 
-    const alphaT=bridgeAlpha(step,weights.temperature);
-    const alphaH=bridgeAlpha(Math.min(step,3),weights.humidity);
-    const alphaW=bridgeAlpha(Math.min(step,3),weights.wind);
-
     const modelT=Number(sourceH.temperature_2m?.[si]);
     const modelH=Number(sourceH.relative_humidity_2m?.[si]);
     const modelW=Number(sourceH.wind_speed_10m?.[si]);
+
+    // Front/opad dynamiczny: gdy model pokazuje >1.5 mm/h albo nagły
+    // spadek temperatury, nie rozciągamy korekty stacji na kolejne godziny.
+    const modelPrecip=Number(sourceH.precipitation?.[si]);
+    const prevSourceIdx=step>0
+      ?findHourIndexByTime(sourceH.time,target.time[targetIdx-1])
+      :-1;
+    const prevT=prevSourceIdx>=0?Number(sourceH.temperature_2m?.[prevSourceIdx]):NaN;
+    const tempDrop=Number.isFinite(prevT)&&Number.isFinite(modelT)?prevT-modelT:0;
+    const dynamicFront=(Number.isFinite(modelPrecip)&&modelPrecip>1.5)||tempDrop>=3;
+    const baseAlphaT=bridgeAlpha(step,weights.temperature);
+    const alphaT=dynamicFront&&step>0?Math.min(baseAlphaT,0.15):baseAlphaT;
+    const alphaH=bridgeAlpha(Math.min(step,3),weights.humidity);
+    const alphaW=bridgeAlpha(Math.min(step,3),weights.wind);
 
     if(Number.isFinite(modelT)){
       const trendCorrection=stationTrendCph*step;
