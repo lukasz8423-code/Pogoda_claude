@@ -679,7 +679,9 @@ async function findNearestIMGW(lat,lng){
     ? meteoAll.find(s=>String(s.kod_stacji||"") === "252190030")
     : null;
   if(glodowo){
-    S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",temperature:glodowo.temperatura??null,timestamp:glodowo.temperatura_data??null};
+    const __rawTempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
+    S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",temperature:glodowo.temperatura??null,timestamp:glodowo.temperatura_data??null,rawTempFields:__rawTempFields,rawKeys:Object.keys(glodowo||{}),rawStation:glodowo};
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
   }else if(S.imgwDiag){
     S.imgwDiag={...S.imgwDiag,found:false};
   }
@@ -2204,7 +2206,7 @@ document.addEventListener("visibilitychange",()=>{
     var d=window.__AURA_IMGW_DIAG;
     if(!d){el.style.display="block";b.textContent="S.imgwDiag jeszcze nie istnieje";return}
     el.style.display="block";
-    b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")+"<br><b>Surowe pola temperatury:</b> "+(d.tempFields?Object.entries(d.tempFields).map(function(x){return x[0]+"="+String(x[1])}).join(" · "):"—")+"<br><b>Klucze rekordu:</b> "+(d.keys?d.keys.join(", "):"—");
+    b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")+"<br><b>Surowe pola temperatury:</b> "+(d.rawTempFields?Object.entries(d.rawTempFields).map(function(x){return x[0]+"="+String(x[1])}).join(" · "):"—")+"<br><b>Klucze rekordu:</b> "+(d.rawKeys?d.rawKeys.join(", "):"—");
   }
   setInterval(paint,500); paint();
 })();
