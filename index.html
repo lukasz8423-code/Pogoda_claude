@@ -2256,10 +2256,24 @@ function imgwDiagHTML(){
 }
 function weatherHTML(){
   const X=computeCtx();S.X=X;
-  applySky(X);ambientFor(X);
+  // HARD BINDING UI: przy IMGW Offline główny stan UI musi wskazywać
+  // bezpośrednio na finalData.cloudCover (= ensemble.cloudCover).
+  const finalData={
+    ...X,
+    cloud:(S.imgwStatus==="OFFLINE"&&Number.isFinite(Number(S.ensemble?.cloudCover)))
+      ?Math.round(clamp(Number(S.ensemble.cloudCover),0,100))
+      :X.cloud
+  };
+  if(S.imgwStatus==="OFFLINE"){
+    console.log("[AURA FINAL DATA BIND] IMGW OFFLINE",
+      "finalData.cloudCover=",finalData.cloud,
+      "ensemble.cloudCover=",S.ensemble?.cloudCover??null,
+      "legacy X.cloud=",X.cloud);
+  }
+  applySky(finalData);ambientFor(X);
   const upd=S.lastUpdate?new Date(S.lastUpdate):null;
   return`<div class="${S.enter?"enter":""}">
-    ${topHTML(X)}${heroHTML(X)}${gpsDiagHTML()}${sunlineHTML(X)}
+    ${topHTML(finalData)}${heroHTML(finalData)}${gpsDiagHTML()}${sunlineHTML(finalData)}
     <div id="s-alerts">${alertsHTML(X)}</div>
     <div id="s-nowcast">${nowcastHTML(X)}</div>
     ${hourlyHTML(X)}
