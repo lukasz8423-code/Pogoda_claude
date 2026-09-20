@@ -4,6 +4,8 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
@@ -26,6 +28,28 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
+      - name: Pobierz świeże dane IMGW METEO
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 3 --retry-delay 2 --max-time 30 \\
+            -H "Accept: application/json" \\
+            "https://danepubliczne.imgw.pl/api/data/meteo/" \\
+            -o /tmp/imgw-meteo.json
+          python - <<'PY'
+          import json, pathlib, time
+          src=pathlib.Path("/tmp/imgw-meteo.json")
+          data=json.loads(src.read_text(encoding="utf-8"))
+          if not isinstance(data,list):
+              raise SystemExit("IMGW METEO: odpowiedź nie jest tablicą")
+          out={"fetchedAt":int(time.time()*1000),"source":"IMGW-PIB","data":data}
+          pathlib.Path("imgw-meteo.json").write_text(json.dumps(out,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
+          station=next((x for x in data if str(x.get("kod_stacji",x.get("id_stacji",""))).strip()=="252190030" or str(x.get("nazwa_stacji",x.get("stacja",""))).strip().lower() in ("głodowo","glodowo")),None)
+          print("IMGW METEO stations:",len(data),"Głodowo:",bool(station))
+          if station is None:
+              raise SystemExit("IMGW METEO: nie znaleziono Głodowa (252190030)")
+          PY
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
