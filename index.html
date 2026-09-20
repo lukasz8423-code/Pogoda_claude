@@ -1075,6 +1075,7 @@ function buildOfflineEnsemble(modelResults){
     models:records.map(r=>r.model),
     modelCount:records.length,
     cloudCoverConsensus:cloudNow,
+    cloudCover:cloudNow,
     capturedAt:Date.now()
   };
   return base;
@@ -1451,7 +1452,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,ensemble:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -1536,12 +1537,17 @@ function computeCtx(){
   // W trybie IMGW Offline główne zachmurzenie pochodzi z consensusu modeli.
   // Nie pozwalamy warstwom/solarowi zejść do wartości typu 28%, gdy wszystkie
   // modele wskazują >90% zachmurzenia.
-  const ensembleCloud=Number(S.ensemble?.cloudCoverConsensus);
-  const cloud=S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"&&Number.isFinite(ensembleCloud)
-    ?Math.max(cloudEngine.visualCover??0,Math.round(ensembleCloud))
-    :cloudEngine.visualCover;
-  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"&&Number.isFinite(ensembleCloud))
+  const ensembleCloud=Number(S.ensemble?.cloudCover);
+  let cloud=cloudEngine.visualCover;
+  if(S.imgwStatus==="OFFLINE"&&Number.isFinite(ensembleCloud)){
+    // HARD UI OVERRIDE: przy IMGW Offline główny kafelek dostaje
+    // dokładnie consensus ensemble. Żadnego optical cloud, solar scaling
+    // ani wygładzania po tej wartości.
+    cloud=Math.round(clamp(ensembleCloud,0,100));
     cloudEngine.visualCover=cloud;
+    console.log("[AURA CLOUD OVERRIDE] IMGW OFFLINE → UI cloudCover =",cloud,
+      "ensemble=",ensembleCloud,"models=",S.ensemble?.models||[]);
+  }
   S.cloudEngine=cloudEngine;
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
@@ -1661,6 +1667,16 @@ function isRainingNow(X){
 }
 function heroHTML(X){
   const chips=[];
+  const uiCloud=(S.imgwStatus==="OFFLINE"&&Number.isFinite(Number(S.ensemble?.cloudCover)))
+    ?Math.round(clamp(Number(S.ensemble.cloudCover),0,100))
+    :X.cloud;
+  if(S.imgwStatus==="OFFLINE"&&uiCloud!==X.cloud){
+    console.warn("[AURA CLOUD RENDER GUARD] X.cloud was",X.cloud,"but UI is forced to ensemble",uiCloud);
+    X={...X,cloud:uiCloud};
+  }
+  console.log("[AURA CLOUD RENDER] status=",S.imgwStatus,"cloud=",uiCloud,
+    "ensemble=",S.ensemble?.cloudCover??null);
+
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
   else if(S.imgwData){
@@ -2338,6 +2354,9 @@ function pipelineInspectorHTML(){
   if(d.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
     alerts.push("<div class='err warn'><b>[STATUS] IMGW Offline</b> → Active Ensemble: <b>"+esc((d.activeEnsemble||[]).join(" + "))+"</b> · consensus zachmurzenia: <b>"+(d.ensembleCloudConsensus==null?"—":Math.round(d.ensembleCloudConsensus)+"%")+"</b></div>");
   }
+  if(S.imgwStatus==="OFFLINE"){
+    alerts.push("<div class='err warn'><b>[STATUS] IMGW Offline</b> → UI cloud hard override: <b>"+(S.ensemble?.cloudCover==null?"—":Math.round(S.ensemble.cloudCover)+"%")+"</b></div>");
+  }
   const fmt=v=>v==null?"—":(typeof v==="number"?fnum(v,1):esc(String(v)));
   const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v)*100)+"%":"—";
   const table="<div style='overflow:auto;margin-top:10px'><table style='width:100%;min-width:720px;border-collapse:collapse;font-size:11px'><thead><tr><th>Godzina</th><th>IMGW Stacja</th><th>IMGW Model</th><th>Open-Meteo</th><th>Aura Final</th><th>Waga T</th><th>Front</th></tr></thead><tbody>"+
@@ -2791,6 +2810,7 @@ async function loadW(lat,lng,name,isRef){
   S.pipelineDiag=null;
   S.liveHealth=null;
   S.sourceMode=null;
+  S.imgwStatus=null;
   S.ensemble=null;
   const sameGps=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
   if(!sameGps)S.gpsDiag=null;
@@ -2821,7 +2841,16 @@ async function loadW(lat,lng,name,isRef){
     // IMGW Offline jest stanem źródła, nie powodem do zerowania prognozy.
     // Najpierw budujemy ensemble z realnie dostępnych modeli, a dopiero potem
     // wykonujemy pozostałe sanityzery/render.
-    const imgwOffline=imgwResult.status!=="fulfilled"||!imgwResult.value;
+    // IMGW status musi opierać się na faktycznej dostępności źródła,
+    // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
+    // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
+    const imgwFeedOffline=
+      imgwResult.status!=="fulfilled" ||
+      !imgwResult.value ||
+      S.imgwDiag?.status==="niedostępne" ||
+      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
+    const imgwOffline=imgwFeedOffline;
+    S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
     const activeEnsembleModels=offlineEnsemble?.__auraEnsemble?.models||[];
     if(imgwOffline&&offlineEnsemble){
@@ -3073,6 +3102,7 @@ async function loadW(lat,lng,name,isRef){
       imgwForecastNote:"IMGW Offline → Active Ensemble: "+modelNames.join(" + "),
       status:"IMGW Offline → Active Ensemble",
       sourceMode:"IMGW_OFFLINE_ENSEMBLE",
+      imgwStatus:"OFFLINE",
       activeEnsemble:modelNames,
       ensembleCloudConsensus:Number.isFinite(Number(S.ensemble?.cloudCoverConsensus))?S.ensemble.cloudCoverConsensus:null,
       rows,
