@@ -730,19 +730,67 @@ async function fetchIMGWAll(){
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
   S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null}; window.__AURA_IMGW_DIAG=S.imgwDiag;
-  try{
-    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/?_aura="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(8000)});
-    if(!r.ok)throw new Error("HTTP "+r.status);
-    const data=await r.json();
-    const list=Array.isArray(data)?data:null;
-    S.imgwDiag={...S.imgwDiag,status:list?"pobrano":"nieprawidłowa odpowiedź",count:list?list.length:0};
-    console.log("IMGW METEO diagnostyka:",S.imgwDiag);
-    return list;
-  }catch(e){
-    S.imgwDiag={status:"niedostępne",count:null,found:false,used:false,error:e?.message||String(e),station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
-    console.warn("IMGW METEO API niedostepne:",e.message);
-    return null;
+  const urls=[
+    "https://danepubliczne.imgw.pl/api/data/meteo/",
+    "https://danepubliczne.imgw.pl/api/data/meteo"
+  ];
+  let lastError=null;
+  for(const url of urls){
+    try{
+      const r=await fetch(url,{
+        method:"GET",
+        mode:"cors",
+        cache:"no-store",
+        headers:{Accept:"application/json"},
+        signal:AbortSignal.timeout(12000)
+      });
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const data=await r.json();
+      const list=Array.isArray(data)?data:null;
+      if(!list)throw new Error("IMGW METEO zwróciło nieprawidłowy format");
+      const station=list.find(s=>{
+        const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+        const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
+        return code==="252190030"||name==="głodowo"||name==="glodowo";
+      });
+      S.imgwDiag={
+        ...S.imgwDiag,
+        status:"pobrano",
+        count:list.length,
+        found:!!station,
+        station:station?.nazwa_stacji||station?.stacja||null,
+        temperature:station?.temperatura_powietrza??station?.temperatura??null,
+        timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
+        error:null
+      };
+      window.__AURA_IMGW_DIAG=S.imgwDiag;
+      console.log("IMGW METEO: pobrano feed",{
+        url,
+        count:list.length,
+        glodowoFound:!!station,
+        glodowo:station||null
+      });
+      return list;
+    }catch(e){
+      lastError=e;
+      console.warn("IMGW METEO próba nieudana:",url,e?.message||e);
+    }
   }
+  S.imgwDiag={
+    status:"niedostępne",
+    count:null,
+    found:false,
+    used:false,
+    error:lastError?.message||String(lastError||"IMGW METEO niedostępne"),
+    station:null,
+    temperature:null,
+    timestamp:null,
+    ageMinutes:null,
+    dist:null,
+    reason:"feed IMGW METEO niedostępny"
+  };
+  window.__AURA_IMGW_DIAG=S.imgwDiag;
+  return null;
 }
 function parseImgwMeteoTimestamp(value){
   if(!value)return null;
