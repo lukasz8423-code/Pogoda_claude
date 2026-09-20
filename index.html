@@ -1503,7 +1503,7 @@ function nowcastHTML(X){
       return `<i class="${a<.1?"z":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax=`<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>`;
-    sub=(sub?sub+". ":"")+"% = szansa opadu dla całej godziny, mm = ilość opadu w danym 15-minutowym przedziale.";
+    sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu >0,1 mm w poprzedniej godzinie, mm = suma opadu z poprzednich 15 minut.";
   }else{
     const nc=buildNowcast(hourly,X.ci);
     sum=nc?nc.text:"Brak danych o opadach";
