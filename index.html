@@ -645,7 +645,7 @@ async function fetchIMGWAll(){
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
-  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null}; window.__AURA_IMGW_DIAG=S.imgwDiag;
   try{
     const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/?_aura="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(8000)});
     if(!r.ok)throw new Error("HTTP "+r.status);
@@ -2179,12 +2179,12 @@ document.addEventListener("visibilitychange",()=>{
   function paint(){
     var el=document.getElementById("glodowo-diag"), b=document.getElementById("glodowo-diag-body");
     if(!el||!b)return;
-    var d=window.S&&S.imgwDiag;
+    var d=window.__AURA_IMGW_DIAG;
     if(!d){el.style.display="block";b.textContent="S.imgwDiag jeszcze nie istnieje";return}
     el.style.display="block";
     b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—");
   }
   setInterval(paint,500); paint();
 })();
-</script></body>
+</script><script>setInterval(function(){try{if(window.__AURA_IMGW_DIAG){var b=document.getElementById("glodowo-diag-body");if(b){var d=window.__AURA_IMGW_DIAG;b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")}}}catch(e){}},500);</script></body>
 </html>
