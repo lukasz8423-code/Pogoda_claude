@@ -1091,10 +1091,10 @@ function tempColor(t){
 // Opad co 15 min na najbliższe 2h (styl MinuteCast z AccuWeather)
 async function apiMinutely(lat,lng){
   try{
-    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{signal:AbortSignal.timeout(8000)});
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code,visibility&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)return null;
     const d=await r.json();
-    const t=d.minutely_15?.time,p=d.minutely_15?.precipitation,rain=d.minutely_15?.rain,code=d.minutely_15?.weather_code;
+    const t=d.minutely_15?.time,p=d.minutely_15?.precipitation,rain=d.minutely_15?.rain,code=d.minutely_15?.weather_code,visibility=d.minutely_15?.visibility;
     const ht=d.hourly?.time,hp=d.hourly?.precipitation_probability,hpr=d.hourly?.precipitation;
     if(!t||!p)return null;
     const now=Date.now();
@@ -1113,6 +1113,7 @@ async function apiMinutely(lat,lng){
         mm:+(p[i]||0),
         rain:+(rain?.[i]||0),
         code:code?.[i]!=null?+code[i]:null,
+        visibility:visibility?.[i]!=null?+visibility[i]:null,
         pop:hi>=0&&hp?.[hi]!=null?+hp[hi]:null,
         hourlyMm:hi>=0&&hpr?.[hi]!=null?+(hpr[hi]||0):null
       });
@@ -2237,7 +2238,22 @@ async function loadW(lat,lng,name,isRef){
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
   const same=()=>S.lat===lat&&S.lng===lng;
-  apiMinutely(lat,lng).then(m=>{if(same()){S.minutely=m;softUpdate();}});
+  apiMinutely(lat,lng).then(m=>{
+    if(same()){
+      S.minutely=m;
+      // Widoczność: preferujemy bieżący 15-min slot modelu wysokiej rozdzielczości
+      // dla Europy Środkowej zamiast godzinowej wartości Best Match.
+      const nowMs=Date.now();
+      const slot=Array.isArray(m)?m.find(x=>{
+        const t=new Date(x.t).getTime();
+        return Number.isFinite(t)&&t<=nowMs&&nowMs<t+15*60000;
+      }):null;
+      if(slot&&Number.isFinite(Number(slot.visibility))&&Number(slot.visibility)>=0){
+        S.data.current.visibility=Number(slot.visibility);
+      }
+      softUpdate();
+    }
+  });
   apiAir(lat,lng).then(a=>{if(same()){S.air=a;softUpdate();}});
 }
 
