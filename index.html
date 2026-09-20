@@ -487,19 +487,19 @@ async function apiWeatherModel(lat,lng,modelId,days=10){
       "temperature_2m","relative_humidity_2m","apparent_temperature",
       "is_day","precipitation","weather_code","cloud_cover",
       "pressure_msl","wind_speed_10m","wind_gusts_10m",
-      "wind_direction_10m","uv_index","rain","snowfall","showers"
+      "wind_direction_10m","uv_index","uv_index_clear_sky","rain","snowfall","showers"
     ].join(","),
     hourly:[
       "temperature_2m","weather_code","precipitation_probability",
       "precipitation","cloud_cover","cloud_cover_low","cloud_cover_mid",
       "cloud_cover_high","apparent_temperature","uv_index",
       "wind_speed_10m","wind_direction_10m","wind_gusts_10m","relative_humidity_2m",
-      "shortwave_radiation","pressure_msl","visibility"
+      "shortwave_radiation","pressure_msl","visibility","uv_index_clear_sky"
     ].join(","),
     daily:[
       "weather_code","temperature_2m_max","temperature_2m_min",
       "precipitation_probability_max","precipitation_sum",
-      "uv_index_max","sunrise","sunset","wind_speed_10m_max"
+      "uv_index_max","uv_index_clear_sky_max","sunrise","sunset","wind_speed_10m_max"
     ].join(","),
     timezone:"auto",
     forecast_days:String(days),
@@ -1095,8 +1095,10 @@ function computeCtx(){
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
-  const uv=+(g(hourly.uv_index)??current.uv_index??0)||0;
+  const uv=+(current.uv_index??g(hourly.uv_index)??0)||0;
+  const uvClear=+(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)??0)||0;
   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
+  const uvClearMax=+(daily.uv_index_clear_sky_max?.[0]??uvClear??uvMax)||0;
   const rad=g(hourly.shortwave_radiation)??uv*80;
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
@@ -1107,7 +1109,7 @@ function computeCtx(){
   const visKm=g(hourly.visibility)!=null?g(hourly.visibility)/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
   return{
-    ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
+    ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
     low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
@@ -1388,7 +1390,8 @@ function wUV(X){
   }
   const adv=uv<3?"Niskie UV":uv<6?"Umiarkowane UV — przy dłuższym pobycie warto chronić skórę i oczy":uv<8?"Wysokie UV — potrzebna ochrona skóry i oczu":"Bardzo wysokie UV — ogranicz bezpośrednie słońce w środku dnia";
   const peakTxt=peakTime?"Szczyt około "+hhmm(peakTime)+": "+fnum(peak,1)+".":"Maks. dziś "+fnum(X.uvMax,1)+".";
-  return`<div class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}</div></div>`;
+  const clearTxt=Number.isFinite(X.uvClearMax)&&X.uvClearMax>0?` Bezchmurne maksimum modelu: ${fnum(X.uvClearMax,1)}.`:"";
+  return`<div class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}${clearTxt}</div></div>`;
 }
 function compass(deg,spd){
   let ticks="";
@@ -1400,19 +1403,22 @@ function compass(deg,spd){
 function wWind(X){
   const {hourly}=S.data;
   const end=Math.min(hourly.time.length,X.ci+7);
-  let maxG=X.gusts,maxW=X.wind,maxGTime=null;
+  let maxG=X.gusts,maxW=X.wind,maxWTime=null,maxGTime=null;
   for(let i=X.ci;i<end;i++){
     const g=Number(hourly.wind_gusts_10m?.[i]);
     const w=Number(hourly.wind_speed_10m?.[i]);
     if(Number.isFinite(g)&&g>maxG){maxG=g;maxGTime=hourly.time[i];}
-    if(Number.isFinite(w)&&w>maxW)maxW=w;
+    if(Number.isFinite(w)&&w>maxW){maxW=w;maxWTime=hourly.time[i];}
   }
   const gustDiff=Math.max(0,maxG-X.wind);
   const impact=gustDiff>=25?"porywy będą wyraźnie odczuwalne":gustDiff>=15?"porywy będą chwilowo wyraźnie silniejsze":"porywy niewiele silniejsze od wiatru";
-  const forecast=maxG>X.gusts
-    ? "Najsilniejsze porywy w ciągu 6 h: "+Math.round(maxG)+" km/h"+(maxGTime?" około "+hhmm(maxGTime):".")
-    : "Obecne porywy są najwyższe w najbliższych 6 h.";
-  return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}</div></div>`;
+  const forecast=maxW>X.wind
+    ? "Model prognozuje maks. średni wiatr "+Math.round(maxW)+" km/h"+(maxWTime?" około "+hhmm(maxWTime):".")+"."
+    : "Model nie przewiduje wyższego średniego wiatru w najbliższych 6 h.";
+  const gustForecast=maxG>X.gusts
+    ? " Najsilniejsze porywy: "+Math.round(maxG)+" km/h"+(maxGTime?" około "+hhmm(maxGTime):".")
+    : "";
+  return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
 }
 function wFeels(X){
   const d=discomfortIndex(X.T,X.hum),diff=Math.round(X.feels-X.T);
