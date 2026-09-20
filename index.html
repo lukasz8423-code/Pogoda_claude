@@ -690,15 +690,33 @@ async function findNearestIMGW(lat,lng){
     const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const temp=parseFloat(glodowo.temperatura);
-    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,temperature:Number.isFinite(temp)?temp:null,timestamp:glodowo.temperatura_data||null,ageMinutes,dist:Math.round(dist*10)/10};
+    const distRounded=Math.round(dist*10)/10;
+    const distOK=dist<=30;
+    const tempOK=Number.isFinite(temp);
+    const ageOK=ageMinutes===null || ageMinutes<180;
+    if(S.imgwDiag)S.imgwDiag={
+      ...S.imgwDiag,
+      temperature:Number.isFinite(temp)?temp:null,
+      timestamp:glodowo.temperatura_data||null,
+      ageMinutes,
+      dist:distRounded,
+      rawAge,
+      distOK,
+      tempOK,
+      ageOK
+    };
 
     console.log("IMGW Głodowo diagnostyka:",{
       kod_stacji:glodowo.kod_stacji,
       nazwa:glodowo.nazwa_stacji,
       temperatura:glodowo.temperatura,
       temperatura_data:glodowo.temperatura_data,
+      rawAge,
       ageMinutes,
-      dist:Math.round(dist*10)/10
+      dist:distRounded,
+      distOK,
+      tempOK,
+      ageOK
     });
 
     if(dist<=30 && Number.isFinite(temp) && (ageMinutes===null || ageMinutes<180)){
@@ -729,8 +747,9 @@ async function findNearestIMGW(lat,lng){
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany"};
-      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany",dist:Math.round(dist*10)/10,temp,ageMinutes});
+      const rejectReason=dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany";
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK};
+      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
   }
 
