@@ -505,8 +505,8 @@ const WEATHER_MODELS = [
     desc:"Automatyczny wybór najlepszego modelu dla lokalizacji"
   },
   {
-    id:"icon_seamless",
-    name:"ICON DWD",
+    id:"icon_d2",
+    name:"ICON D2",
     satellite:"Meteosat-12 (MSG-4)",
     flag:"🇩🇪",
     desc:"Niemiecki model DWD, wysoka rozdzielczość"
@@ -542,6 +542,8 @@ let activeModel = WEATHER_MODELS[0]; // domyślnie best_match
 // Cache nie zastępuje odświeżenia po publikacji nowego runu — nowy bucket tworzy nowy wpis.
 // Open-Meteo zaleca dodatkowe ~10 min po publikacji runu ze względu na replikację danych.
 const WEATHER_CACHE_POLICY={
+  icon_d2:{runHours:3,ttlMs:25*60*1000},
+  icon_eu:{runHours:3,ttlMs:25*60*1000},
   icon_seamless:{runHours:3,ttlMs:25*60*1000},
   ecmwf_ifs025:{runHours:6,ttlMs:45*60*1000},
   gfs_seamless:{runHours:1,ttlMs:20*60*1000},
@@ -935,7 +937,7 @@ async function findNearestIMGW(lat,lng){
 // PORÓWNANIE WIELU MODELI + ZGODNOŚĆ MODELI
 // ══════════════════════════════════════════════
 async function fetchAllModelsCompare(lat,lng){
-  const modelsToCheck = ["icon_seamless","ecmwf_ifs025","gfs_seamless"];
+  const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless"];
   const results = await Promise.allSettled(
     modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,2))
   );
@@ -2227,10 +2229,11 @@ function applyObservationFusion(data,imgwData){
   };
   return {weight:Math.max(...Object.values(weights)),weights,bias,completeness,before:model,used:true};
 }
-function applyForecastBridge(data,fusion){
+function applyForecastBridge(data,fusion,modelData){
   if(!data?.hourly||!fusion?.used)return;
-  const h=data.hourly;
-  const ci=currentHourIndex(data);
+  const source=modelData||data;
+  const h=source.hourly;
+  const ci=currentHourIndex(source);
   const b=fusion.bias||{};
   const weights=fusion.weights||{};
   for(let step=0;step<=3;step++){
@@ -2423,7 +2426,11 @@ async function loadW(lat,lng,name,isRef){
           fusion.used=false;
           console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
         }else if(fusion.used){
-          applyForecastBridge(data,fusion);
+          const bridgeSource=cloudCompare.find(r=>r.model==="icon_d2")?.data
+            ||cloudCompare.find(r=>r.model==="icon_eu")?.data
+            ||cloudCompare.find(r=>r.model==="ecmwf_ifs025")?.data
+            ||data;
+          applyForecastBridge(data,fusion,bridgeSource);
           S.fusion={
             source:"IMGW",
             station:imgwData.stacja||imgwData.name||null,
