@@ -1308,20 +1308,22 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  // Zachmurzenie główne pozostaje bezpośrednio wartością total cloud cover z Open-Meteo.
-  // Warstwy low/mid/high są diagnostyczne — nie zastępujemy nimi totalu, bo Open-Meteo zaznacza,
-  // że są estymowane oddzielnie i mogą różnić się od natywnego total cloud cover.
+  // OptiCloud: total cloud_cover pozostaje surowym sygnałem modelu, ale nie jest już bezpośrednio
+  // prezentowany jako "ile chmur widzi człowiek". Warstwy i sygnał solarnego prześwitu korygują wynik.
   const cloudTotal=Number(current.cloud_cover??g(hourly.cloud_cover));
   const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
   const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
   const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
-  const cloudLayers=[cloudLow,cloudMid,cloudHigh].filter(Number.isFinite);
-  const layerEvidence=cloudLayers.length?Math.max(...cloudLayers):null;
-  // Główne zachmurzenie korzysta z jawnie ustalonego źródła.
-  // Dla GPS loadW() może podmienić błędne 0% modelu głównego na konsensus modeli.
-  let cloud=clamp(Math.round(Number.isFinite(cloudTotal)?cloudTotal:(layerEvidence??0)),0,100);
-  if(S.cloudSource?.value!=null) cloud=clamp(Math.round(S.cloudSource.value),0,100);
-  if(!Number.isFinite(cloudTotal) && S.cloudSource?.value==null) cloud=clamp(Math.round(layerEvidence??0),0,100);
+  const cloudSolar=calcOptiCloud({
+    total:cloudTotal,low:cloudLow,mid:cloudMid,high:cloudHigh,
+    code:current.weather_code??0,
+    uv:Number(current.uv_index??g(hourly.uv_index)),
+    uvClear:Number(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)),
+    isDay
+  });
+  let cloud=cloudSolar.value;
+  if(cloud==null && S.cloudSource?.value!=null) cloud=clamp(Math.round(S.cloudSource.value),0,100);
+  if(cloud==null) cloud=clamp(Math.round(Number.isFinite(cloudTotal)?cloudTotal:0),0,100);
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
