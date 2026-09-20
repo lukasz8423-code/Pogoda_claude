@@ -1467,7 +1467,7 @@ function nowcastHTML(X){
 
      const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.rain);
      const currentHourlyRain=rainHours[0]?.rain===true;
-     const activeNow=currentHourlyRain||nowWet;
+     const activeNow=currentHourlyRain;
 
      let endTime=null;
      if(activeNow){
