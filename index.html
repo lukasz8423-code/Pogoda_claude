@@ -2122,25 +2122,52 @@ function openRawSheet(){
 // Nie zmienia kodów pogody, chmur ani opadu: fusion dotyczy tylko
 // parametrów, dla których obserwacja stacyjna ma sens.
 // ═══════════════════════════════════════════════
+function smoothstep01(x){
+  const t=clamp(Number(x),0,1);
+  return t*t*(3-2*t);
+}
 function fusionFreshnessWeight(ageMinutes){
   const a=Number(ageMinutes);
-  if(!Number.isFinite(a))return 0;
+  if(!Number.isFinite(a)||a<0)return 0;
   if(a<=30)return 1;
-  if(a<=75)return 1-(a-30)/45*0.35;
-  if(a<=120)return 0.65-(a-75)/45*0.45;
+  if(a<=75)return 1-0.35*smoothstep01((a-30)/45);
+  if(a<=120)return 0.65*(1-smoothstep01((a-75)/45));
   return 0;
 }
 function fusionDistanceWeight(distKm){
   const d=Number(distKm);
-  if(!Number.isFinite(d))return 0;
+  if(!Number.isFinite(d)||d<0)return 0;
   if(d<=10)return 1;
-  if(d<=30)return 1-(d-10)/20*0.3;
-  if(d<=50)return 0.7-(d-30)/20*0.5;
+  if(d<=45)return 1-smoothstep01((d-10)/35);
   return 0;
 }
-function fusionWeight(obs){
-  if(!obs||obs.isFresh===false)return 0;
-  return clamp(fusionFreshnessWeight(obs.ageMinutes)*fusionDistanceWeight(obs.dist),0,1);
+function fusionParameterWeight(ageMinutes,distKm,valid){
+  if(!valid)return 0;
+  return clamp(fusionFreshnessWeight(ageMinutes)*fusionDistanceWeight(distKm),0,1);
+}
+function circularBlendDegrees(model,observed,weight){
+  const m=Number(model),o=Number(observed),w=clamp(Number(weight),0,1);
+  if(!Number.isFinite(o))return Number.isFinite(m)?m:null;
+  if(!Number.isFinite(m))return o;
+  const delta=((o-m+540)%360)-180;
+  return (m+delta*w+360)%360;
+}
+function currentHourIndex(data){
+  const times=data?.hourly?.time||[];
+  const curTs=Date.parse(String(data?.current?.time||""));
+  if(!Number.isFinite(curTs)||!times.length)return 0;
+  let best=0,bestDiff=Infinity;
+  for(let i=0;i<times.length;i++){
+    const ts=Date.parse(String(times[i]));
+    if(!Number.isFinite(ts))continue;
+    const diff=Math.abs(ts-curTs);
+    if(diff<bestDiff){bestDiff=diff;best=i;}
+  }
+  return best;
+}
+function bridgeAlpha(hoursAhead,weight){
+  const h=clamp(Number(hoursAhead),0,3);
+  return clamp(Number(weight)*(1-smoothstep01(h/3)),0,1);
 }
 function fuseObservedValue(modelValue,observedValue,weight){
   const m=Number(modelValue),o=Number(observedValue),w=clamp(Number(weight),0,1);
@@ -2149,62 +2176,83 @@ function fuseObservedValue(modelValue,observedValue,weight){
   return m+(o-m)*w;
 }
 function applyObservationFusion(data,imgwData){
-  if(!data?.current||!imgwData)return {weight:0,bias:{},used:false};
-  const w=fusionWeight(imgwData);
-  if(w<=0)return {weight:0,bias:{},used:false};
+  if(!data?.current||!imgwData)return {weight:0,bias:{},weights:{},completeness:{},used:false};
   const cur=data.current;
-  const before={
-    temperature_2m:Number(cur.temperature_2m),
-    relative_humidity_2m:Number(cur.relative_humidity_2m),
-    wind_speed_10m:Number(cur.wind_speed_10m),
-    wind_direction_10m:Number(cur.wind_direction_10m)
+  const dist=Number(imgwData.dist);
+  const ages={
+    temperature:Number(imgwData.tempAgeMinutes??imgwData.ageMinutes),
+    humidity:Number(imgwData.humidityAgeMinutes??imgwData.ageMinutes),
+    wind:Number(imgwData.windAgeMinutes??imgwData.ageMinutes),
+    windDirection:Number(imgwData.windDirAgeMinutes??imgwData.ageMinutes)
   };
-  const obsT=Number(imgwData.temperatura);
-  const obsH=Number(imgwData.wilgotnosc_wzgledna);
-  const obsW=Number(imgwData.predkosc_wiatru)*3.6;
-  const obsD=Number(imgwData.kierunek_wiatru);
-  if(Number.isFinite(obsT)&&Number.isFinite(before.temperature_2m)&&Math.abs(obsT-before.temperature_2m)<=12){
-    cur.temperature_2m=+fuseObservedValue(before.temperature_2m,obsT,w).toFixed(1);
-  }
-  if(Number.isFinite(obsH)&&Number.isFinite(before.relative_humidity_2m)){
-    cur.relative_humidity_2m=+fuseObservedValue(before.relative_humidity_2m,obsH,w).toFixed(0);
-  }
-  if(Number.isFinite(obsW)&&Number.isFinite(before.wind_speed_10m)){
-    cur.wind_speed_10m=+fuseObservedValue(before.wind_speed_10m,obsW,w).toFixed(1);
-  }
-  if(Number.isFinite(obsD)&&Number.isFinite(before.wind_direction_10m)){
-    // Kierunek jest kołowy — wybieramy obserwację dopiero przy wysokiej wadze.
-    if(w>=0.75)cur.wind_direction_10m=Math.round(obsD)%360;
-  }
+  const obs={
+    temperature:Number(imgwData.temperatura),
+    humidity:Number(imgwData.wilgotnosc_wzgledna),
+    wind:Number(imgwData.predkosc_wiatru)*3.6,
+    windDirection:Number(imgwData.kierunek_wiatru)
+  };
+  const model={
+    temperature:Number(cur.temperature_2m),
+    humidity:Number(cur.relative_humidity_2m),
+    wind:Number(cur.wind_speed_10m),
+    windDirection:Number(cur.wind_direction_10m)
+  };
+  const valid={
+    temperature:Number.isFinite(obs.temperature)&&Number.isFinite(model.temperature)&&Math.abs(obs.temperature-model.temperature)<=12,
+    humidity:Number.isFinite(obs.humidity)&&Number.isFinite(model.humidity),
+    wind:Number.isFinite(obs.wind)&&Number.isFinite(model.wind),
+    windDirection:Number.isFinite(obs.windDirection)&&Number.isFinite(model.windDirection)
+  };
+  const weights={
+    temperature:fusionParameterWeight(ages.temperature,dist,valid.temperature),
+    humidity:fusionParameterWeight(ages.humidity,dist,valid.humidity),
+    wind:fusionParameterWeight(ages.wind,dist,valid.wind),
+    windDirection:fusionParameterWeight(ages.windDirection,dist,valid.windDirection)
+  };
+  if(!Object.values(weights).some(v=>v>0))return {weight:0,bias:{},weights,completeness:{},used:false};
+  if(weights.temperature>0)cur.temperature_2m=+fuseObservedValue(model.temperature,obs.temperature,weights.temperature).toFixed(1);
+  if(weights.humidity>0)cur.relative_humidity_2m=+fuseObservedValue(model.humidity,obs.humidity,weights.humidity).toFixed(0);
+  if(weights.wind>0)cur.wind_speed_10m=+fuseObservedValue(model.wind,obs.wind,weights.wind).toFixed(1);
+  if(weights.windDirection>0)cur.wind_direction_10m=Math.round(circularBlendDegrees(model.windDirection,obs.windDirection,weights.windDirection))%360;
+  const completeness={
+    temperature:valid.temperature?1:0,
+    humidity:valid.humidity?1:0,
+    wind:valid.wind?1:0,
+    windDirection:valid.windDirection?1:0
+  };
   const bias={
-    temperature:Number.isFinite(obsT)&&Number.isFinite(before.temperature_2m)?obsT-before.temperature_2m:0,
-    humidity:Number.isFinite(obsH)&&Number.isFinite(before.relative_humidity_2m)?obsH-before.relative_humidity_2m:0,
-    wind:Number.isFinite(obsW)&&Number.isFinite(before.wind_speed_10m)?obsW-before.wind_speed_10m:0
+    temperature:valid.temperature?obs.temperature-model.temperature:0,
+    humidity:valid.humidity?obs.humidity-model.humidity:0,
+    wind:valid.wind?obs.wind-model.wind:0
   };
-  return {weight:w,bias,before,used:true};
+  return {weight:Math.max(...Object.values(weights)),weights,bias,completeness,before:model,used:true};
 }
 function applyForecastBridge(data,fusion){
   if(!data?.hourly||!fusion?.used)return;
   const h=data.hourly;
-  const base=Number(fusion.weight);
+  const ci=currentHourIndex(data);
   const b=fusion.bias||{};
-  const n=Math.min(3,h.time?.length||0);
-  for(let i=0;i<n;i++){
-    const factor=base*(1-i/3);
+  const weights=fusion.weights||{};
+  for(let step=0;step<=3;step++){
+    const i=ci+step;
+    if(i>=h.time.length)break;
+    const alphaT=bridgeAlpha(step,weights.temperature);
+    const alphaH=bridgeAlpha(step,weights.humidity);
+    const alphaW=bridgeAlpha(step,weights.wind);
     if(Number.isFinite(h.temperature_2m?.[i])&&Number.isFinite(b.temperature)){
-      h.temperature_2m[i]=+(Number(h.temperature_2m[i])+b.temperature*factor).toFixed(1);
+      h.temperature_2m[i]=+(Number(h.temperature_2m[i])+b.temperature*alphaT).toFixed(1);
     }
     if(Number.isFinite(h.relative_humidity_2m?.[i])&&Number.isFinite(b.humidity)){
-      h.relative_humidity_2m[i]=Math.round(clamp(Number(h.relative_humidity_2m[i])+b.humidity*factor,0,100));
+      h.relative_humidity_2m[i]=Math.round(clamp(Number(h.relative_humidity_2m[i])+b.humidity*alphaH,0,100));
     }
     if(Number.isFinite(h.wind_speed_10m?.[i])&&Number.isFinite(b.wind)){
-      h.wind_speed_10m[i]=+Math.max(0,Number(h.wind_speed_10m[i])+b.wind*factor).toFixed(1);
+      h.wind_speed_10m[i]=+Math.max(0,Number(h.wind_speed_10m[i])+b.wind*alphaW).toFixed(1);
     }
-  }
-  // Pierwszy slot godzinowy reprezentuje stan bieżący w UI, więc kotwiczymy go
-  // do już sfuzowanej wartości zamiast pokazywać nagły skok źródła.
-  if(Array.isArray(h.temperature_2m)&&Number.isFinite(data.current.temperature_2m)){
-    h.temperature_2m[0]=data.current.temperature_2m;
+    if(step===0){
+      if(alphaT>0&&Number.isFinite(data.current.temperature_2m))h.temperature_2m[i]=data.current.temperature_2m;
+      if(alphaH>0&&Number.isFinite(data.current.relative_humidity_2m))h.relative_humidity_2m[i]=data.current.relative_humidity_2m;
+      if(alphaW>0&&Number.isFinite(data.current.wind_speed_10m))h.wind_speed_10m[i]=data.current.wind_speed_10m;
+    }
   }
 }
 
