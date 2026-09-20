@@ -751,7 +751,7 @@ async function findNearestIMGW(lat,lng){
       return {best:normalized,nearby:[normalized]};
     }else{
       const rejectReason=dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany";
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields,keys:Object.keys(glodowo||{}),rawStation:glodowo};
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields,keys:Object.keys(glodowo||{}),rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
   }
@@ -2204,7 +2204,7 @@ document.addEventListener("visibilitychange",()=>{
     var d=window.__AURA_IMGW_DIAG;
     if(!d){el.style.display="block";b.textContent="S.imgwDiag jeszcze nie istnieje";return}
     el.style.display="block";
-    b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—");
+    b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")+"<br><b>Surowe pola temperatury:</b> "+(d.tempFields?Object.entries(d.tempFields).map(function(x){return x[0]+"="+String(x[1])}).join(" · "):"—")+"<br><b>Klucze rekordu:</b> "+(d.keys?d.keys.join(", "):"—");
   }
   setInterval(paint,500); paint();
 })();
