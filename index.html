@@ -691,7 +691,10 @@ async function findNearestIMGW(lat,lng){
     const observedAt=parseImgwMeteoTimestamp(glodowo.temperatura_data);
     const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
-    const temp=parseFloat(glodowo.temperatura);
+    const __allFields=Object.keys(glodowo||{});
+    const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
+    const __candidateTemps=__allFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:glodowo[k],num:parseFloat(String(glodowo[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
+    const temp=Number.isFinite(parseFloat(glodowo.temperatura))?parseFloat(glodowo.temperatura):(__candidateTemps.length?__candidateTemps[0].num:NaN);
     const distRounded=Math.round(dist*10)/10;
     const distOK=dist<=30;
     const tempOK=Number.isFinite(temp);
@@ -753,7 +756,7 @@ async function findNearestIMGW(lat,lng){
       return {best:normalized,nearby:[normalized]};
     }else{
       const rejectReason=dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany";
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields,keys:Object.keys(glodowo||{}),rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields:__tempFields,candidateTemps:__candidateTemps,keys:__allFields,rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
   }
