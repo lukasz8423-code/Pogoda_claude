@@ -572,11 +572,8 @@ async function apiIP(){
 
 
 const IMGW_STATIONS = [
-  // Lokalna stacja referencyjna dla Tomaszewa / Lipna
-  {id:"252190030",name:"Głodowo",lat:52.8306,lng:19.2356,localReference:true},
   // Kujawsko-Pomorskie (Twoj region)
-  {id:"12250",name:"Toruń",lat:53.0583,lng:18.5983},
-  {id:"12360",name:"Płock",lat:52.5883,lng:19.7258},
+  {id:"152170010",name:"Toruń",lat:53.0583,lng:18.5983},
   {id:"152160020",name:"Włocławek",lat:52.6500,lng:19.0667},
   {id:"152170040",name:"Chojnice",lat:53.7000,lng:17.5500},
   {id:"152160030",name:"Bydgoszcz",lat:53.1333,lng:18.0000},
@@ -626,10 +623,6 @@ const IMGW_STATIONS = [
   {id:"152320010",name:"Opole",lat:50.6833,lng:17.9500},
 ];
 
-// IMGW: pomiar stacyjny wykorzystujemy tylko z wiarygodnego promienia.
-// Powyżej 45 km nie nadpisujemy lokalnego modelu pomiarem z odległej stacji.
-const IMGW_MAX_USE_DISTANCE_KM = 45;
-
 // Haversine distance w km
 function stationDist(lat1,lng1,lat2,lng2){
   const R=6371,d2r=Math.PI/180;
@@ -649,47 +642,9 @@ async function fetchIMGWAll(){
   }catch(e){console.warn("IMGW API niedostepne:",e.message);return null;}
 }
 
-// Głodowo nie występuje w bieżącym API /api/data/synop/.
-// IMGW prowadzi tę stację automatyczną pod kodem 252190030; bieżące odczyty
-// są publikowane operacyjnie w interfejsie danych IMGW. Używamy strony stacji
-// wyłącznie jako adaptera danych dla tej konkretnej stacji, bez wpływu na OptiCloud.
-async function fetchGlodowoOperational(){
-  try{
-    const url="https://mapapogodowa.pl/stacja-meteorologiczna/glodowo/";
-    const r=await fetch(url,{signal:AbortSignal.timeout(7000),cache:"no-store"});
-    if(!r.ok)throw new Error("HTTP "+r.status);
-    const html=await r.text();
-    const text=html.replace(/<script[\\s\\S]*?<\\/script>/gi," ").replace(/<style[\\s\\S]*?<\\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/\\s+/g," ").trim();
-    const num=(re)=>{const m=text.match(re);return m?parseFloat(m[1].replace(",",".")):null;};
-    const direction=(text.match(/Kierunek[^0-9]{0,80}(\\d{1,3})°/i)||text.match(/Wiatr[^0-9]{0,120}(\\d{1,3})°/i));
-    const temp=num(/Temperatura powietrza\\s*([+-]?\\d+(?:[,.]\\d+)?)\\s*°C/i);
-    const hum=num(/Wilgotność\\s*([0-9]+(?:[,.]\\d+)?)\\s*%/i);
-    const wind=num(/Wiatr średni\\s*([0-9]+(?:[,.]\\d+)?)\\s*m\\/s/i);
-    const rain=num(/Opad 10 min\\s*([0-9]+(?:[,.]\\d+)?)\\s*mm/i);
-    const ground=num(/Temperatura gruntu\\s*([+-]?\\d+(?:[,.]\\d+)?)\\s*°C/i);
-    const maxWind=num(/Maksymalna\\s*([0-9]+(?:[,.]\\d+)?)\\s*m\\/s/i);
-    const tempTime=(text.match(/Temperatura powietrza[^0-9]+[+-]?\\d+(?:[,.]\\d+)?\\s*°C\\s*([^|]{0,30}\\d{2}:\\d{2})/i)||[])[1]||null;
-    const windTime=(text.match(/Wilgotność[^0-9]+[0-9]+(?:[,.]\\d+)?\\s*%\\s*([^|]{0,30}\\d{2}:\\d{2})/i)||[])[1]||null;
-    return {
-      id:"252190030",stacja:"Głodowo",name:"Głodowo",lat:52.8306,lng:19.2356,
-      temperatura:temp,temperatura_gruntu:ground,wilgotnosc_wzgledna:hum,
-      predkosc_wiatru:wind,kierunek_wiatru:direction?Number(direction[1]):null,
-      maksymalna_predkosc_wiatru:maxWind,opad_10min:rain,
-      tempTime,windTime,sourceRole:"LOCAL_REFERENCE",source:"IMGW-PIB / Głodowo",
-      fetchedAt:Date.now()
-    };
-  }catch(e){
-    console.warn("Głodowo operational adapter niedostępny:",e?.message||e);
-    return null;
-  }
-}
-
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function findNearestIMGW(lat,lng){
-  const [all,glodowo] = await Promise.all([
-    fetchIMGWAll(),
-    fetchGlodowoOperational()
-  ]);
+  const all=await fetchIMGWAll();
   const fetchedAt=Date.now(); // moment, w którym Aura dostała odpowiedź IMGW (nie wiek obserwacji)
   if(!all||!Array.isArray(all)||all.length===0)return null;
 
@@ -714,26 +669,14 @@ async function findNearestIMGW(lat,lng){
     });
   });
 
-  // Głodowo jest lokalnym pomiarem referencyjnym dla Tomaszewa.
-  // W promieniu 15 km ma pierwszeństwo przed odległymi stacjami SYNOP.
-  if(glodowo){
-    glodowo.dist=Math.round(stationDist(lat,lng,glodowo.lat,glodowo.lng)*10)/10;
-    if(glodowo.dist<=15)results.push(glodowo);
-  }
-
-  // Sortuj od najblizszej; lokalne Głodowo jest dodatkowo uprzywilejowane.
-  results.sort((a,b)=>{
-    const ar=a.id==="252190030", br=b.id==="252190030";
-    if(ar&&!br&&a.dist<=15)return -1;
-    if(br&&!ar&&b.dist<=15)return 1;
-    return a.dist-b.dist;
-  });
+  // Sortuj od najblizszej
+  results.sort((a,b)=>a.dist-b.dist);
 
   if(results.length===0)return null;
 
   const best=results[0];
   console.log(`Najblizsa stacja IMGW: ${best.stacja||best.name} (${best.dist} km)`);
-  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, kierunek=${best.kierunek_wiatru}°, opad10=${best.opad_10min}mm, ciśnienie=${best.cisnienie||"brak"}hPa`);
+  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
 
   // Sprawdz swiezosc danych - IMGW aktualizuje co godzine
   // pole data_pomiaru = "2026-08-07", godzina_pomiaru = "10"
@@ -741,12 +684,7 @@ async function findNearestIMGW(lat,lng){
   // Wczesniej data byla parsowana jako czas lokalny urzadzenia, wiec wiek obserwacji byl zawyzony
   // o przesuniecie strefy (2 h latem, 1 h zima) i stacja czesto byla bledne uznawana za nieaktualna.
   let ageMinutes = null, observedAt = null;
-  if(best.id==="252190030"){
-    // Adapter publikuje lokalny czas obserwacji. Traktujemy dane jako świeże,
-    // gdy są aktualnie dostępne; jeśli brak czasu w rekordzie, nie odrzucamy pomiaru.
-    best.ageMinutes=0;
-    best.isFresh=true;
-  }else if(best.data_pomiaru && best.godzina_pomiaru!=null){
+  if(best.data_pomiaru && best.godzina_pomiaru!=null){
     const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
     const hh=parseInt(best.godzina_pomiaru,10);
     if(dm && Number.isFinite(hh) && hh>=0 && hh<=23){
@@ -758,11 +696,9 @@ async function findNearestIMGW(lat,lng){
   }
   best.observedAt = observedAt;   // ms epoch (UTC) obserwacji IMGW
   best.fetchedAt = fetchedAt;     // ms epoch pobrania przez Aure
-  if(best.id!=="252190030"){
-    best.ageMinutes = ageMinutes;
-    // SYNOP: starsze niż 3 h nie nadpisują modelu.
-    best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
-  }
+  best.ageMinutes = ageMinutes;
+  // Jesli dane starsze niz 3h - traktuj jako nieaktualne, nie uzywaj do nadpisywania
+  best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
 
   // Zwroc najblizsa stacje + liste wszystkich w promieniu 100km
   return {
@@ -1201,7 +1137,7 @@ function computeCtx(){
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
   const stImgw=S.imgwData;
-  const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=IMGW_MAX_USE_DISTANCE_KM&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
+  const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
   const visKm=g(hourly.visibility)!=null?g(hourly.visibility)/1000:null;
@@ -1972,15 +1908,12 @@ async function loadW(lat,lng,name,isRef){
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
-      // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest w promieniu 45 km
-      if(data&&data.current&&imgwData.temperatura&&imgwData.isFresh!==false&&imgwData.dist<=IMGW_MAX_USE_DISTANCE_KM){
+      // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest bliżej niż 80 km
+      if(data&&data.current&&imgwData.temperatura&&imgwData.isFresh!==false&&imgwData.dist<=80){
         const imgwTemp=parseFloat(imgwData.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
         const imgwPress=parseFloat(imgwData.cisnienie);
-        const imgwWindDirection=parseFloat(imgwData.kierunek_wiatru);
-        const imgwRain10=parseFloat(imgwData.opad_10min);
-        const imgwGround=parseFloat(imgwData.temperatura_gruntu);
         const modelTemp=data.current.temperature_2m;
         const plausible=isNaN(modelTemp)||Math.abs(imgwTemp-modelTemp)<=12;
         if(!isNaN(imgwTemp)&&plausible){
@@ -2000,16 +1933,7 @@ async function loadW(lat,lng,name,isRef){
             if(stationDew!=null&&Number.isFinite(stationDew))imgwData.dewPointStation=Math.round(stationDew*10)/10;
           }
           if(!isNaN(imgwWind))data.current.wind_speed_10m=imgwWind;
-          if(!isNaN(imgwWindDirection))data.current.wind_direction_10m=imgwWindDirection;
           if(!isNaN(imgwPress)&&imgwPress>0)data.current.pressure_msl=imgwPress;
-          if(!isNaN(imgwRain10)&&imgwData.id==="252190030"){
-            data.current.imgw_precipitation_10min_mm=imgwRain10;
-            data.current.imgw_source_role="LOCAL_REFERENCE";
-            data.current.imgw_station_id="252190030";
-          }
-          if(!isNaN(imgwGround)&&imgwData.id==="252190030"){
-            data.current.imgw_ground_temperature=imgwGround;
-          }
         }else if(!plausible)console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
       }
     }else stationInfo=`Open-Meteo, ${(+lat).toFixed(3)}°N, ${(+lng).toFixed(3)}°E`;
