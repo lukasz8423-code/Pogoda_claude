@@ -262,6 +262,18 @@ a.btn{text-decoration:none;color:inherit}
 .foot{text-align:center;color:var(--ink3);font-size:12px;line-height:1.6;padding:14px 8px 0}
 .foot a{color:var(--ink2)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+.mg-grid{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:6px 2px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.mg-cell{position:relative;flex:0 0 76px;min-height:154px;padding:8px 5px 7px;border-radius:12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;align-items:center;scroll-snap-align:start}
+.mg-cell.mg-day{border-color:rgba(255,255,255,.22);box-shadow:inset 0 2px 0 rgba(255,255,255,.35)}
+.mg-time{font-size:10px;line-height:1.2;color:var(--ink2);white-space:nowrap}
+.mg-temp{font-size:22px;line-height:1;margin-top:9px;font-weight:700}
+.mg-rain{height:65px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;margin-top:5px}
+.mg-rainbar{display:block;width:22px;min-height:3px;border-radius:6px 6px 3px 3px;background:rgba(255,255,255,.12)}
+.mg-rainbar.on{background:linear-gradient(180deg,#B7E8FF,#4FB6F0)}
+.mg-rain small{font-size:9px;color:var(--ink2);line-height:1;white-space:nowrap}
+.mg-rain em{font-size:9px;color:var(--ink3);font-style:normal;line-height:1}
+.mg-wind{margin-top:7px;font-size:9px;color:var(--ink3);white-space:nowrap}
 </style>
 
 </head>
@@ -1334,49 +1346,44 @@ function smoothPath(pts){
 function meteogramHTML(X){
   const {hourly}=S.data;
   const N=Math.min(48,hourly.time.length-X.ci);if(N<8)return"";
-  // 48 h: jeden czytelny punkt co 3 godziny. Każdy punkt ma osobno temperaturę,
-  // opad (mm + %) i wiatr/poryw — bez nakładania elementów.
-  const step=54,pl=24,rows=Math.ceil(N/3),W=pl*2+step*(rows-1),H=226;
-  const samples=[];
+  // Czytelny przebieg: 48 h w wierszach, co 3 godziny. Bez SVG i bez nakładania
+  // temperatury, opadu i wiatru na jednej osi.
+  const pts=[];
   for(let i=0;i<N;i+=3){
-    const idx=X.ci+i,t=new Date(hourly.time[idx]);
-    samples.push({
-      i,idx,x:pl+samples.length*step,t,
+    const idx=X.ci+i;
+    pts.push({
+      t:new Date(hourly.time[idx]),
       temp:+(hourly.temperature_2m[idx]??X.T),
-      pop:+(hourly.precipitation_probability?.[idx]??0),
       pr:+(hourly.precipitation?.[idx]??0),
+      pop:+(hourly.precipitation_probability?.[idx]??0),
       wind:hourly.wind_speed_10m?.[idx],
       gust:hourly.wind_gusts_10m?.[idx],
       wd:hourly.wind_direction_10m?.[idx]
     });
   }
-  const temps=samples.map(s=>s.temp),tmin=Math.min(...temps),tmax=Math.max(...temps);
-  const ty=t=>92-(t-tmin)/Math.max(1,tmax-tmin)*48;
-  let svg="";
-  let lastDay="";
-  samples.forEach((s,k)=>{
-    const dayKey=hourly.time[s.idx].slice(0,10);
-    if(dayKey!==lastDay){
-      lastDay=dayKey;
-      if(k>0)svg+=`<line x1="${s.x}" y1="24" x2="${s.x}" y2="208" stroke="rgba(255,255,255,.2)" stroke-dasharray="3 4"/>`;
-      svg+=`<text x="${s.x}" y="16" text-anchor="middle" font-weight="600" style="fill:#fff">${k===0?"Dziś":DAY_SHORT(hourly.time[s.idx])}</text>`;
-    }
-    const rainH=Math.min(34,s.pr*12);
-    svg+=`<text x="${s.x}" y="35" text-anchor="middle" class="tn" style="fill:#fff;font-size:11px;font-weight:600">${pad(s.t.getHours())}</text>`;
-    svg+=`<circle cx="${s.x}" cy="${ty(s.temp)}" r="3" fill="#fff"/><text x="${s.x}" y="${ty(s.temp)-8}" text-anchor="middle" class="tn" style="fill:#fff;font-weight:600">${Math.round(s.temp)}°</text>`;
-    if(s.pr>=0.05){
-      svg+=`<rect x="${s.x-8}" y="${174-rainH}" width="16" height="${rainH}" rx="4" fill="#8ADBFF" opacity=".9"/>`;
-    }else{
-      svg+=`<rect x="${s.x-8}" y="171" width="16" height="3" rx="2" fill="rgba(255,255,255,.14)"/>`;
-    }
-    svg+=`<text x="${s.x}" y="190" text-anchor="middle" class="tn" style="fill:#8ADBFF;font-size:9px;font-weight:600">${s.pr>=0.01?fnum(s.pr,1)+" mm":"—"}</text>`;
-    svg+=`<text x="${s.x}" y="202" text-anchor="middle" class="tn" style="fill:var(--ink3);font-size:9px">${s.pop>=20?s.pop+"%":"—"}</text>`;
-    if(s.wind!=null){
-      svg+=`<g transform="translate(${s.x} 218) rotate(${((s.wd??0)+180)%360})"><path d="M0 -5L3 3L0 1L-3 3Z" fill="rgba(255,255,255,.75)"/></g><text x="${s.x+9}" y="221" text-anchor="start" class="tn" style="fill:var(--ink2);font-size:8px">${Math.round(s.wind)}${s.gust!=null?"/"+Math.round(s.gust):""}</text>`;
-    }
-  });
-  svg+=`<line x1="${pl}" y1="24" x2="${pl+(samples.length-1)*step}" y2="24" stroke="rgba(255,255,255,.14)"/>`;
-  return`<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div><div class="mg"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Przebieg temperatury, opadów i wiatru na 48 godzin">${svg}</svg></div><div class="note">Co 3 godziny: temperatura u góry, opad w mm i szansa opadu %, na dole wiatr/porywy w km/h. Przewiń wykres w bok.</div></section>`;
+  const maxPr=Math.max(.5,...pts.map(p=>p.pr));
+  const cells=pts.map((p,i)=>{
+    const day=i===0||p.t.toDateString()!==pts[i-1].t.toDateString();
+    const rain=p.pr>=0.05;
+    const bar=Math.round(clamp(p.pr/maxPr,0,1)*38);
+    const wind=p.wind==null?"—":Math.round(p.wind);
+    const gust=p.gust==null?"":"/"+Math.round(p.gust);
+    const pop=p.pop>=10?Math.round(p.pop)+"%":"—";
+    return `<div class="mg-cell ${day?"mg-day":""}">
+      <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
+      <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
+      <div class="mg-rain">
+        <span class="mg-rainbar ${rain?"on":""}" style="height:${Math.max(3,bar)}px"></span>
+        <small>${rain?fnum(p.pr,1)+" mm":"—"}</small>
+        <em>${pop}</em>
+      </div>
+      <span class="mg-wind tn">${wind}${gust} km/h</span>
+    </div>`;
+  }).join("");
+  return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div>
+    <div class="mg-grid">${cells}</div>
+    <div class="note">Prognoza co 3 godziny · temperatura · opad mm / szansa % · wiatr / porywy. Przewiń w bok, aby zobaczyć dalsze godziny.</div>
+  </section>`;
 }
 
 function dailyRows(){
