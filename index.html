@@ -2390,14 +2390,36 @@ function isDrizzleVisibilityCode(code){
 }
 function sanitizeVisibility(data){
   if(!data)return;
-  // Zachowujemy rzeczywistą wartość modelu; nie podnosimy arbitralnie widoczności do 10 km.
+
+  // T0 jest osobnym stanem obserwacyjnym. Przyszłe godziny z gorszą
+  // widocznością nie mogą obniżać kafelka „teraz”.
   const clean=v=>{
     const n=toFiniteNumber(v);
     return n!==null&&n>=0?n:null;
   };
-  if(data.current&&"visibility"in data.current)data.current.visibility=clean(data.current.visibility);
+  const currentCode=toFiniteNumber(data.current?.weather_code);
+  const currentPrecip=toFiniteNumber(data.current?.precipitation);
+  const currentRain=toFiniteNumber(data.current?.rain);
+  const currentSnow=toFiniteNumber(data.current?.snow);
+
+  const fogNow=isFogVisibilityCode(currentCode);
+  const drizzleNow=isDrizzleVisibilityCode(currentCode);
+  const precipNow=(currentPrecip!==null&&currentPrecip>0)
+    ||(currentRain!==null&&currentRain>0)
+    ||(currentSnow!==null&&currentSnow>0);
+
+  if(data.current&&"visibility"in data.current){
+    const v=clean(data.current.visibility);
+    // Bez bieżącej mgły/opadu: kafelek widoczności ma minimum 10 km.
+    data.current.visibility=(!fogNow&&!drizzleNow&&!precipNow&&v!==null)
+      ?Math.max(10000,v)
+      :v;
+  }
+
   if(Array.isArray(data.hourly?.visibility)){
-    for(let i=0;i<data.hourly.visibility.length;i++)data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
+    for(let i=0;i<data.hourly.visibility.length;i++){
+      data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
+    }
   }
 }
 
