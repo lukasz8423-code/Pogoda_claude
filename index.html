@@ -1278,7 +1278,7 @@ function nowcastHTML(X){
         }
       }
     }
-    const startTime=!nowWet&&first>=0?hhmm(m[first].t):null;
+    const startTime=!nowWet&&first>=0?hhmm(new Date(new Date(m[first].t).getTime()-15*60000)):null;
     const endLabel=endTime?hhmm(endTime):null;
 
     if(first<0&&!nowWet){
@@ -1305,7 +1305,7 @@ function nowcastHTML(X){
       return `<i class="${a<.1?"z":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax=`<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>`;
-    sub=(sub?sub+". ":"")+"% = godzinowa szansa opadu, mm = ilość opadu w 15 min.";
+    sub=(sub?sub+". ":"")+"% = szansa opadu dla całej godziny, mm = ilość opadu w danym 15-minutowym przedziale.";
   }else{
     const nc=buildNowcast(hourly,X.ci);
     sum=nc?nc.text:"Brak danych o opadach";
@@ -1363,11 +1363,11 @@ function meteogramHTML(X){
     const idx=X.ci+i;
     pts.push({
       t:new Date(hourly.time[idx]),
-      temp:+(hourly.temperature_2m[idx]??X.T),
+      temp:i===0?X.T:+(hourly.temperature_2m[idx]??X.T),
       pr:+(hourly.precipitation?.[idx]??0),
       pop:+(hourly.precipitation_probability?.[idx]??0),
-      wind:hourly.wind_speed_10m?.[idx],
-      gust:hourly.wind_gusts_10m?.[idx]
+      wind:i===0?X.wind:hourly.wind_speed_10m?.[idx],
+      gust:i===0?X.gusts:hourly.wind_gusts_10m?.[idx]
     });
   }
   const maxPr=Math.max(.5,...pts.map(p=>p.pr));
@@ -1391,7 +1391,7 @@ function meteogramHTML(X){
   }).join("");
   return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div>
     <div class="mg-grid">${cells}</div>
-    <div class="note">Każda kolumna = 1 godzina · temperatura · opad mm / szansa % · wiatr / porywy. Przewiń w bok.</div>
+    <div class="note">Każda kolumna = 1 godzina · temperatura · opad z poprzedniej godziny · szansa dla poprzedniej godziny · wiatr / porywy. Przewiń w bok.</div>
   </section>`;
 }
 
@@ -1532,7 +1532,7 @@ function wPress(X){
   const k=clamp((p-970)/80,0,1),th=Math.PI*(1-k),cx=60,cy=58,r=46;
   const px=(cx+Math.cos(th)*r).toFixed(1),py=(cy-Math.sin(th)*r).toFixed(1);
   const tr=X.pDelta==null?"":X.pDelta>1?"Rośnie":X.pDelta<-1?"Spada":"Stabilne";
-  return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
+  return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, trend modelowy: ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
 }
 function wVis(X){
   const v=X.visKm;
@@ -1553,7 +1553,7 @@ function wRain(X){
   }else if(S.minutely?.length){
     const now=Date.now();
     const hit=S.minutely.find(x=>new Date(x.t).getTime()>now&&x.mm>=0.1);
-    if(hit)next=`Najbliższy deszcz ok. ${hhmm(hit.t)}.`;
+    if(hit){const end=new Date(hit.t);const start=new Date(end.getTime()-15*60000);next=`Najbliższy deszcz około ${hhmm(start)}–${hhmm(end)}.`;}
   }
   if(!next){
     for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
@@ -1617,11 +1617,11 @@ function modelsHTML(){
       const cavg=clouds.reduce((a,b)=>a+b,0)/clouds.length;
       body+=`<div class="note" style="margin:10px 0 6px;font-weight:600;color:var(--ink2)">Aktualne zachmurzenie modeli</div>`;
       body+=mc.filter(m=>Number.isFinite(Number(m.cloud))).map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((Number(m.cloud)-clo)/csp*80+10).toFixed(1)}%"></u></div><b class="tn">${Math.round(Number(m.cloud))}%</b></div>`).join("");
-      body+=`<div class="note" style="margin:4px 0 0">Średnia modeli: ${Math.round(cavg)}% · rozrzut: ${Math.round(chi-clo)} pkt. To diagnostyka — główne zachmurzenie aplikacji nadal pozostaje bez zmian.</div>`;
+      body+=`<div class="note" style="margin:4px 0 0">Średnia modeli: ${Math.round(cavg)}% · rozrzut: ${Math.round(chi-clo)} pkt. To diagnostyka; główne zachmurzenie aplikacji pochodzi z aktywnego modelu.</div>`;
     }
   }else if(!c)body+=`<div class="note" style="margin-top:0">Porównanie modeli pojawi się po chwili.</div>`;
   if(acc)body+=`<div class="note">Trafność temperatury z historii tej aplikacji: ${acc.accuracy}% (${acc.count} zweryfikowanych prognoz).</div>`;
-  return`<section class="card"><div class="ch">${mini("layers")}<span class="grow">Modele i wiarygodność</span></div>${body}
+  return`<section class="card"><div class="ch">${mini("layers")}<span class="grow">Zgodność modeli</span></div>${body}
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="model">Zmień model</button><button class="btn" data-act="raw">Surowe dane</button></div></section>`;
 }
 
@@ -1897,18 +1897,13 @@ async function loadW(lat,lng,name,isRef){
       S.gpsDiag.cloud=data?.current?.cloud_cover??null;
       S.gpsDiag.code=data?.current?.weather_code??null;
     }
-    // Główne zachmurzenie ma być spójne z diagnostyką modeli dla każdej lokalizacji,
-    // nie tylko dla GPS. Gdy mamy co najmniej 2 modele, używamy ich średniej jako konsensusu.
+    // Główne zachmurzenie pozostaje wartością total cloud_cover z aktywnego modelu.
+    // Porównanie ICON/ECMWF/GFS jest wyłącznie diagnostyczne i nie nadpisuje głównego kafelka.
     const modelClouds=cloudCompare.map(r=>Number(r.data?.current?.cloud_cover))
       .filter(Number.isFinite).filter(v=>v>=0&&v<=100);
-    if(modelClouds.length>=2){
-      const avg=modelClouds.reduce((a,b)=>a+b,0)/modelClouds.length;
-      const value=Math.round(avg);
-      data.current.cloud_cover=value;
-      S.cloudSource={type:"model-consensus",value,models:modelClouds};
-    }else{
-      const raw=Number(data?.current?.cloud_cover);
-      if(Number.isFinite(raw)) S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
+    const raw=Number(data?.current?.cloud_cover);
+    if(Number.isFinite(raw)){
+      S.cloudSource={type:"open-meteo-current",value:raw,models:modelClouds};
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
