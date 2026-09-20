@@ -84,6 +84,13 @@ svg{display:block}
 .cond{font-size:22px;font-weight:500;margin:6px 2px 2px}
 .subline{color:var(--ink2);font-size:14px;margin:0 2px 2px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .subline b{color:var(--ink);font-weight:600}
+.hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:12px 2px 0}
+.hero-metric{min-width:0;padding:9px 8px 8px;border-radius:16px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.hero-metric .hm-label{display:flex;align-items:center;gap:5px;color:var(--ink3);font-size:10.5px;font-weight:600;white-space:nowrap}
+.hero-metric .hm-label svg{width:13px;height:13px;flex:none}
+.hero-metric .hm-value{margin-top:3px;font-size:17px;font-weight:600;line-height:1.1;white-space:nowrap}
+.hero-metric .hm-value small{font-size:10px;color:var(--ink2);font-weight:500;margin-left:2px}
+@media(max-width:380px){.hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 2px 0}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12.5px;font-weight:500;color:var(--ink2);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .chip svg{width:13px;height:13px}
@@ -1184,7 +1191,13 @@ function heroHTML(X){
     <div class="hero-ico">${ico(X.code,X.isDay,108)}</div>
   </section>
   <div class="cond">${esc(X.meta.t)}</div>
-  <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span><span>Max <b class="tn">${X.maxT}°</b></span><span>Min <b class="tn">${X.minT}°</b></span></div>
+  <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
+  <div class="hero-metrics" aria-label="Najważniejsze warunki teraz">
+    <div class="hero-metric"><div class="hm-label">${mini("wind")}Wiatr</div><div class="hm-value tn">${X.wind}<small>km/h</small></div></div>
+    <div class="hero-metric"><div class="hm-label">${mini("wind")}Porywy</div><div class="hm-value tn">${X.gusts}<small>km/h</small></div></div>
+    <div class="hero-metric"><div class="hm-label">${mini("sun")}UV</div><div class="hm-value tn">${fnum(X.uv,X.uv<10?1:0)}<small>${uvWord(X.uv)}</small></div></div>
+    <div class="hero-metric"><div class="hm-label">${mini("cloud")}Chmury</div><div class="hm-value tn">${X.cloud}<small>%</small></div></div>
+  </div>
   <div class="chips">${chips.join("")}</div>`;
 }
 
