@@ -1260,37 +1260,6 @@ let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
 
-// Bieżące zachmurzenie optyczne: total cloud_cover nie jest bezpośrednio utożsamiany z tym,
-// jak mocno chmury zasłaniają słońce. Open-Meteo opisuje total jako udział powierzchni,
-// a warstwy low/mid/high są osobnymi składowymi. UV/UV clear-sky jest dodatkowym sygnałem
-// tego, ile promieniowania model przepuszcza przy aktualnym zachmurzeniu.
-function calcOptiCloud({total,low,mid,high,code,uv,uvClear,isDay}){
-  const finite=v=>Number.isFinite(v)&&v>=0&&v<=100;
-  const vals=[low,mid,high].filter(finite);
-  if(!vals.length && !finite(total))return{value:null,layer:null,solarRatio:null};
-
-  const layer=(finite(low)?low*.65:0)+(finite(mid)?mid*.25:0)+(finite(high)?high*.10:0);
-  const base=finite(layer)?layer:(finite(total)?total:0);
-  const solarRatio=(isDay&&Number.isFinite(uv)&&Number.isFinite(uvClear)&&uvClear>1)?clamp(uv/uvClear,0,1):null;
-
-  let value=finite(base)?base:(finite(total)?total:0);
-  // Przy deszczu/mgle/śniegu nie obniżamy zachmurzenia na podstawie chwilowego UV.
-  const precipitationOrFog=code>=45;
-  if(!precipitationOrFog&&solarRatio!=null){
-    if(solarRatio>=.85)value=Math.min(value,Math.max(20,value*.55));
-    else if(solarRatio>=.65)value=Math.min(value,Math.max(30,value*.72));
-  }
-  // WMO 0 = bezchmurnie; 1–2 = głównie bezchmurnie/częściowo pochmurno.
-  if(code===0)value=Math.min(value,12);
-  else if(code===1)value=Math.min(value,30);
-  else if(code===2)value=Math.min(value,55);
-  if(finite(total)&&finite(base)){
-    // Total pozostaje górnym ograniczeniem, ale nie jest już bezpośrednim wynikiem.
-    value=Math.min(value,total);
-  }
-  return{value:clamp(Math.round(value),0,100),layer:Math.round(base),solarRatio};
-}
-
 // Jedno miejsce, w którym liczymy wszystkie wartości pochodne
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
@@ -1308,22 +1277,17 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  // OptiCloud: total cloud_cover pozostaje surowym sygnałem modelu, ale nie jest już bezpośrednio
-  // prezentowany jako "ile chmur widzi człowiek". Warstwy i sygnał solarnego prześwitu korygują wynik.
+  // Główne zachmurzenie = surowe total cloud_cover z aktywnego modelu Open-Meteo.
+  // Nie przeliczamy go własnym wzorem z warstw low/mid/high ani UV.
+  // Open-Meteo definiuje cloud_cover jako całkowite zachmurzenie; warstwy są
+  // osobnymi wartościami diagnostycznymi.
   const cloudTotal=Number(current.cloud_cover??g(hourly.cloud_cover));
   const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
   const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
   const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
-  const cloudSolar=calcOptiCloud({
-    total:cloudTotal,low:cloudLow,mid:cloudMid,high:cloudHigh,
-    code:current.weather_code??0,
-    uv:Number(current.uv_index??g(hourly.uv_index)),
-    uvClear:Number(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)),
-    isDay
-  });
-  let cloud=cloudSolar.value;
+  let cloud=Number.isFinite(cloudTotal)?clamp(Math.round(cloudTotal),0,100):null;
   if(cloud==null && S.cloudSource?.value!=null) cloud=clamp(Math.round(S.cloudSource.value),0,100);
-  if(cloud==null) cloud=clamp(Math.round(Number.isFinite(cloudTotal)?cloudTotal:0),0,100);
+  if(cloud==null) cloud=0;
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
