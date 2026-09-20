@@ -1462,46 +1462,6 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // To jest estymacja wizualna, a nie zamiennik surowego cloud_cover.
 // Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
 // ═══════════════════════════════════════════════
-function calculateVisualCloud({low,mid,high,total,radiation,uv,uvClear,isDay}){
-  const validPct=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
-  const raw=validPct(total)?clamp(Number(total),0,100):null;
-  const layersComplete=validPct(low)&&validPct(mid)&&validPct(high);
-  let visual=raw;
-  if(layersComplete){
-    const L=clamp(Number(low)/100,0,1);
-    const M=clamp(Number(mid)/100,0,1);
-    const H=clamp(Number(high)/100,0,1);
-    const optical=1-(1-L*0.78)*(1-M*0.38)*(1-H*0.12);
-    visual=optical*100;
-  }else if(raw===null){
-    visual=null;
-  }
-
-  // Solar/UV są sygnałem pomocniczym, ale nie mogą skasować wiarygodnego
-  // total cloud_cover z modelu. Szczególnie ważne w trybie ensemble.
-  let solarSignal=0;
-  if(isDay){
-    const r=Number(radiation);
-    if(Number.isFinite(r)&&r>250)solarSignal=Math.max(solarSignal,clamp((r-250)/500,0,1));
-    const u=Number(uv),uc=Number(uvClear);
-    if(Number.isFinite(u)&&Number.isFinite(uc)&&uc>1)
-      solarSignal=Math.max(solarSignal,clamp((u/uc-0.45)/0.55,0,1));
-  }
-  if(raw!==null&&visual!==null){
-    // Warstwy mogą być użyte do korekty tylko wtedy, gdy nie są sprzeczne
-    // z total. Nigdy nie schodzimy poniżej 85% surowego totalu.
-    visual=Math.max(visual,raw*0.85);
-    if(solarSignal>0&&raw<85)visual=visual*(1-0.15*solarSignal);
-    visual=Math.max(visual,raw*0.85);
-  }
-  visual=visual===null?null:Math.round(clamp(visual,0,100));
-  const category=visual==null?"unknown":visual<20?"clear":visual<50?"partly-cloudy":visual<80?"mostly-cloudy":"overcast";
-  return {visualCover:visual,category,rawTotal:raw,solarSignal:+solarSignal.toFixed(2),layersComplete};
-}
-
-// isStormCode() jest zdefiniowana wspólnie z helperami WMO poniżej.
-
-// Jedno miejsce, w którym liczymy wszystkie wartości pochodne
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
   const now=new Date();
@@ -1518,10 +1478,8 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  const cloudTotal=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
-  const cloudLow=toFiniteNumber(current.cloud_cover_low??g(hourly.cloud_cover_low));
-  const cloudMid=toFiniteNumber(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
-  const cloudHigh=toFiniteNumber(current.cloud_cover_high??g(hourly.cloud_cover_high));
+  // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
+  const cloud=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
@@ -1530,25 +1488,7 @@ function computeCtx(){
   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
   const uvClearMax=+(daily.uv_index_clear_sky_max?.[0]??uvClear??uvMax)||0;
   const rad=g(hourly.shortwave_radiation)??uv*80;
-  const cloudEngine=calculateVisualCloud({
-    low:cloudLow,mid:cloudMid,high:cloudHigh,total:cloudTotal,
-    radiation:rad,uv,uvClear,isDay
-  });
-  // W trybie IMGW Offline główne zachmurzenie pochodzi z consensusu modeli.
-  // Nie pozwalamy warstwom/solarowi zejść do wartości typu 28%, gdy wszystkie
-  // modele wskazują >90% zachmurzenia.
-  const ensembleCloud=Number(S.ensemble?.cloudCover);
-  let cloud=cloudEngine.visualCover;
-  if(S.imgwStatus==="OFFLINE"&&Number.isFinite(ensembleCloud)){
-    // HARD UI OVERRIDE: przy IMGW Offline główny kafelek dostaje
-    // dokładnie consensus ensemble. Żadnego optical cloud, solar scaling
-    // ani wygładzania po tej wartości.
-    cloud=Math.round(clamp(ensembleCloud,0,100));
-    cloudEngine.visualCover=cloud;
-    console.log("[AURA CLOUD OVERRIDE] IMGW OFFLINE → UI cloudCover =",cloud,
-      "ensemble=",ensembleCloud,"models=",S.ensemble?.models||[]);
-  }
-  S.cloudEngine=cloudEngine;
+  // cloud jest już surową wartością dostawcy — bez transformacji.
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
   const stImgw=S.imgwData;
@@ -1667,16 +1607,6 @@ function isRainingNow(X){
 }
 function heroHTML(X){
   const chips=[];
-  const uiCloud=(S.imgwStatus==="OFFLINE"&&Number.isFinite(Number(S.ensemble?.cloudCover)))
-    ?Math.round(clamp(Number(S.ensemble.cloudCover),0,100))
-    :X.cloud;
-  if(S.imgwStatus==="OFFLINE"&&uiCloud!==X.cloud){
-    console.warn("[AURA CLOUD RENDER GUARD] X.cloud was",X.cloud,"but UI is forced to ensemble",uiCloud);
-    X={...X,cloud:uiCloud};
-  }
-  console.log("[AURA CLOUD RENDER] status=",S.imgwStatus,"cloud=",uiCloud,
-    "ensemble=",S.ensemble?.cloudCover??null);
-
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
   else if(S.imgwData){
@@ -2256,24 +2186,11 @@ function imgwDiagHTML(){
 }
 function weatherHTML(){
   const X=computeCtx();S.X=X;
-  // HARD BINDING UI: przy IMGW Offline główny stan UI musi wskazywać
-  // bezpośrednio na finalData.cloudCover (= ensemble.cloudCover).
-  const finalData={
-    ...X,
-    cloud:(S.imgwStatus==="OFFLINE"&&Number.isFinite(Number(S.ensemble?.cloudCover)))
-      ?Math.round(clamp(Number(S.ensemble.cloudCover),0,100))
-      :X.cloud
-  };
-  if(S.imgwStatus==="OFFLINE"){
-    console.log("[AURA FINAL DATA BIND] IMGW OFFLINE",
-      "finalData.cloudCover=",finalData.cloud,
-      "ensemble.cloudCover=",S.ensemble?.cloudCover??null,
-      "legacy X.cloud=",X.cloud);
-  }
-  applySky(finalData);ambientFor(X);
+  // UI dostaje dokładnie tę samą surową wartość cloud_cover, którą ma X.cloud.
+  applySky(X);ambientFor(X);
   const upd=S.lastUpdate?new Date(S.lastUpdate):null;
   return`<div class="${S.enter?"enter":""}">
-    ${topHTML(finalData)}${heroHTML(finalData)}${gpsDiagHTML()}${sunlineHTML(finalData)}
+    ${topHTML(X)}${heroHTML(X)}${gpsDiagHTML()}${sunlineHTML(X)}
     <div id="s-alerts">${alertsHTML(X)}</div>
     <div id="s-nowcast">${nowcastHTML(X)}</div>
     ${hourlyHTML(X)}
@@ -2865,10 +2782,23 @@ async function loadW(lat,lng,name,isRef){
       S.imgwDiag?.status==="nieprawidłowa odpowiedź";
     const imgwOffline=imgwFeedOffline;
     S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
+    // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
+    // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
+    // ICON-EU, a jeśli go nie ma — ECMWF IFS.
+    const rawCloudSource=imgwOffline
+      ?(cloudCompare.find(r=>r.model==="icon_eu"&&Number.isFinite(Number(r.data?.current?.cloud_cover)))
+        ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
+      :null;
+    const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
     const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
     const activeEnsembleModels=offlineEnsemble?.__auraEnsemble?.models||[];
     if(imgwOffline&&offlineEnsemble){
       data=offlineEnsemble;
+      // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
+      if(Number.isFinite(rawCloudCover)){
+        data.current=data.current||{};
+        data.current.cloud_cover=rawCloudCover;
+      }
       S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
       S.ensemble=offlineEnsemble.__auraEnsemble;
     }else{
