@@ -694,7 +694,7 @@ async function findNearestIMGW(lat,lng){
     const __allFields=Object.keys(glodowo||{});
     const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     const __candidateTemps=__allFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:glodowo[k],num:parseFloat(String(glodowo[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
-    const temp=Number.isFinite(parseFloat(glodowo.temperatura))?parseFloat(glodowo.temperatura):(__candidateTemps.length?__candidateTemps[0].num:NaN);
+    const temp=parseFloat(glodowo.temperatura_powietrza);
     const distRounded=Math.round(dist*10)/10;
     const distOK=dist<=30;
     const tempOK=Number.isFinite(temp);
