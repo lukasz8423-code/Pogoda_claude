@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-<title>Aura Pogoda — GLODOWO-TEST-02</title>
+<title>Aura – Prognoza Pogody</title>
 <style>
 @property --st{syntax:'<color>';inherits:true;initial-value:#0b1430}
 @property --sb{syntax:'<color>';inherits:true;initial-value:#1b2a55}
@@ -551,6 +551,7 @@ const WEATHER_CACHE_POLICY={
   best_match:{runHours:1,ttlMs:15*60*1000}
 };
 const WEATHER_CACHE=new Map();
+let WEATHER_FORCE_REFRESH=false;
 
 function modelRunBucket(modelId,now=Date.now()){
   const h=WEATHER_CACHE_POLICY[modelId]?.runHours??1;
@@ -573,10 +574,10 @@ function putWeatherCache(key,data){
 }
 
 // Pobierz dane z konkretnego modelu (v6: więcej zmiennych, 10 dni)
-async function apiWeatherModel(lat,lng,modelId,days=10){
+async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
   const key=weatherCacheKey(lat,lng,modelId,days);
-  const cached=getWeatherCache(key,policy.ttlMs);
+  const cached=!forceFresh&&!WEATHER_FORCE_REFRESH?getWeatherCache(key,policy.ttlMs):null;
   if(cached)return structuredClone(cached);
 
   const p=new URLSearchParams({
@@ -615,9 +616,9 @@ async function apiWeatherModel(lat,lng,modelId,days=10){
 
 
 
-async function apiWeather(lat,lng){
+async function apiWeather(lat,lng,forceFresh=false){
   // best_match = automatyczny wybór najlepszego modelu dla lokalizacji przez Open-Meteo; to nie jest fuzja satelitarna.
-  return apiWeatherModel(lat,lng,activeModel.id);
+  return apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
 }
 
 async function apiCity(lat,lng){
@@ -849,6 +850,10 @@ async function findNearestIMGW(lat,lng){
         temperatura:usableTemp?temp:null,
         wilgotnosc_wzgledna:usableHumidity?parseFloat(glodowo.wilgotnosc_wzgledna):null,
         wilgotnosc_wzgledna_data:glodowo.wilgotnosc_wzgledna_data||null,
+        tempAgeMinutes:ageMinutes,
+        humidityAgeMinutes:humidityAgeMinutes,
+        windAgeMinutes:windAgeMinutes,
+        windDirAgeMinutes:windDirAgeMinutes,
         wilgotnosc_wzgledna_ageMinutes:humidityAgeMinutes,
         predkosc_wiatru:usableWind?parseFloat(glodowo.wiatr_srednia_predkosc):null,
         predkosc_wiatru_data:glodowo.wiatr_srednia_predkosc_data||null,
@@ -936,10 +941,10 @@ async function findNearestIMGW(lat,lng){
 // ══════════════════════════════════════════════
 // PORÓWNANIE WIELU MODELI + ZGODNOŚĆ MODELI
 // ══════════════════════════════════════════════
-async function fetchAllModelsCompare(lat,lng){
+async function fetchAllModelsCompare(lat,lng,forceFresh=false){
   const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless"];
   const results = await Promise.allSettled(
-    modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,2))
+    modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,2,forceFresh))
   );
   const valid = results
     .map((r,i)=>({model:modelsToCheck[i],data:r.status==="fulfilled"?r.value:null}))
@@ -1090,7 +1095,9 @@ function buildSimRadar(code,precip){
       ctx.fillStyle=rg;ctx.beginPath();ctx.arc(cx,cy,cell.r,0,Math.PI*2);ctx.fill();
       if(storm&&Math.random()<.04){ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.shadowColor="#FBBF24";ctx.shadowBlur=14;ctx.beginPath();ctx.moveTo(cx+Math.random()*20-10,cy-20);ctx.lineTo(cx+Math.random()*10-5,cy);ctx.lineTo(cx+Math.random()*20-10,cy+20);ctx.stroke();ctx.shadowBlur=0;}
     });
-    TOWNS.forEach(t=>{
+    const localRegion=Number.isFinite(S.lat)&&Number.isFinite(S.lng)
+      ?stationDist(S.lat,S.lng,52.802542,19.205053)<=35:false;
+    if(localRegion)TOWNS.forEach(t=>{
       const tx=t.x/100*W,ty=t.y/100*H;
       ctx.font=t.c?"bold 9px sans-serif":"bold 8px sans-serif";ctx.textAlign="center";
       const tw2=ctx.measureText(t.name).width;
@@ -1327,14 +1334,19 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
 // ═══════════════════════════════════════════════
 function calculateVisualCloud({low,mid,high,total,radiation,uv,uvClear,isDay}){
-  const L=clamp(Number(low)/100,0,1);
-  const M=clamp(Number(mid)/100,0,1);
-  const H=clamp(Number(high)/100,0,1);
-  const raw=clamp(Number(total),0,100);
-
-  // Niskie chmury są wizualnie ważniejsze; wysokie mają mniejszy wpływ.
-  const optical=1-(1-L*0.78)*(1-M*0.38)*(1-H*0.12);
-  let visual=optical*100;
+  const validPct=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
+  const raw=validPct(total)?clamp(Number(total),0,100):null;
+  const layersComplete=validPct(low)&&validPct(mid)&&validPct(high);
+  let visual;
+  if(layersComplete){
+    const L=clamp(Number(low)/100,0,1);
+    const M=clamp(Number(mid)/100,0,1);
+    const H=clamp(Number(high)/100,0,1);
+    const optical=1-(1-L*0.78)*(1-M*0.38)*(1-H*0.12);
+    visual=optical*100;
+  }else{
+    visual=raw??0;
+  }
 
   // Silny sygnał słoneczny ogranicza interpretację "całkowicie pochmurno".
   let solarSignal=0;
@@ -1359,10 +1371,10 @@ function calculateVisualCloud({low,mid,high,total,radiation,uv,uvClear,isDay}){
 
   visual=Math.round(clamp(visual,0,100));
   const category=visual<20?"clear":visual<50?"partly-cloudy":visual<80?"mostly-cloudy":"overcast";
-  return {visualCover:visual,category,rawTotal:raw,solarSignal:+solarSignal.toFixed(2)};
+  return {visualCover:visual,category,rawTotal:raw,solarSignal:+solarSignal.toFixed(2),layersComplete};
 }
 
-function isStormCode(code){ return Number(code)>=95; }
+// isStormCode() jest zdefiniowana wspólnie z helperami WMO poniżej.
 
 // Jedno miejsce, w którym liczymy wszystkie wartości pochodne
 function computeCtx(){
@@ -1381,10 +1393,10 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  const cloudTotal=Number(current.cloud_cover??g(hourly.cloud_cover));
-  const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
-  const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
-  const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
+  const cloudTotal=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
+  const cloudLow=toFiniteNumber(current.cloud_cover_low??g(hourly.cloud_cover_low));
+  const cloudMid=toFiniteNumber(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
+  const cloudHigh=toFiniteNumber(current.cloud_cover_high??g(hourly.cloud_cover_high));
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
@@ -2171,33 +2183,40 @@ function bridgeAlpha(hoursAhead,weight){
   const h=clamp(Number(hoursAhead),0,3);
   return clamp(Number(weight)*(1-smoothstep01(h/3)),0,1);
 }
+function hasFiniteValue(val){
+  return val!==null&&val!==undefined&&val!==""&&Number.isFinite(Number(val));
+}
+function toFiniteNumber(val){
+  return hasFiniteValue(val)?Number(val):null;
+}
 function fuseObservedValue(modelValue,observedValue,weight){
-  const m=Number(modelValue),o=Number(observedValue),w=clamp(Number(weight),0,1);
-  if(!Number.isFinite(o))return Number.isFinite(m)?m:null;
-  if(!Number.isFinite(m)||w>=0.999)return o;
+  const m=toFiniteNumber(modelValue),o=toFiniteNumber(observedValue),w=clamp(toFiniteNumber(weight)??0,0,1);
+  if(o===null)return m;
+  if(m===null||w>=0.999)return o;
   return m+(o-m)*w;
 }
 function applyObservationFusion(data,imgwData){
   if(!data?.current||!imgwData)return {weight:0,bias:{},weights:{},completeness:{},used:false};
   const cur=data.current;
-  const dist=Number(imgwData.dist);
+  const dist=toFiniteNumber(imgwData.dist);
   const ages={
-    temperature:Number(imgwData.tempAgeMinutes??imgwData.ageMinutes),
-    humidity:Number(imgwData.humidityAgeMinutes??imgwData.ageMinutes),
-    wind:Number(imgwData.windAgeMinutes??imgwData.ageMinutes),
-    windDirection:Number(imgwData.windDirAgeMinutes??imgwData.ageMinutes)
+    temperature:toFiniteNumber(imgwData.tempAgeMinutes??imgwData.ageMinutes),
+    humidity:toFiniteNumber(imgwData.humidityAgeMinutes??imgwData.ageMinutes),
+    wind:toFiniteNumber(imgwData.windAgeMinutes??imgwData.ageMinutes),
+    windDirection:toFiniteNumber(imgwData.windDirAgeMinutes??imgwData.ageMinutes)
   };
   const obs={
-    temperature:Number(imgwData.temperatura),
-    humidity:Number(imgwData.wilgotnosc_wzgledna),
-    wind:Number(imgwData.predkosc_wiatru)*3.6,
-    windDirection:Number(imgwData.kierunek_wiatru)
+    temperature:toFiniteNumber(imgwData.temperatura),
+    humidity:toFiniteNumber(imgwData.wilgotnosc_wzgledna),
+    wind:toFiniteNumber(imgwData.predkosc_wiatru),
+    windDirection:toFiniteNumber(imgwData.kierunek_wiatru)
   };
+  if(obs.wind!==null)obs.wind*=3.6;
   const model={
-    temperature:Number(cur.temperature_2m),
-    humidity:Number(cur.relative_humidity_2m),
-    wind:Number(cur.wind_speed_10m),
-    windDirection:Number(cur.wind_direction_10m)
+    temperature:toFiniteNumber(cur.temperature_2m),
+    humidity:toFiniteNumber(cur.relative_humidity_2m),
+    wind:toFiniteNumber(cur.wind_speed_10m),
+    windDirection:toFiniteNumber(cur.wind_direction_10m)
   };
   const valid={
     temperature:Number.isFinite(obs.temperature)&&Number.isFinite(model.temperature)&&Math.abs(obs.temperature-model.temperature)<=12,
@@ -2343,33 +2362,15 @@ function isDrizzleVisibilityCode(code){
   return c>=51&&c<=57;
 }
 function sanitizeVisibility(data){
-  if(!data?.hourly?.time)return;
-
-  const h=data.hourly;
-  for(let i=0;i<h.time.length;i++){
-    const code=Number(h.weather_code?.[i]);
-    const precip=Number(h.precipitation?.[i]);
-    const rain=Number(h.rain?.[i]);
-    const restricted=isFogVisibilityCode(code)
-      ||isDrizzleVisibilityCode(code)
-      ||(Number.isFinite(precip)&&precip>1)
-      ||(Number.isFinite(rain)&&rain>1);
-
-    if(!restricted&&Number.isFinite(Number(h.visibility?.[i]))&&Number(h.visibility[i])<10000){
-      h.visibility[i]=10000;
-    }
-  }
-
-  const code=Number(data.current?.weather_code);
-  const precip=Number(data.current?.precipitation);
-  const rain=Number(data.current?.rain);
-  const restricted=isFogVisibilityCode(code)
-    ||isDrizzleVisibilityCode(code)
-    ||(Number.isFinite(precip)&&precip>1)
-    ||(Number.isFinite(rain)&&rain>1);
-
-  if(!restricted&&Number.isFinite(Number(data.current?.visibility))&&Number(data.current.visibility)<10000){
-    data.current.visibility=10000;
+  if(!data)return;
+  // Zachowujemy rzeczywistą wartość modelu; nie podnosimy arbitralnie widoczności do 10 km.
+  const clean=v=>{
+    const n=toFiniteNumber(v);
+    return n!==null&&n>=0?n:null;
+  };
+  if(data.current&&"visibility"in data.current)data.current.visibility=clean(data.current.visibility);
+  if(Array.isArray(data.hourly?.visibility)){
+    for(let i=0;i<data.hourly.visibility.length;i++)data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
   }
 }
 
@@ -2476,7 +2477,14 @@ async function handleGPS(){
 async function loadW(lat,lng,name,isRef){
   S.fusion=null;
   S.cloudEngine=null;
-  if(isRef){S.refreshing=true;render();}
+  const sameGps=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
+  if(!sameGps)S.gpsDiag=null;
+  if(isRef){
+    S.refreshing=true;
+    WEATHER_FORCE_REFRESH=true;
+    WEATHER_CACHE.clear();
+    render();
+  }
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
 
   let city=name;
@@ -2486,9 +2494,9 @@ async function loadW(lat,lng,name,isRef){
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
     const [weatherResult,imgwResult,cloudResult]=await Promise.allSettled([
-      apiWeather(lat,lng),
+      apiWeather(lat,lng,isRef),
       findNearestIMGW(lat,lng),
-      fetchAllModelsCompare(lat,lng)
+      fetchAllModelsCompare(lat,lng,isRef)
     ]);
     if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
@@ -2564,9 +2572,13 @@ async function loadW(lat,lng,name,isRef){
           const windMs=Math.max(0,Number(data.current.wind_speed_10m||0)/3.6);
           if(Number.isFinite(rh)){
             let newFeels=t;
-            if(t<=10&&windMs>1.3)newFeels=13.12+0.6215*t-11.37*Math.pow(windMs*3.6,0.16)+0.3965*t*Math.pow(windMs*3.6,0.16);
-            else if(t>=27)newFeels=-8.784+1.611*t+2.338*rh-0.146*t*rh;
-            data.current.apparent_temperature=Math.round(newFeels*10)/10;
+            if(t<=10&&windMs>1.3){
+              newFeels=13.12+0.6215*t-11.37*Math.pow(windMs*3.6,0.16)
+                +0.3965*t*Math.pow(windMs*3.6,0.16);
+            }else{
+              newFeels=discomfortIndex(t,rh).value;
+            }
+            data.current.apparent_temperature=Number.isFinite(newFeels)?Math.round(newFeels*10)/10:t;
           }else{
             data.current.apparent_temperature=t;
           }
@@ -2582,6 +2594,8 @@ async function loadW(lat,lng,name,isRef){
   }catch(e){
     console.warn("API fail:",e.message);
     isDemo=true;imgwData=null;stationInfo="Dane demonstracyjne";data=demoData();
+  }finally{
+    WEATHER_FORCE_REFRESH=false;
   }
 
   // ─────────────────────────────────────────────────────────────
