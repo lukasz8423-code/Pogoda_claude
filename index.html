@@ -2594,8 +2594,13 @@ async function loadW(lat,lng,name,isRef){
   saveHistory(city,lat,lng);
   if(data&&data.current)checkForecastAccuracy(data.current.temperature_2m,data.current.weather_code);
   if(data&&data.hourly&&!isDemo){
-    const fi=Math.min(3,data.hourly.time.length-1);
-    if(data.hourly.temperature_2m?.[fi]!=null)saveForecastHistory(lat,lng,city,data.hourly.temperature_2m[fi],data.hourly.weather_code?.[fi]??0);
+    // Historia prognozy musi odnosić się do AKTUALNEJ godziny, nie do 03:00.
+    // Dzięki temu zapisujemy rzeczywiste T+3 i możemy później mierzyć ciągłość bridge'a.
+    const ci=currentHourIndex(data);
+    const fi=Math.min(ci+3,data.hourly.time.length-1);
+    if(data.hourly.temperature_2m?.[fi]!=null){
+      saveForecastHistory(lat,lng,city,data.hourly.temperature_2m[fi],data.hourly.weather_code?.[fi]??0);
+    }
   }
 
   if(cloudCompare.length>=2){
