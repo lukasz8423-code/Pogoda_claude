@@ -537,8 +537,46 @@ const WEATHER_MODELS = [
 let activeModel = WEATHER_MODELS[0]; // domyślnie best_match
 
 
+// RUN-AWARE CACHE
+// ICON/DWD: nowe runy co 3 h; ECMWF IFS: co 6 h.
+// Cache nie zastępuje odświeżenia po publikacji nowego runu — nowy bucket tworzy nowy wpis.
+// Open-Meteo zaleca dodatkowe ~10 min po publikacji runu ze względu na replikację danych.
+const WEATHER_CACHE_POLICY={
+  icon_seamless:{runHours:3,ttlMs:25*60*1000},
+  ecmwf_ifs025:{runHours:6,ttlMs:45*60*1000},
+  gfs_seamless:{runHours:1,ttlMs:20*60*1000},
+  meteofrance_seamless:{runHours:1,ttlMs:20*60*1000},
+  best_match:{runHours:1,ttlMs:15*60*1000}
+};
+const WEATHER_CACHE=new Map();
+
+function modelRunBucket(modelId,now=Date.now()){
+  const h=WEATHER_CACHE_POLICY[modelId]?.runHours??1;
+  const d=new Date(now);
+  d.setUTCMinutes(0,0,0);
+  d.setUTCHours(Math.floor(d.getUTCHours()/h)*h);
+  return d.getTime();
+}
+function weatherCacheKey(lat,lng,modelId,days){
+  return [modelId,modelRunBucket(modelId),Number(lat).toFixed(3),Number(lng).toFixed(3),days].join("|");
+}
+function getWeatherCache(key,ttlMs){
+  const x=WEATHER_CACHE.get(key);
+  if(!x)return null;
+  if(Date.now()-x.fetchedAt>ttlMs){WEATHER_CACHE.delete(key);return null;}
+  return x.data;
+}
+function putWeatherCache(key,data){
+  WEATHER_CACHE.set(key,{fetchedAt:Date.now(),data});
+}
+
 // Pobierz dane z konkretnego modelu (v6: więcej zmiennych, 10 dni)
 async function apiWeatherModel(lat,lng,modelId,days=10){
+  const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
+  const key=weatherCacheKey(lat,lng,modelId,days);
+  const cached=getWeatherCache(key,policy.ttlMs);
+  if(cached)return structuredClone(cached);
+
   const p=new URLSearchParams({
     latitude:lat, longitude:lng,
     current:[
@@ -565,7 +603,9 @@ async function apiWeatherModel(lat,lng,modelId,days=10){
   });
   const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
   if(!r.ok)throw new Error("HTTP "+r.status);
-  return r.json();
+  const data=await r.json();
+  putWeatherCache(key,data);
+  return structuredClone(data);
 }
 
 
