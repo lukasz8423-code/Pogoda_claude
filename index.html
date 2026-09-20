@@ -1371,6 +1371,7 @@ function isSnowCode(code){
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
+  if(isSnowCode(X?.code))return 0;
   let mm=Number(X?.precip);
   if(!Number.isFinite(mm)||mm<0)mm=0;
   const m=S.minutely;
@@ -1456,7 +1457,6 @@ function nowcastHTML(X){
     const wet=v.map(a=>a>=.1);
     const nowMs=Date.now();
     const currentSlot=m.findIndex(x=>new Date(x.t).getTime()<=nowMs&&new Date(x.t).getTime()+15*60000>nowMs);
-    const rainCode=isRainCode(X.code);
     const nowWet=isRainingNow(X);
     const futureWet=m.map((x,i)=>i>Math.max(-1,currentSlot)&&wet[i]);
     const firstFuture=futureWet.indexOf(true);
