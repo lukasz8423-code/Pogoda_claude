@@ -1580,6 +1580,7 @@ function sunlineHTML(X){
 function nowcastHTML(X){
   const m=S.minutely,{hourly}=S.data;
   const snow=isSnowCode(X.code);
+  const storm=isStormCode(X.code);
   const noun=snow?"Śnieg":"Deszcz";
   let sum,sub="",bars="",ax="";
   if(m){
@@ -1594,7 +1595,7 @@ function nowcastHTML(X){
       return Number.isFinite(t)&&t<=nowMs&&nowMs<t+15*60000;
     });
     const currentRainMm=Number(currentSlot?.rain??currentSlot?.mm??0);
-    const activeNow=!snow&&Number.isFinite(currentRainMm)&&currentRainMm>=0.05;
+    const activeNow=!snow&&!storm&&Number.isFinite(currentRainMm)&&currentRainMm>=0.05;
 
     // Prognoza początku deszczu: dokładnie te same godziny i weather_code,
     // które pokazuje "Prognoza godzinowa".
@@ -1602,33 +1603,41 @@ function nowcastHTML(X){
     const end=Math.min(X.ci+24,hourly.time.length);
     for(let idx=X.ci;idx<end;idx++){
       const code=Number(hourly.weather_code?.[idx]);
-      rainHours.push({idx,code,rain:isRainCode(code),time:hourly.time?.[idx]});
+      rainHours.push({idx,code,rain:isRainCode(code),snow:isSnowCode(code),storm:isStormCode(code),precip:isPrecipCode(code),time:hourly.time?.[idx]});
     }
 
-    const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.rain);
+    const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.precip);
     let endTime=null;
 
     if(activeNow){
       for(const h of rainHours){
-        if(h.idx>X.ci&&!h.rain){endTime=new Date(h.time);break;}
+        if(h.idx>X.ci&&!h.precip){endTime=new Date(h.time);break;}
       }
     }else if(firstRain){
       for(const h of rainHours){
-        if(h.idx>firstRain.idx&&!h.rain){endTime=new Date(h.time);break;}
+        if(h.idx>firstRain.idx&&!h.precip){endTime=new Date(h.time);break;}
       }
     }
 
     const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.time)):null;
     const endLabel=endTime?hhmm(endTime):null;
 
-    if(activeNow){
+    if(storm){
+      sum=endLabel
+        ? "Burza występuje teraz i może utrzymać się do około "+endLabel+"."
+        : "Burza występuje teraz.";
+    }else if(snow){
+      sum=endLabel
+        ? "Śnieg pada teraz i może potrwać do około "+endLabel+"."
+        : "Śnieg pada teraz.";
+    }else if(activeNow){
       sum=endLabel
         ? noun+" pada teraz i powinien potrwać do około "+endLabel+"."
         : noun+" pada teraz.";
     }else if(firstRain){
       sum=endLabel
-        ? noun+" zacznie padać około "+startTime+" i potrwa do około "+endLabel+"."
-        : noun+" zacznie padać około "+startTime+".";
+        ? (firstRain.snow?"Śnieg zacznie padać":"Opady zaczną się")+" około "+startTime+" i potrwają do około "+endLabel+"."
+        : (firstRain.snow?"Śnieg zacznie padać":"Opady zaczną się")+" około "+startTime+".";
     }else{
       sum="Brak opadów w najbliższych godzinach";
     }
