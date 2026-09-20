@@ -573,7 +573,8 @@ async function apiIP(){
 
 const IMGW_STATIONS = [
   // Kujawsko-Pomorskie (Twoj region)
-  {id:"152170010",name:"Toruń",lat:53.0583,lng:18.5983},
+  {id:"12250",name:"Toruń",lat:53.0583,lng:18.5983},
+  {id:"12360",name:"Płock",lat:52.5883,lng:19.7258},
   {id:"152160020",name:"Włocławek",lat:52.6500,lng:19.0667},
   {id:"152170040",name:"Chojnice",lat:53.7000,lng:17.5500},
   {id:"152160030",name:"Bydgoszcz",lat:53.1333,lng:18.0000},
@@ -622,6 +623,10 @@ const IMGW_STATIONS = [
   // Opolskie
   {id:"152320010",name:"Opole",lat:50.6833,lng:17.9500},
 ];
+
+// IMGW: pomiar stacyjny wykorzystujemy tylko z wiarygodnego promienia.
+// Powyżej 45 km nie nadpisujemy lokalnego modelu pomiarem z odległej stacji.
+const IMGW_MAX_USE_DISTANCE_KM = 45;
 
 // Haversine distance w km
 function stationDist(lat1,lng1,lat2,lng2){
@@ -1137,7 +1142,7 @@ function computeCtx(){
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
   const stImgw=S.imgwData;
-  const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
+  const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=IMGW_MAX_USE_DISTANCE_KM&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
   const visKm=g(hourly.visibility)!=null?g(hourly.visibility)/1000:null;
@@ -1908,8 +1913,8 @@ async function loadW(lat,lng,name,isRef){
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
-      // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest bliżej niż 80 km
-      if(data&&data.current&&imgwData.temperatura&&imgwData.isFresh!==false&&imgwData.dist<=80){
+      // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest w promieniu 45 km
+      if(data&&data.current&&imgwData.temperatura&&imgwData.isFresh!==false&&imgwData.dist<=IMGW_MAX_USE_DISTANCE_KM){
         const imgwTemp=parseFloat(imgwData.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
