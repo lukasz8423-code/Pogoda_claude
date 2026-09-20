@@ -1511,6 +1511,8 @@ function isPrecipCode(code){
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
+  // Świeży pomiar Głodowa <=5 km ma bezwzględny priorytet dla T0.
+  if(stationHasFreshNoPrecip(S.imgwData))return 0;
   if(isSnowCode(X?.code))return 0;
   let mm=Number(X?.precip);
   if(!Number.isFinite(mm)||mm<0)mm=0;
@@ -1531,6 +1533,7 @@ function currentRainMm(X){
   return mm;
 }
 function isRainingNow(X){
+  if(stationHasFreshNoPrecip(S.imgwData))return false;
   if(isRainCode(X.code)||currentRainMm(X)>=0.05)return true;
   return false;
 }
@@ -2183,6 +2186,8 @@ function runLiveDataQualityGuard(){
     add("WARN_MISSING_IMGW_FORECAST","warn","Brak godzinowego feedu IMGW Hybrid; prognoza używa modelu i obserwacji stacji.",null);
   if(d.ghostPrecipitation)
     add("WARN_GHOST_PRECIPITATION","warn","Wykryto brak opadu w realnym pomiarze stacyjnym - zmniejsz wagę opadu z modelu dla bieżącej godziny.",0);
+  if(d.ghostVisibilityDrop)
+    add("WARN_GHOST_VISIBILITY_DROP","warn","Zaniżenie widoczności na podstawie modelu opadu przy braku rzeczywistego opadu na stacji.",0);
   for(const key of ["tempWeight","humidityWeight","windWeight"]){
     for(let i=1;i<rows.length;i++){
       if(!rows[i].dynamicFront&&Number(rows[i-1][key])>0.25&&Number(rows[i][key])===0){
@@ -2392,8 +2397,9 @@ function applyForecastBridge(data,fusion,modelData){
   const currentModelT=currentModelIdx>=0?Number(sourceH.temperature_2m?.[currentModelIdx]):NaN;
   const currentObservedT=Number(data.current?.temperature_2m);
   const observedModelOffset=Number.isFinite(currentObservedT)&&Number.isFinite(currentModelT)
-    ?currentObservedT-currentModelT:0;
-  const tempFade=[1,0.35,0.15,0.05,0,0,0];
+    ?clamp(currentObservedT-currentModelT,-1.5,1.5):0;
+  // Decaying Bias: T+1 100%, T+2 50%, T+3 25%, T+4+ 0%.
+  const tempFade=[1,1,0.5,0.25,0,0,0];
 
   for(let step=0;step<=6;step++){
     const targetIdx=ci+step;
@@ -2414,7 +2420,8 @@ function applyForecastBridge(data,fusion,modelData){
       :-1;
     const prevT=prevSourceIdx>=0?Number(sourceH.temperature_2m?.[prevSourceIdx]):NaN;
     const tempDrop=Number.isFinite(prevT)&&Number.isFinite(modelT)?prevT-modelT:0;
-    const dynamicFront=Number.isFinite(modelPrecip)&&modelPrecip>1.5&&tempDrop>=3;
+    // Front Dynamic Bypass: gwałtowny spadek >=4°C/h + sygnał opadu.
+    const dynamicFront=Number.isFinite(modelPrecip)&&modelPrecip>0&&tempDrop>=4;
     const alphaT=dynamicFront&&step>0?0:clamp(tempFade[step]||0,0,1);
     const alphaH=bridgeAlpha(Math.min(step,3),weights.humidity);
     const alphaW=bridgeAlpha(Math.min(step,3),weights.wind);
@@ -2490,7 +2497,24 @@ function isDrizzleVisibilityCode(code){
   const c=Number(code);
   return c>=51&&c<=57;
 }
-function sanitizeVisibility(data){
+function stationHasFreshNoPrecip(imgwData){
+  if(!imgwData)return false;
+  const age=Number(imgwData.opad10minAgeMinutes);
+  return Number(imgwData.dist)<=5 &&
+    imgwData.opad10minFresh===true &&
+    Number.isFinite(Number(imgwData.opad_10min)) &&
+    Number(imgwData.opad_10min)<=0;
+}
+function stationFogObserved(imgwData){
+  if(!imgwData)return false;
+  // Używamy wyłącznie jawnego pola depeszy stacyjnej, jeśli feed je dostarcza.
+  // Brak pola nie oznacza mgły.
+  const v=imgwData.visibility??imgwData.widocznosc??imgwData.visibility_m;
+  if(Number.isFinite(Number(v))&&Number(v)<10000)return true;
+  const code=imgwData.weather_code??imgwData.wmo_code??imgwData.zjawisko;
+  return isFogVisibilityCode(code);
+}
+function sanitizeVisibility(data,imgwData){
   if(!data)return;
 
   // T0 jest osobnym stanem obserwacyjnym. Przyszłe godziny z gorszą
@@ -2509,13 +2533,16 @@ function sanitizeVisibility(data){
   const precipNow=(currentPrecip!==null&&currentPrecip>0)
     ||(currentRain!==null&&currentRain>0)
     ||(currentSnow!==null&&currentSnow>0);
+  const stationNoPrecip=stationHasFreshNoPrecip(imgwData);
+  const stationFog=stationFogObserved(imgwData);
 
   if(data.current&&"visibility"in data.current){
     const v=clean(data.current.visibility);
-    // Bez bieżącej mgły/opadu: kafelek widoczności ma minimum 10 km.
-    data.current.visibility=(!fogNow&&!drizzleNow&&!precipNow&&v!==null)
-      ?Math.max(10000,v)
-      :v;
+    // Świeża stacja <=5 km ma priorytet: bez opadu i bez jawnej mgły
+    // model nie może sztucznie zaniżyć widoczności.
+    data.current.visibility=stationNoPrecip&&!stationFog
+      ?10000
+      :(!fogNow&&!drizzleNow&&!precipNow&&v!==null?Math.max(10000,v):v);
   }
 
   if(Array.isArray(data.hourly?.visibility)){
@@ -2523,6 +2550,11 @@ function sanitizeVisibility(data){
       data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
     }
   }
+  data.__stationVisibilityGuard={
+    stationNoPrecip,
+    stationFog,
+    forcedCurrentVisibility:stationNoPrecip&&!stationFog
+  };
 }
 
 // ═══════════════════════════════════════════════
@@ -2770,7 +2802,11 @@ async function loadW(lat,lng,name,isRef){
             stationPrecip10<=0 &&
             ((Number.isFinite(diagCurrentPrecip)&&diagCurrentPrecip>0) || isRainCode(diagCurrentCode));
           const precipitationModelWeight=ghostPrecipitation?0.25:1;
-
+          const ghostVisibilityDrop=
+            stationHasFreshNoPrecip(imgwData) &&
+            !stationFogObserved(imgwData) &&
+            Number.isFinite(Number(data.current?.visibility)) &&
+            Number(data.current.visibility)<=8000;
           const nullFlags=[];
           const nullCheck=(label,value)=>{if(value===null||value===undefined||value==="")nullFlags.push(label);};
           ["temperature_2m","relative_humidity_2m","wind_speed_10m","wind_direction_10m","weather_code"].forEach(k=>{
@@ -2798,7 +2834,9 @@ async function loadW(lat,lng,name,isRef){
             modelCurrentPrecipitation:Number.isFinite(diagCurrentPrecip)?diagCurrentPrecip:null,
             modelCurrentWeatherCode:Number.isFinite(diagCurrentCode)?diagCurrentCode:null,
             ghostPrecipitation,
-            precipitationModelWeight
+            precipitationModelWeight,
+            ghostVisibilityDrop,
+            stationVisibilityGuard:data.__stationVisibilityGuard||null
           };
           runLiveDataQualityGuard();
 
@@ -2848,9 +2886,22 @@ async function loadW(lat,lng,name,isRef){
 
   // ─────────────────────────────────────────────────────────────
   // DATA PIPELINE SANITIZERS — po fuzji, przed cache/render/diagnostyką.
-  // Dzięki temu wszystkie kafelki czytają ten sam, już zwalidowany model.
+  // Świeża obserwacja Głodowa ma priorytet nad modelem dla T0 opadu.
+  if(stationHasFreshNoPrecip(imgwData)){
+    const cc=Number(data.current?.cloud_cover);
+    const dryCode=Number.isFinite(cc)
+      ?(cc<=10?0:cc<=40?2:3)
+      :0;
+    if(data.current){
+      data.current.weather_code=dryCode;
+      data.current.precipitation=0;
+      data.current.rain=0;
+      data.current.showers=0;
+      data.current.snowfall=0;
+    }
+  }
   syncDailyExtremes(data);
-  sanitizeVisibility(data);
+  sanitizeVisibility(data,imgwData);
 
   try{localStorage.setItem("aura_v6",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
