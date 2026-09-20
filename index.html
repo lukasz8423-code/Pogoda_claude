@@ -1747,18 +1747,19 @@ function wRain(X){
   const {hourly}=S.data;let next="";
   const nowWet=isRainingNow(X);
 
-  // "Opady dziś" musi używać tej samej definicji opadu co prognoza godzinowa.
-  // Godzina rozpoczęcia deszczu wynika wyłącznie z hourly.weather_code.
-  // hourly.precipitation to suma opadu w poprzedzającym oknie godzinnym
-  // i nie służy do wyznaczania godziny rozpoczęcia zjawiska.
+  // Ten kafelek musi czytać dokładnie ten sam zakres i te same indeksy,
+  // które renderuje hourlyHTML(): X.ci ... X.ci+23.
+  // Nie używamy precipitation, bo Open-Meteo opisuje ją jako sumę z poprzedniej godziny.
   if(nowWet){
     next="Pada teraz.";
   }else{
-    for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
-      const idx=X.ci+i;
+    const end=Math.min(X.ci+24,hourly.time.length);
+    for(let idx=X.ci+1;idx<end;idx++){
       const code=Number(hourly.weather_code?.[idx]);
+      const time=hourly.time?.[idx];
+      if(!Number.isFinite(code)||!time)continue;
       if(isRainCode(code)){
-        next=`Najbliższy deszcz ok. ${hhmm(hourly.time[idx])}.`;
+        next=`Najbliższy deszcz ok. ${hhmm(new Date(time))}.`;
         break;
       }
     }
