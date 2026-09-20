@@ -118,8 +118,9 @@ a.btn{text-decoration:none;color:inherit}
 .nc-bars{display:flex;align-items:flex-end;gap:5px;height:76px;padding-top:18px}
 .nc-bars i{position:relative;flex:1;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#B7E8FF,#4FB6F0);min-height:3px}
 .nc-bars i.z{background:rgba(255,255,255,.16)}
-.nc-bars i b{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);font-size:9.5px;line-height:1;color:var(--ink2);font-weight:600;white-space:nowrap}
-.nc-bars i small{position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);font-size:8.5px;line-height:1;color:var(--ink3);font-weight:500;white-space:nowrap}
+.nc-bars i b{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);font-size:9px;line-height:1;color:var(--ink2);font-weight:700;white-space:nowrap}
+.nc-bars i small{position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);font-size:8px;line-height:1;color:var(--ink3);font-weight:500;white-space:nowrap}
+.nc-bars i em{position:absolute;left:50%;top:calc(100% + 14px);transform:translateX(-50%);font-size:8px;line-height:1;color:var(--ink3);font-style:normal;white-space:nowrap}
 .nc-ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink3);margin-top:9px}
 
 /* hourly */
@@ -898,18 +899,22 @@ function tempColor(t){
 // Opad co 15 min na najbliższe 2h (styl MinuteCast z AccuWeather)
 async function apiMinutely(lat,lng){
   try{
-    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation&forecast_days=2&timezone=auto`,{signal:AbortSignal.timeout(8000)});
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation&hourly=precipitation,precipitation_probability&forecast_days=2&timezone=auto`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)return null;
     const d=await r.json();
     const t=d.minutely_15?.time,p=d.minutely_15?.precipitation;
+    const ht=d.hourly?.time,hp=d.hourly?.precipitation_probability,hpr=d.hourly?.precipitation;
     if(!t||!p)return null;
     const now=Date.now();
     let idx=-1;
     for(let i=0;i<t.length;i++){if(new Date(t[i]).getTime()<=now)idx=i;else break;}
     if(idx<0)return null;
-    // wartość przy znaczniku t = suma z poprzednich 15 min, więc przyszłość zaczyna się od idx+1
     const out=[];
-    for(let i=idx+1;i<=idx+8&&i<t.length;i++)out.push({t:t[i],mm:+(p[i]||0)});
+    for(let i=idx+1;i<=idx+16&&i<t.length;i++){
+      const hourKey=String(t[i]).slice(0,13);
+      const hi=Array.isArray(ht)?ht.findIndex(x=>String(x).slice(0,13)===hourKey):-1;
+      out.push({t:t[i],mm:+(p[i]||0),pop:hi>=0&&hp?.[hi]!=null?+hp[hi]:null,hourlyMm:hi>=0&&hpr?.[hi]!=null?+(hpr[hi]||0):null});
+    }
     return out.length>=4?out:null;
   }catch{return null;}
 }
@@ -1212,12 +1217,20 @@ function nowcastHTML(X){
     const nowWet=X.precip>=.1;
 
     let endTime=null;
-    if(first>=0){
-      for(let i=first+1;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
-    }else if(nowWet){
-      for(let i=0;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
+    const scanStart=first>=0?first:(nowWet?0:-1);
+    if(scanStart>=0){
+      for(let i=scanStart+1;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
+      if(!endTime){
+        const last=new Date(m[m.length-1].t).getTime();
+        for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
+          const ht=hourly.time[X.ci+i];
+          if(new Date(ht).getTime()<=last)continue;
+          const hpr=+(hourly.precipitation?.[X.ci+i]||0);
+          const hpop=+(hourly.precipitation_probability?.[X.ci+i]||0);
+          if(hpr<0.1&&hpop<50){endTime=new Date(ht);break;}
+        }
+      }
     }
-
     const startTime=first>=0?hhmm(m[first].t):null;
     const endLabel=endTime?hhmm(endTime):null;
 
@@ -1240,10 +1253,11 @@ function nowcastHTML(X){
     bars=m.map((x,i)=>{
       const a=v[i], amount=fnum(x.mm,2);
       const label=amount==="0,00"?"0":amount+" mm";
-      return `<i class="${a<.1?"z":""}" style="height:${Math.round(clamp(a/4,0,1)*50+4)}px"><b>${label}</b><small>${hhmm(x.t)}</small></i>`;
+      const pop=x.pop==null?"–":Math.round(x.pop)+"%";
+      return `<i class="${a<.1?"z":""}" style="height:${Math.round(clamp(a/4,0,1)*50+4)}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
-    ax=`<span>+15 min</span><span>+45 min</span><span>+1 h 15</span><span>+1 h 45</span><span>+2 h</span>`;
-    sub=(sub?sub+". ":"")+"Słupki pokazują ilość opadu w każdym 15-minutowym oknie (mm).";
+    ax=`<span>+15 min</span><span>+1 h</span><span>+2 h</span><span>+3 h</span><span>+4 h</span>`;
+    sub=(sub?sub+". ":"")+"% = godzinowa szansa opadu, mm = ilość opadu w 15 min.";
   }else{
     const nc=buildNowcast(hourly,X.ci);
     sum=nc?nc.text:"Brak danych o opadach";
@@ -1313,9 +1327,9 @@ function meteogramHTML(X){
     }
     if(i%3===0){
       svg+=`<circle cx="${x}" cy="${pts[i][1]}" r="2.6" fill="#fff"/><text x="${x}" y="${pts[i][1]-9}" text-anchor="middle" class="tn" style="fill:#fff;font-weight:600">${Math.round(temps[i])}°</text>`;
-      const w=hourly.wind_speed_10m?.[idx],wd=hourly.wind_direction_10m?.[idx];
+      const w=hourly.wind_speed_10m?.[idx],g=hourly.wind_gusts_10m?.[idx],wd=hourly.wind_direction_10m?.[idx];
       if(w!=null){
-        svg+=`<g transform="translate(${x} 128) rotate(${((wd??0)+180)%360})"><path d="M0 -6L4 4L0 2L-4 4Z" fill="rgba(255,255,255,.75)"/></g><text x="${x}" y="146" text-anchor="middle" class="tn">${Math.round(w)}</text>`;
+        svg+=`<g transform="translate(${x} 128) rotate(${((wd??0)+180)%360})"><path d="M0 -6L4 4L0 2L-4 4Z" fill="rgba(255,255,255,.75)"/></g><text x="${x}" y="146" text-anchor="middle" class="tn">${Math.round(w)}${g!=null?"/"+Math.round(g):""}</text>`;
       }
       svg+=`<text x="${x}" y="190" text-anchor="middle" class="tn">${pad(h)}</text>`;
     }
@@ -1323,7 +1337,7 @@ function meteogramHTML(X){
     if(pr>=.05)svg+=`<rect x="${x-6}" y="${(172-Math.min(20,pr*9)).toFixed(1)}" width="12" height="${Math.min(20,pr*9).toFixed(1)}" rx="3" fill="#8ADBFF" opacity=".9"/>`;
   }
   svg+=`<line x1="${pl}" y1="22" x2="${pl}" y2="176" stroke="rgba(255,255,255,.35)" stroke-width="1"/>`;
-  return`<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div><div class="mg"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Wykres temperatury, wiatru i opadów na 48 godzin">${svg}</svg></div><div class="note">Krzywa to temperatura, liczby pod nią to wiatr w km/h ze strzałką kierunku, niebieskie słupki to opady.</div></section>`;
+  return`<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div><div class="mg"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Wykres temperatury, wiatru i opadów na 48 godzin">${svg}</svg></div><div class="note">Krzywa to temperatura, liczby pod nią to wiatr/porywy w km/h (np. 18/31) ze strzałką kierunku, niebieskie słupki to opady.</div></section>`;
 }
 
 function dailyRows(){
@@ -1366,8 +1380,15 @@ function dailyHTML(){return`<section class="card"><div class="ch">${mini("layers
 // ── widgety
 function wUV(X){
   const uv=X.uv;
-  const adv=uv<3?"Ochrona nie jest potrzebna":uv<6?"Krem z filtrem przy dłuższym pobycie":uv<8?"Krem, okulary, cień w południe":"Unikaj słońca w południe";
-  return`<div class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. Maks. dziś ${fnum(X.uvMax,1)}.</div></div>`;
+  const {hourly}=S.data;
+  let peak=X.uvMax,peakTime=null;
+  for(let i=X.ci;i<Math.min(hourly.time.length,X.ci+16);i++){
+    const v=Number(hourly.uv_index?.[i]);
+    if(Number.isFinite(v)&&v>peak){peak=v;peakTime=hourly.time[i];}
+  }
+  const adv=uv<3?"Niskie UV":uv<6?"Umiarkowane UV — przy dłuższym pobycie warto chronić skórę i oczy":uv<8?"Wysokie UV — potrzebna ochrona skóry i oczu":"Bardzo wysokie UV — ogranicz bezpośrednie słońce w środku dnia";
+  const peakTxt=peakTime?"Szczyt około "+hhmm(peakTime)+": "+fnum(peak,1)+".":"Maks. dziś "+fnum(X.uvMax,1)+".";
+  return`<div class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}</div></div>`;
 }
 function compass(deg,spd){
   let ticks="";
@@ -1377,7 +1398,21 @@ function compass(deg,spd){
     <g transform="rotate(${(deg+180)%360} 50 50)"><path d="M50 3.500L56.500 16H43.500Z" fill="#FFC857"/></g></svg>`;
 }
 function wWind(X){
-  return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}</div></div>`;
+  const {hourly}=S.data;
+  const end=Math.min(hourly.time.length,X.ci+7);
+  let maxG=X.gusts,maxW=X.wind,maxGTime=null;
+  for(let i=X.ci;i<end;i++){
+    const g=Number(hourly.wind_gusts_10m?.[i]);
+    const w=Number(hourly.wind_speed_10m?.[i]);
+    if(Number.isFinite(g)&&g>maxG){maxG=g;maxGTime=hourly.time[i];}
+    if(Number.isFinite(w)&&w>maxW)maxW=w;
+  }
+  const gustDiff=Math.max(0,maxG-X.wind);
+  const impact=gustDiff>=25?"porywy będą wyraźnie odczuwalne":gustDiff>=15?"porywy będą chwilowo wyraźnie silniejsze":"porywy niewiele silniejsze od wiatru";
+  const forecast=maxG>X.gusts
+    ? "Najsilniejsze porywy w ciągu 6 h: "+Math.round(maxG)+" km/h"+(maxGTime?" około "+hhmm(maxGTime):".")
+    : "Obecne porywy są najwyższe w najbliższych 6 h.";
+  return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}</div></div>`;
 }
 function wFeels(X){
   const d=discomfortIndex(X.T,X.hum),diff=Math.round(X.feels-X.T);
