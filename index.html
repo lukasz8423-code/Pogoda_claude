@@ -1343,12 +1343,6 @@ function computeCtx(){
   const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
   const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
   const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
-  const cloudEngine=calculateVisualCloud({
-    low:cloudLow,mid:cloudMid,high:cloudHigh,total:cloudTotal,
-    radiation:rad,uv,uvClear,isDay
-  });
-  const cloud=cloudEngine.visualCover;
-  S.cloudEngine=cloudEngine;
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
@@ -1357,6 +1351,12 @@ function computeCtx(){
   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
   const uvClearMax=+(daily.uv_index_clear_sky_max?.[0]??uvClear??uvMax)||0;
   const rad=g(hourly.shortwave_radiation)??uv*80;
+  const cloudEngine=calculateVisualCloud({
+    low:cloudLow,mid:cloudMid,high:cloudHigh,total:cloudTotal,
+    radiation:rad,uv,uvClear,isDay
+  });
+  const cloud=cloudEngine.visualCover;
+  S.cloudEngine=cloudEngine;
   const dew=dewPoint(T,hum);
   // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
   const stImgw=S.imgwData;
