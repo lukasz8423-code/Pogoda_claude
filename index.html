@@ -658,7 +658,7 @@ async function fetchIMGWMeteoAll(){
 
 function parseImgwMeteoTimestamp(value){
   if(!value)return null;
-  const m=String(value).match(/^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?/);
+  const m=String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
   if(!m)return null;
   return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
 }
@@ -740,7 +740,7 @@ async function findNearestIMGW(lat,lng){
 
   let ageMinutes=null,observedAt=null;
   if(best.data_pomiaru&&best.godzina_pomiaru!=null){
-    const dm=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String(best.data_pomiaru));
+    const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
     const hh=parseInt(best.godzina_pomiaru,10);
     if(dm&&Number.isFinite(hh)&&hh>=0&&hh<=23){
       observedAt=Date.UTC(+dm[1],+dm[2]-1,+dm[3],hh,0,0);
