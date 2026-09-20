@@ -1956,7 +1956,7 @@ function stationHTML(){
   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
     ${im.observedAt!=null?`<div class="note">Najnowszy wykorzystany pomiar IMGW z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Aura pobrała dane o ${hhmm(im.fetchedAt)}.</div>`:""}
-    <div class="note">${stale?"Pomiar jest starszy niż 3 godziny, więc nie nadpisuje prognozy. ":im.dist>80?"Stacja jest dalej niż 80 km, więc pokazujemy jej pomiar, ale nie nadpisujemy nim prognozy. ":"Świeży pomiar zastępuje temperaturę, wilgotność, wiatr i ciśnienie z modelu. "}Stacje IMGW raportują co godzinę.</div></section>`;
+    <div class="note">${stale?"Pomiar jest starszy niż 3 godziny, więc nie nadpisuje prognozy. ":im.dist>80?"Stacja jest poza zasięgiem fuzji 45 km, więc jej pomiar jest tylko informacyjny. ":"Świeży pomiar jest łączony z modelem dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe. "}Stacje IMGW raportują co godzinę.</div></section>`;
 }
 
 function assistantHTML(X){
@@ -2229,33 +2229,147 @@ function applyObservationFusion(data,imgwData){
   };
   return {weight:Math.max(...Object.values(weights)),weights,bias,completeness,before:model,used:true};
 }
+function findHourIndexByTime(times,time){
+  if(!Array.isArray(times)||!times.length||!time)return -1;
+  const target=Date.parse(String(time));
+  if(!Number.isFinite(target))return -1;
+  let best=-1,bestDiff=Infinity;
+  for(let i=0;i<times.length;i++){
+    const ts=Date.parse(String(times[i]));
+    if(!Number.isFinite(ts))continue;
+    const diff=Math.abs(ts-target);
+    if(diff<bestDiff){best=i;bestDiff=diff;}
+  }
+  return best;
+}
+
+// T0 = obserwacja. T+1..T+3 = model krótkoterminowy + wygaszany bias stacji.
+// Ważne: zapisujemy wynik do GŁÓWNYCH danych data.hourly, a nie do danych źródła
+// bridgeSource. To usuwa hard switch 20°C -> 15°C w UI.
 function applyForecastBridge(data,fusion,modelData){
-  if(!data?.hourly||!fusion?.used)return;
-  const source=modelData||data;
-  const h=source.hourly;
-  const ci=currentHourIndex(source);
+  if(!data?.hourly?.time||!fusion?.used)return;
+  const target=data.hourly;
+  const source=modelData?.hourly?.time?modelData:data;
+  const sourceH=source.hourly||target;
+  const ci=currentHourIndex(data);
   const b=fusion.bias||{};
   const weights=fusion.weights||{};
+
   for(let step=0;step<=3;step++){
-    const i=ci+step;
-    if(i>=h.time.length)break;
+    const targetIdx=ci+step;
+    if(targetIdx>=target.time.length)break;
+
+    const sourceIdx=findHourIndexByTime(sourceH.time,target.time[targetIdx]);
+    const si=sourceIdx>=0?sourceIdx:Math.min(targetIdx,sourceH.time.length-1);
+
     const alphaT=bridgeAlpha(step,weights.temperature);
     const alphaH=bridgeAlpha(step,weights.humidity);
     const alphaW=bridgeAlpha(step,weights.wind);
-    if(Number.isFinite(h.temperature_2m?.[i])&&Number.isFinite(b.temperature)){
-      h.temperature_2m[i]=+(Number(h.temperature_2m[i])+b.temperature*alphaT).toFixed(1);
+
+    const modelT=Number(sourceH.temperature_2m?.[si]);
+    const modelH=Number(sourceH.relative_humidity_2m?.[si]);
+    const modelW=Number(sourceH.wind_speed_10m?.[si]);
+
+    if(Number.isFinite(modelT)){
+      const corrected=Number.isFinite(b.temperature)
+        ?modelT+b.temperature*alphaT
+        :modelT;
+      target.temperature_2m[targetIdx]=+(step===0&&Number.isFinite(data.current.temperature_2m)
+        ?data.current.temperature_2m:corrected).toFixed(1);
     }
-    if(Number.isFinite(h.relative_humidity_2m?.[i])&&Number.isFinite(b.humidity)){
-      h.relative_humidity_2m[i]=Math.round(clamp(Number(h.relative_humidity_2m[i])+b.humidity*alphaH,0,100));
+    if(Number.isFinite(modelH)){
+      const corrected=Number.isFinite(b.humidity)
+        ?clamp(modelH+b.humidity*alphaH,0,100)
+        :modelH;
+      target.relative_humidity_2m[targetIdx]=Math.round(step===0&&Number.isFinite(data.current.relative_humidity_2m)
+        ?data.current.relative_humidity_2m:corrected);
     }
-    if(Number.isFinite(h.wind_speed_10m?.[i])&&Number.isFinite(b.wind)){
-      h.wind_speed_10m[i]=+Math.max(0,Number(h.wind_speed_10m[i])+b.wind*alphaW).toFixed(1);
+    if(Number.isFinite(modelW)){
+      const corrected=Math.max(0,modelW+(Number.isFinite(b.wind)?b.wind*alphaW:0));
+      target.wind_speed_10m[targetIdx]=+(step===0&&Number.isFinite(data.current.wind_speed_10m)
+        ?data.current.wind_speed_10m:corrected).toFixed(1);
     }
-    if(step===0){
-      if(alphaT>0&&Number.isFinite(data.current.temperature_2m))h.temperature_2m[i]=data.current.temperature_2m;
-      if(alphaH>0&&Number.isFinite(data.current.relative_humidity_2m))h.relative_humidity_2m[i]=data.current.relative_humidity_2m;
-      if(alphaW>0&&Number.isFinite(data.current.wind_speed_10m))h.wind_speed_10m[i]=data.current.wind_speed_10m;
+  }
+}
+
+// Bieżący dzień nie może mieć Tmax/Tmin niższego/wyższego niż faktycznie
+// zaobserwowana temperatura lub wartości z jego prognozy godzinowej.
+function syncDailyExtremes(data){
+  if(!data?.daily?.time||!data?.hourly?.time)return;
+  const now=new Date();
+  const today=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  const di=data.daily.time.findIndex(d=>String(d).slice(0,10)===today);
+  if(di<0)return;
+
+  const vals=[];
+  const curT=Number(data.current?.temperature_2m);
+  if(Number.isFinite(curT))vals.push(curT);
+
+  for(let i=0;i<data.hourly.time.length;i++){
+    if(String(data.hourly.time[i]).slice(0,10)!==today)continue;
+    const t=Number(data.hourly.temperature_2m?.[i]);
+    if(Number.isFinite(t))vals.push(t);
+  }
+  if(!vals.length)return;
+
+  const observedMax=Math.max(...vals);
+  const observedMin=Math.min(...vals);
+  const oldMax=Number(data.daily.temperature_2m_max?.[di]);
+  const oldMin=Number(data.daily.temperature_2m_min?.[di]);
+
+  if(Number.isFinite(observedMax)){
+    data.daily.temperature_2m_max[di]=Number.isFinite(oldMax)
+      ?Math.max(oldMax,observedMax):observedMax;
+  }
+  if(Number.isFinite(observedMin)){
+    data.daily.temperature_2m_min[di]=Number.isFinite(oldMin)
+      ?Math.min(oldMin,observedMin):observedMin;
+  }
+
+  // Zachowujemy dziesiętne, ale nie wprowadzamy sztucznego zaokrąglenia do 0.5°C.
+  data.daily.temperature_2m_max[di]=+Number(data.daily.temperature_2m_max[di]).toFixed(1);
+  data.daily.temperature_2m_min[di]=+Number(data.daily.temperature_2m_min[di]).toFixed(1);
+}
+
+// Widoczność z modelu jest sanityzowana godzinowo. Niska wartość może być
+// prawdziwa przy mgle/mżawce/intensywnym opadzie; w pozostałych warunkach
+// nie pozwalamy modelowi zaniżyć jej poniżej 10 km.
+function isFogVisibilityCode(code){
+  const c=Number(code);
+  return c===45||c===48;
+}
+function isDrizzleVisibilityCode(code){
+  const c=Number(code);
+  return c>=51&&c<=57;
+}
+function sanitizeVisibility(data){
+  if(!data?.hourly?.time)return;
+
+  const h=data.hourly;
+  for(let i=0;i<h.time.length;i++){
+    const code=Number(h.weather_code?.[i]);
+    const precip=Number(h.precipitation?.[i]);
+    const rain=Number(h.rain?.[i]);
+    const restricted=isFogVisibilityCode(code)
+      ||isDrizzleVisibilityCode(code)
+      ||(Number.isFinite(precip)&&precip>1)
+      ||(Number.isFinite(rain)&&rain>1);
+
+    if(!restricted&&Number.isFinite(Number(h.visibility?.[i]))&&Number(h.visibility[i])<10000){
+      h.visibility[i]=10000;
     }
+  }
+
+  const code=Number(data.current?.weather_code);
+  const precip=Number(data.current?.precipitation);
+  const rain=Number(data.current?.rain);
+  const restricted=isFogVisibilityCode(code)
+    ||isDrizzleVisibilityCode(code)
+    ||(Number.isFinite(precip)&&precip>1)
+    ||(Number.isFinite(rain)&&rain>1);
+
+  if(!restricted&&Number.isFinite(Number(data.current?.visibility))&&Number(data.current.visibility)<10000){
+    data.current.visibility=10000;
   }
 }
 
@@ -2395,8 +2509,9 @@ async function loadW(lat,lng,name,isRef){
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
-      // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest bliżej niż 80 km
-      if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=80){
+      // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
+      // parametru są liczone niezależnie przez Weather Fusion Engine.
+      if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=45){
         const imgwTemp=parseFloat(imgwData.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
@@ -2468,6 +2583,12 @@ async function loadW(lat,lng,name,isRef){
     console.warn("API fail:",e.message);
     isDemo=true;imgwData=null;stationInfo="Dane demonstracyjne";data=demoData();
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // DATA PIPELINE SANITIZERS — po fuzji, przed cache/render/diagnostyką.
+  // Dzięki temu wszystkie kafelki czytają ten sam, już zwalidowany model.
+  syncDailyExtremes(data);
+  sanitizeVisibility(data);
 
   try{localStorage.setItem("aura_v6",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
