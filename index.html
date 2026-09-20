@@ -644,18 +644,21 @@ async function fetchIMGWAll(){
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
   try{
     const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/?_aura="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(8000)});
     if(!r.ok)throw new Error("HTTP "+r.status);
     const data=await r.json();
-    console.log(`IMGW METEO: pobrano ${Array.isArray(data)?data.length:0} stacji`);
-    return Array.isArray(data)?data:null;
+    const list=Array.isArray(data)?data:null;
+    S.imgwDiag={...S.imgwDiag,status:list?"pobrano":"nieprawidłowa odpowiedź",count:list?list.length:0};
+    console.log("IMGW METEO diagnostyka:",S.imgwDiag);
+    return list;
   }catch(e){
+    S.imgwDiag={status:"niedostępne",count:null,found:false,used:false,error:e?.message||String(e),station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
     console.warn("IMGW METEO API niedostepne:",e.message);
     return null;
   }
 }
-
 function parseImgwMeteoTimestamp(value){
   if(!value)return null;
   const m=String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
@@ -674,6 +677,11 @@ async function findNearestIMGW(lat,lng){
   const glodowo=Array.isArray(meteoAll)
     ? meteoAll.find(s=>String(s.kod_stacji||"") === "252190030")
     : null;
+  if(glodowo){
+    S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",temperature:glodowo.temperatura??null,timestamp:glodowo.temperatura_data??null};
+  }else if(S.imgwDiag){
+    S.imgwDiag={...S.imgwDiag,found:false};
+  }
 
   if(glodowo){
     const dist=stationDist(lat,lng,52.8306,19.2356);
@@ -681,6 +689,7 @@ async function findNearestIMGW(lat,lng){
     const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const temp=parseFloat(glodowo.temperatura);
+    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,temperature:Number.isFinite(temp)?temp:null,timestamp:glodowo.temperatura_data||null,ageMinutes,dist:Math.round(dist*10)/10};
 
     console.log("IMGW Głodowo diagnostyka:",{
       kod_stacji:glodowo.kod_stacji,
@@ -715,14 +724,19 @@ async function findNearestIMGW(lat,lng){
         isFresh:true,
         sourceType:"IMGW_METEO"
       };
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"użyto Głodowa",used:true,found:true};
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
       return {best:normalized,nearby:[normalized]};
     }else{
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany"};
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany",dist:Math.round(dist*10)/10,temp,ageMinutes});
     }
   }
 
-  if(!glodowo) console.warn("IMGW Głodowo: stacja 252190030 nie została znaleziona w feedzie METEO",{meteoAvailable:Array.isArray(meteoAll),meteoCount:Array.isArray(meteoAll)?meteoAll.length:0});
+  if(!glodowo) {
+    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:Array.isArray(meteoAll)?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false};
+    console.warn("IMGW Głodowo: stacja 252190030 nie została znaleziona w feedzie METEO",{meteoAvailable:Array.isArray(meteoAll),meteoCount:Array.isArray(meteoAll)?meteoAll.length:0});
+  }
 
   if(!all||!Array.isArray(all)||all.length===0)return null;
 
@@ -1150,7 +1164,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -1775,6 +1789,25 @@ function softUpdate(){
 }
 
 // ── główny ekran pogody
+function imgwDiagHTML(){
+  const d=S.imgwDiag;
+  if(!d)return "";
+  const tone=d.used?"ok":(d.status==="pobieranie"?"warn":"bad");
+  const details=[
+    d.count!=null?`Feed METEO: ${d.count} stacji`:null,
+    d.station?`Głodowo: ${d.found?"znaleziona":"brak"}`:null,
+    d.temperature!=null?`T: ${d.temperature}°C`:null,
+    d.ageMinutes!=null?`pomiar: ${d.ageMinutes} min temu`:null,
+    d.dist!=null?`odległość: ${d.dist} km`:null,
+    d.reason?`powód: ${d.reason}`:null,
+    d.error?`błąd: ${d.error}`:null
+  ].filter(Boolean).join(" · ");
+  return `<div class="note" style="margin:0 2px 12px;padding:9px 11px;border:1px solid var(--line);border-radius:14px;background:rgba(8,15,32,.25)">
+    <span class="dot" style="display:inline-block;margin-right:7px;vertical-align:middle;color:var(--${tone})"></span><b>IMGW METEO: ${esc(d.status||"brak danych")}</b>
+    ${details?`<br><span style="opacity:.72">${esc(details)}</span>`:""}
+  </div>`;
+}
+
 function weatherHTML(){
   const X=computeCtx();S.X=X;
   applySky(X);ambientFor(X);
@@ -1791,6 +1824,7 @@ function weatherHTML(){
     ${widgetsHTML(X)}
     <div id="s-air">${airHTML()}</div>
     ${stationHTML()}
+    ${imgwDiagHTML()}
     ${oknoHTML()}
     <div id="s-models">${modelsHTML()}</div>
     <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${pad(upd.getHours())}:${pad(upd.getMinutes())}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
