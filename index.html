@@ -690,6 +690,7 @@ async function findNearestIMGW(lat,lng){
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
   // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
   // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
+  const usableTimestamp=(value,ts,fresh)=>Number.isFinite(value)&&fresh&&Number.isFinite(ts)?ts:null;
   const glodowo=Array.isArray(meteoAll)
     ? meteoAll.find(s=>String(s.kod_stacji||"") === "252190030")
     : null;
@@ -726,6 +727,18 @@ async function findNearestIMGW(lat,lng){
     const humidityFresh=humidityAgeMinutes===null||humidityAgeMinutes<=HUMIDITY_MAX_AGE_MIN;
     const windFresh=windAgeMinutes===null||windAgeMinutes<=WIND_MAX_AGE_MIN;
     const windDirFresh=windDirAgeMinutes===null||windDirAgeMinutes<=WIND_MAX_AGE_MIN;
+
+    // Czas prezentowany użytkownikowi = najświeższy faktycznie użyty parametr.
+    // Temperatura może być starsza od wilgotności/wiatru i nie może narzucać czasu całego rekordu.
+    const latestObservedCandidates=[
+      usableTimestamp(temp,observedAt,tempFresh),
+      usableTimestamp(parseFloat(glodowo.wilgotnosc_wzgledna),humidityObservedAt,humidityFresh),
+      usableTimestamp(parseFloat(glodowo.wiatr_srednia_predkosc),windObservedAt,windFresh),
+      usableTimestamp(parseFloat(glodowo.wiatr_kierunek),windDirObservedAt,windDirFresh)
+    ].filter(Number.isFinite);
+    const latestObservedAt=latestObservedCandidates.length?Math.max(...latestObservedCandidates):null;
+    const latestAgeMinutes=latestObservedAt==null?null:Math.max(0,Math.round((fetchedAt-latestObservedAt)/60000));
+
     const distRounded=Math.round(dist*10)/10;
     const distOK=dist<=30;
     const tempOK=Number.isFinite(temp);
@@ -733,8 +746,8 @@ async function findNearestIMGW(lat,lng){
     if(S.imgwDiag)S.imgwDiag={
       ...S.imgwDiag,
       temperature:Number.isFinite(temp)?temp:null,
-      timestamp:glodowo.temperatura_data||null,
-      ageMinutes,
+      timestamp:latestObservedAt,
+      ageMinutes:latestAgeMinutes,
       dist:distRounded,
       rawAge,
       distOK,
@@ -788,9 +801,12 @@ async function findNearestIMGW(lat,lng){
         temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
         opad_10min:parseFloat(glodowo.opad_10min),
         opad_10min_data:glodowo.opad_10min_data||null,
-        observedAt,
+        // Ogólny czas stacji = najświeższy użyty parametr, niekoniecznie temperatura.
+        observedAt:latestObservedAt,
         fetchedAt,
-        ageMinutes,
+        ageMinutes:latestAgeMinutes,
+        latestObservedAt,
+        latestAgeMinutes,
         isFresh:anyUsable,
         tempFresh:usableTemp,
         humidityFresh:usableHumidity,
@@ -1787,7 +1803,7 @@ function stationHTML(){
   const stale=im.isFresh===false;
   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
-    ${im.observedAt!=null?`<div class="note">Pomiar IMGW z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Aura pobrała dane o ${hhmm(im.fetchedAt)}.</div>`:""}
+    ${im.observedAt!=null?`<div class="note">Najnowszy wykorzystany pomiar IMGW z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Aura pobrała dane o ${hhmm(im.fetchedAt)}.</div>`:""}
     <div class="note">${stale?"Pomiar jest starszy niż 3 godziny, więc nie nadpisuje prognozy. ":im.dist>80?"Stacja jest dalej niż 80 km, więc pokazujemy jej pomiar, ale nie nadpisujemy nim prognozy. ":"Świeży pomiar zastępuje temperaturę, wilgotność, wiatr i ciśnienie z modelu. "}Stacje IMGW raportują co godzinę.</div></section>`;
 }
 
