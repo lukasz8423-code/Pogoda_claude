@@ -2765,8 +2765,37 @@ async function loadW(lat,lng,name,isRef){
       findNearestIMGW(lat,lng),
       fetchAllModelsCompare(lat,lng,isRef)
     ]);
-    if(weatherResult.status==="fulfilled")data=weatherResult.value;else throw weatherResult.reason;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
+    // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
+    // źródłem i musi nadal dostarczyć dane live.
+    if(weatherResult.status==="fulfilled"){
+      data=weatherResult.value;
+    }else{
+      // apiWeather(activeModel) mogło paść niezależnie od sieci/modeli.
+      // Najpierw wykorzystaj już pobrane surowe dane z ICON-EU/ECMWF/GFS.
+      const preferred=["icon_eu","ecmwf_ifs025","gfs_seamless","icon_d2"];
+      const fallbackRecord=preferred
+        .map(id=>cloudCompare.find(r=>r.model===id&&r.data))
+        .find(Boolean);
+      if(fallbackRecord){
+        data=structuredClone(fallbackRecord.data);
+        console.warn("[AURA WEATHER FALLBACK] activeModel fetch failed → using live Open-Meteo",fallbackRecord.model);
+      }else{
+        // Dopiero gdy nie mamy ŻADNYCH danych z Open-Meteo, spróbuj bezpośrednio
+        // modeli live. Demo wolno uruchomić dopiero po wyczerpaniu tych prób.
+        let lastWeatherError=weatherResult.reason;
+        for(const modelId of preferred){
+          try{
+            data=await apiWeatherModel(lat,lng,modelId,10,isRef||WEATHER_FORCE_REFRESH);
+            console.warn("[AURA WEATHER FALLBACK] direct Open-Meteo success:",modelId);
+            break;
+          }catch(err){
+            lastWeatherError=err;
+          }
+        }
+        if(!data)throw lastWeatherError||new Error("Open-Meteo niedostępne");
+      }
+    }
     S.cloudSource=null;
 
     // IMGW Offline jest stanem źródła, nie powodem do zerowania prognozy.
@@ -3003,8 +3032,13 @@ async function loadW(lat,lng,name,isRef){
       }
     }else stationInfo=`Open-Meteo, ${(+lat).toFixed(3)}°N, ${(+lng).toFixed(3)}°E`;
   }catch(e){
-    console.warn("API fail:",e.message);
-    isDemo=true;imgwData=null;stationInfo="Dane demonstracyjne";data=demoData();
+    // MOCK/Demo tylko przy rzeczywistym braku dostępnych danych sieciowych.
+    // Niedostępność IMGW nigdy nie trafia tutaj jako powód do demo.
+    console.warn("LIVE WEATHER API fail:",e?.message||e);
+    isDemo=true;
+    imgwData=null;
+    stationInfo="Brak danych sieciowych";
+    data=demoData();
   }finally{
     WEATHER_FORCE_REFRESH=false;
   }
