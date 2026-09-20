@@ -758,7 +758,13 @@ async function findNearestIMGW(lat,lng){
       rawStation:glodowo
     });
 
-    if(dist<=30 && Number.isFinite(temp) && (ageMinutes===null || ageMinutes<180)){
+    const usableTemp=Number.isFinite(temp)&&tempFresh;
+    const usableHumidity=Number.isFinite(parseFloat(glodowo.wilgotnosc_wzgledna))&&humidityFresh;
+    const usableWind=Number.isFinite(parseFloat(glodowo.wiatr_srednia_predkosc))&&windFresh;
+    const usableWindDir=Number.isFinite(parseFloat(glodowo.wiatr_kierunek))&&windDirFresh;
+    const anyUsable=usableTemp||usableHumidity||usableWind||usableWindDir;
+
+    if(dist<=30 && anyUsable){
       const normalized={
         ...glodowo,
         id_stacji:"252190030",
@@ -767,14 +773,14 @@ async function findNearestIMGW(lat,lng){
         lat:52.8306,
         lng:19.2356,
         dist:Math.round(dist*10)/10,
-        temperatura:temp,
-        wilgotnosc_wzgledna:humidityFresh?parseFloat(glodowo.wilgotnosc_wzgledna):null,
+        temperatura:usableTemp?temp:null,
+        wilgotnosc_wzgledna:usableHumidity?parseFloat(glodowo.wilgotnosc_wzgledna):null,
         wilgotnosc_wzgledna_data:glodowo.wilgotnosc_wzgledna_data||null,
         wilgotnosc_wzgledna_ageMinutes:humidityAgeMinutes,
-        predkosc_wiatru:windFresh?parseFloat(glodowo.wiatr_srednia_predkosc):null,
+        predkosc_wiatru:usableWind?parseFloat(glodowo.wiatr_srednia_predkosc):null,
         predkosc_wiatru_data:glodowo.wiatr_srednia_predkosc_data||null,
         predkosc_wiatru_ageMinutes:windAgeMinutes,
-        kierunek_wiatru:windDirFresh?parseFloat(glodowo.wiatr_kierunek):null,
+        kierunek_wiatru:usableWindDir?parseFloat(glodowo.wiatr_kierunek):null,
         kierunek_wiatru_data:glodowo.wiatr_kierunek_data||null,
         kierunek_wiatru_ageMinutes:windDirAgeMinutes,
         cisnienie:null,
@@ -785,14 +791,18 @@ async function findNearestIMGW(lat,lng){
         observedAt,
         fetchedAt,
         ageMinutes,
-        isFresh:true,
+        isFresh:anyUsable,
+        tempFresh:usableTemp,
+        humidityFresh:usableHumidity,
+        windFresh:usableWind,
+        windDirFresh:usableWindDir,
         sourceType:"IMGW_METEO"
       };
       if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"użyto Głodowa",used:true,found:true};
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      const rejectReason=dist>30?"za daleko":!Number.isFinite(temp)?"brak temperatury":(ageMinutes!==null&&ageMinutes>=180)?"pomiar starszy niż 3 h":"nieznany";
+      const rejectReason=dist>30?"za daleko":!anyUsable?"brak świeżych danych użytecznych":"nieznany";
       if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields:__tempFields,candidateTemps:__candidateTemps,keys:__allFields,rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
@@ -2074,32 +2084,35 @@ async function loadW(lat,lng,name,isRef){
       imgwData=imgwResult.value.best||imgwResult.value;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Pomiar ze stacji nadpisuje model TYLKO gdy jest świeży (<3 h), wiarygodny (±12°C od modelu) i stacja jest bliżej niż 80 km
-      if(data&&data.current&&imgwData.temperatura&&imgwData.isFresh!==false&&imgwData.dist<=80){
+      if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=80){
         const imgwTemp=parseFloat(imgwData.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
         const imgwPress=parseFloat(imgwData.cisnienie);
         const modelTemp=data.current.temperature_2m;
-        const plausible=isNaN(modelTemp)||Math.abs(imgwTemp-modelTemp)<=12;
-        if(!isNaN(imgwTemp)&&plausible){
+        const tempFresh=imgwData.tempFresh!==false && Number.isFinite(imgwTemp);
+        const humidityFresh=imgwData.humidityFresh!==false && Number.isFinite(imgwHum);
+        const windFresh=imgwData.windFresh!==false && Number.isFinite(imgwWind);
+        const plausible=!tempFresh||isNaN(modelTemp)||Math.abs(imgwTemp-modelTemp)<=12;
+        if(tempFresh&&plausible){
           data.current.temperature_2m=imgwTemp;
           const windMs=(Math.round(parseFloat(imgwData.predkosc_wiatru||0)*3.6))/3.6;
-          if(!isNaN(imgwHum)&&!isNaN(windMs)){
+          if(humidityFresh&&!isNaN(windMs)){
             let newFeels=imgwTemp;
             if(imgwTemp<=10&&windMs>1.3)newFeels=13.12+0.6215*imgwTemp-11.37*Math.pow(windMs*3.6,0.16)+0.3965*imgwTemp*Math.pow(windMs*3.6,0.16);
             else if(imgwTemp>=27)newFeels=-8.784+1.611*imgwTemp+2.338*imgwHum-0.146*imgwTemp*imgwHum;
             data.current.apparent_temperature=Math.round(newFeels*10)/10;
           }else data.current.apparent_temperature=imgwTemp;
-          if(!isNaN(imgwHum))data.current.relative_humidity_2m=imgwHum;
+          if(humidityFresh)data.current.relative_humidity_2m=imgwHum;
           // Punkt rosy z rzeczywistego pomiaru stacji (te same świeże wartości stacyjne, istniejąca funkcja dewPoint()).
           // Ustawiany wyłącznie tutaj, czyli gdy pomiar IMGW jest faktycznie użyty; w każdym innym wypadku pole nie istnieje.
           if(!isNaN(imgwHum)&&imgwHum>0&&imgwHum<=100){
             const stationDew=dewPoint(imgwTemp,imgwHum);
             if(stationDew!=null&&Number.isFinite(stationDew))imgwData.dewPointStation=Math.round(stationDew*10)/10;
           }
-          if(!isNaN(imgwWind))data.current.wind_speed_10m=imgwWind;
+          if(windFresh)data.current.wind_speed_10m=imgwWind;
           if(!isNaN(imgwPress)&&imgwPress>0)data.current.pressure_msl=imgwPress;
-        }else if(!plausible)console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
+        }else if(tempFresh&&!plausible)console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
       }
     }else stationInfo=`Open-Meteo, ${(+lat).toFixed(3)}°N, ${(+lng).toFixed(3)}°E`;
   }catch(e){
