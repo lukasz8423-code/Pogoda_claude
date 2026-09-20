@@ -761,7 +761,11 @@ async function findNearestIMGW(lat,lng){
   // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
   const usableTimestamp=(value,ts,fresh)=>Number.isFinite(value)&&fresh&&Number.isFinite(ts)?ts:null;
   const glodowo=Array.isArray(meteoAll)
-    ? meteoAll.find(s=>String(s.kod_stacji||"") === "252190030")
+    ? meteoAll.find(s=>{
+        const code=String(s.kod_stacji??s.id_stacji??"").trim();
+        const name=String(s.nazwa_stacji??s.stacja??"").trim().toLowerCase();
+        return code==="252190030" || name==="głodowo" || name==="glodowo";
+      })
     : null;
   if(glodowo){
     const __rawTempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
@@ -773,13 +777,15 @@ async function findNearestIMGW(lat,lng){
 
   if(glodowo){
     const dist=stationDist(lat,lng,52.8306,19.2356);
-    const observedAt=parseImgwMeteoTimestamp(glodowo.temperatura_powietrza_data);
+    const tempRaw = glodowo.temperatura_powietrza ?? glodowo.temperatura;
+    const tempTimestampRaw = glodowo.temperatura_powietrza_data ?? glodowo.temperatura_data;
+    const observedAt=parseImgwMeteoTimestamp(tempTimestampRaw);
     const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const __allFields=Object.keys(glodowo||{});
     const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     const __candidateTemps=__allFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:glodowo[k],num:parseFloat(String(glodowo[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
-    const temp=parseFloat(glodowo.temperatura_powietrza);
+    const temp=parseFloat(String(tempRaw ?? "").replace(",","."));
     const humidityObservedAt=parseImgwMeteoTimestamp(glodowo.wilgotnosc_wzgledna_data);
     const windObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_srednia_predkosc_data);
     const windDirObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_kierunek_data);
@@ -828,8 +834,8 @@ async function findNearestIMGW(lat,lng){
     console.log("IMGW Głodowo diagnostyka:",{
       kod_stacji:glodowo.kod_stacji,
       nazwa:glodowo.nazwa_stacji,
-      temperatura:glodowo.temperatura,
-      temperatura_data:glodowo.temperatura_data,
+      temperatura:(glodowo.temperatura_powietrza ?? glodowo.temperatura),
+      temperatura_data:(glodowo.temperatura_powietrza_data ?? glodowo.temperatura_data),
       tempFields,
       rawAge,
       ageMinutes,
