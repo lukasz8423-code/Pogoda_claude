@@ -287,7 +287,7 @@ a.btn{text-decoration:none;color:inherit}
 </defs></svg>
 <div id="sky"></div>
 <div id="amb"></div>
-<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#ffcc00;color:#111;text-align:center;padding:6px;font:bold 13px Arial">GLODOWO-TEST-03 · BUILD c6d1dcb5</div><div id="glodowo-diag" style="position:fixed;top:35px;left:8px;right:8px;z-index:99998;background:rgba(8,15,32,.96);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:8px;font:12px/1.35 Arial;display:none"><b>IMGW Głodowo — diagnostyka</b><div id="glodowo-diag-body">oczekiwanie…</div></div>
+<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#ffcc00;color:#111;text-align:center;padding:6px;font:bold 13px Arial">GLODOWO-TEST-03 · BUILD c6d1dcb5</div></div>
 <div id="app" style="padding-top:34px"></div>
 <div id="sheet-root"></div>
 <script>
@@ -2229,17 +2229,5 @@ document.addEventListener("visibilitychange",()=>{
 })();
 
 </script>
-<script>
-(function(){
-  function paint(){
-    var el=document.getElementById("glodowo-diag"), b=document.getElementById("glodowo-diag-body");
-    if(!el||!b)return;
-    var d=window.__AURA_IMGW_DIAG;
-    if(!d){el.style.display="block";b.textContent="S.imgwDiag jeszcze nie istnieje";return}
-    el.style.display="block";
-    b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")+"<br><b>Surowe pola temperatury:</b> "+(d.rawTempFields?Object.entries(d.rawTempFields).map(function(x){return x[0]+"="+String(x[1])}).join(" · "):"—")+"<br><b>Klucze rekordu:</b> "+(d.rawKeys?d.rawKeys.join(", "):"—");
-  }
-  setInterval(paint,500); paint();
-})();
-</script><script>setInterval(function(){try{if(window.__AURA_IMGW_DIAG){var b=document.getElementById("glodowo-diag-body");if(b){var d=window.__AURA_IMGW_DIAG;b.innerHTML="status: <b>"+(d.status||"—")+"</b> · feed: "+(d.count==null?"—":d.count)+" · znaleziono: "+(d.found?"TAK":"NIE")+" · użyto: "+(d.used?"TAK":"NIE")+"<br>stacja: "+(d.station||"—")+" · T: "+(d.temperature==null?"—":d.temperature+"°C")+" · czas: "+(d.timestamp||"—")+" · wiek: "+(d.ageMinutes==null?"—":d.ageMinutes+" min")+" · dystans: "+(d.dist==null?"—":d.dist+" km")+"<br>powód: "+(d.reason||"—")+" · błąd: "+(d.error||"—")}}}catch(e){}},500);</script></body>
+</body>
 </html>
