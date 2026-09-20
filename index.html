@@ -1453,46 +1453,50 @@ function nowcastHTML(X){
   const noun=snow?"Śnieg":"Deszcz";
   let sum,sub="",bars="",ax="";
   if(m){
-    const v=m.map(x=>x.mm*4);
-    const wet=v.map(a=>a>=.1);
-    const nowMs=Date.now();
-    const currentSlot=m.findIndex(x=>new Date(x.t).getTime()<=nowMs&&new Date(x.t).getTime()+15*60000>nowMs);
-    const nowWet=isRainingNow(X);
-    const futureWet=m.map((x,i)=>i>Math.max(-1,currentSlot)&&wet[i]);
-    const firstFuture=futureWet.indexOf(true);
-    const first=nowWet?Math.max(0,currentSlot):firstFuture;
+     const wet=v.map(a=>a>=.1);
+     const nowWet=isRainingNow(X);
 
-    let endTime=null;
-    const scanStart=first>=0?first:(nowWet?0:-1);
-    if(scanStart>=0){
-      for(let i=scanStart+1;i<wet.length;i++){if(!wet[i]){endTime=new Date(m[i].t);break;}}
-      if(!endTime){
-        const last=new Date(m[m.length-1].t).getTime();
-        for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
-          const ht=hourly.time[X.ci+i];
-          if(new Date(ht).getTime()<=last)continue;
-          const hpr=+(hourly.precipitation?.[X.ci+i]||0);
-          const hpop=+(hourly.precipitation_probability?.[X.ci+i]||0);
-          if(hpr<0.1&&hpop<50){endTime=new Date(ht);break;}
-        }
-      }
-    }
-    const startTime=!nowWet&&first>=0?hhmm(new Date(new Date(m[first].t).getTime()-15*60000)):null;
-    const endLabel=endTime?hhmm(endTime):null;
+     // Tekst interwału musi być zgodny z Prognozą godzinową:
+     // dokładnie ten sam zakres X.ci...X.ci+23 i te same weather_code.
+     const rainHours=[];
+     const end=Math.min(X.ci+24,hourly.time.length);
+     for(let idx=X.ci;idx<end;idx++){
+       const code=Number(hourly.weather_code?.[idx]);
+       rainHours.push({idx,code,rain:isRainCode(code),time:hourly.time?.[idx]});
+     }
 
-    if(first<0&&!nowWet){
-      sum="Bez opadów przez najbliższe 2 godziny";
-    }else if(nowWet){
-      sum=endLabel
-        ? `${noun} pada teraz i powinien potrwać do około ${endLabel}.`
-        : `${noun} pada teraz i powinien potrwać co najmniej przez najbliższe 2 godziny.`;
-    }else if(startTime){
-      sum=endLabel
-        ? `${noun} zacznie padać około ${startTime} i potrwa do około ${endLabel}.`
-        : `${noun} zacznie padać około ${startTime}.`;
-    }else{
-      sum=`${noun} w najbliższych godzinach.`;
-    }
+     const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.rain);
+     const currentHourlyRain=rainHours[0]?.rain===true;
+     const activeNow=currentHourlyRain||nowWet;
+
+     let endTime=null;
+     if(activeNow){
+       const startIdx=currentHourlyRain?X.ci:(firstRain?.idx??X.ci);
+       for(const h of rainHours){
+         if(h.idx>startIdx&&!h.rain){endTime=new Date(h.time);break;}
+       }
+     }else if(firstRain){
+       for(const h of rainHours){
+         if(h.idx>firstRain.idx&&!h.rain){endTime=new Date(h.time);break;}
+       }
+     }
+
+     const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.time)):null;
+     const endLabel=endTime?hhmm(endTime):null;
+
+     if(!activeNow&&!firstRain){
+       sum="Bez opadów przez najbliższe 24 godziny";
+     }else if(activeNow){
+       sum=endLabel
+         ? noun+" pada teraz i powinien potrwać do około "+endLabel+"."
+         : noun+" pada teraz i powinien potrwać co najmniej przez najbliższe godziny.";
+     }else if(startTime){
+       sum=endLabel
+         ? noun+" zacznie padać około "+startTime+" i potrwa do około "+endLabel+"."
+         : noun+" zacznie padać około "+startTime+".";
+     }else{
+       sum=noun+" w najbliższych godzinach.";
+     }
 
     const peak=Math.max(...v);
     if(peak>=.1)sub=`Największe natężenie: ${peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne"} (${fnum(peak,1)} mm/h)`;
