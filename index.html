@@ -1747,18 +1747,17 @@ function wRain(X){
   const {hourly}=S.data;let next="";
   const nowWet=isRainingNow(X);
 
-  // "Opady dziś" musi być spójne z prognozą godzinową aktywnego modelu.
-  // Minutely_15 jest osobnym, krótkoterminowym źródłem (ICON-D2/AROME)
-  // i pozostaje wyłącznie dla nowcastu; nie może wyznaczać godziny tutaj.
+  // "Opady dziś" musi używać tej samej definicji opadu co prognoza godzinowa.
+  // Godzina rozpoczęcia deszczu wynika wyłącznie z hourly.weather_code.
+  // hourly.precipitation to suma opadu w poprzedzającym oknie godzinnym
+  // i nie służy do wyznaczania godziny rozpoczęcia zjawiska.
   if(nowWet){
     next="Pada teraz.";
   }else{
     for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
       const idx=X.ci+i;
       const code=Number(hourly.weather_code?.[idx]);
-      const mm=Number(hourly.precipitation?.[idx]);
-      const liquidRain=isRainCode(code);
-      if(liquidRain || (Number.isFinite(mm)&&mm>=0.1&&!isSnowCode(code))){
+      if(isRainCode(code)){
         next=`Najbliższy deszcz ok. ${hhmm(hourly.time[idx])}.`;
         break;
       }
