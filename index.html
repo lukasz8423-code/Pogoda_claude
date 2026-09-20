@@ -688,17 +688,33 @@ async function findNearestIMGW(lat,lng){
 
   if(glodowo){
     const dist=stationDist(lat,lng,52.8306,19.2356);
-    const observedAt=parseImgwMeteoTimestamp(glodowo.temperatura_data);
+    const observedAt=parseImgwMeteoTimestamp(glodowo.temperatura_powietrza_data);
     const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const __allFields=Object.keys(glodowo||{});
     const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     const __candidateTemps=__allFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:glodowo[k],num:parseFloat(String(glodowo[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
     const temp=parseFloat(glodowo.temperatura_powietrza);
+    const humidityObservedAt=parseImgwMeteoTimestamp(glodowo.wilgotnosc_wzgledna_data);
+    const windObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_srednia_predkosc_data);
+    const windDirObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_kierunek_data);
+    const groundObservedAt=parseImgwMeteoTimestamp(glodowo.temperatura_gruntu_data);
+    const fieldAge=ts=>ts==null?null:Math.max(0,Math.round((fetchedAt-ts)/60000));
+    const humidityAgeMinutes=fieldAge(humidityObservedAt);
+    const windAgeMinutes=fieldAge(windObservedAt);
+    const windDirAgeMinutes=fieldAge(windDirObservedAt);
+    const groundAgeMinutes=fieldAge(groundObservedAt);
+    const TEMP_MAX_AGE_MIN=120;
+    const HUMIDITY_MAX_AGE_MIN=120;
+    const WIND_MAX_AGE_MIN=120;
+    const tempFresh=ageMinutes===null||ageMinutes<=TEMP_MAX_AGE_MIN;
+    const humidityFresh=humidityAgeMinutes===null||humidityAgeMinutes<=HUMIDITY_MAX_AGE_MIN;
+    const windFresh=windAgeMinutes===null||windAgeMinutes<=WIND_MAX_AGE_MIN;
+    const windDirFresh=windDirAgeMinutes===null||windDirAgeMinutes<=WIND_MAX_AGE_MIN;
     const distRounded=Math.round(dist*10)/10;
     const distOK=dist<=30;
     const tempOK=Number.isFinite(temp);
-    const ageOK=ageMinutes===null || ageMinutes<180;
+    const ageOK=tempFresh;
     if(S.imgwDiag)S.imgwDiag={
       ...S.imgwDiag,
       temperature:Number.isFinite(temp)?temp:null,
@@ -737,9 +753,15 @@ async function findNearestIMGW(lat,lng){
         lng:19.2356,
         dist:Math.round(dist*10)/10,
         temperatura:temp,
-        wilgotnosc_wzgledna:parseFloat(glodowo.wilgotnosc_wzgledna),
-        predkosc_wiatru:parseFloat(glodowo.wiatr_srednia_predkosc),
-        kierunek_wiatru:parseFloat(glodowo.wiatr_kierunek),
+        wilgotnosc_wzgledna:humidityFresh?parseFloat(glodowo.wilgotnosc_wzgledna):null,
+        wilgotnosc_wzgledna_data:glodowo.wilgotnosc_wzgledna_data||null,
+        wilgotnosc_wzgledna_ageMinutes:humidityAgeMinutes,
+        predkosc_wiatru:windFresh?parseFloat(glodowo.wiatr_srednia_predkosc):null,
+        predkosc_wiatru_data:glodowo.wiatr_srednia_predkosc_data||null,
+        predkosc_wiatru_ageMinutes:windAgeMinutes,
+        kierunek_wiatru:windDirFresh?parseFloat(glodowo.wiatr_kierunek):null,
+        kierunek_wiatru_data:glodowo.wiatr_kierunek_data||null,
+        kierunek_wiatru_ageMinutes:windDirAgeMinutes,
         cisnienie:null,
         temperatura_gruntu:parseFloat(glodowo.temperatura_gruntu),
         temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
