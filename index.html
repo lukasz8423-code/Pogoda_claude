@@ -1453,55 +1453,59 @@ function sunlineHTML(X){
 
 function nowcastHTML(X){
   const m=S.minutely,{hourly}=S.data;
-  const snow=(X.code>=71&&X.code<=77)||(X.code>=85&&X.code<=86);
+  const snow=isSnowCode(X.code);
   const noun=snow?"Śnieg":"Deszcz";
   let sum,sub="",bars="",ax="";
   if(m){
-     const v=m.map(x=>x.mm*4);
-     const wet=v.map(a=>a>=.1);
-     const nowWet=isRainingNow(X);
+    const v=m.map(x=>x.mm*4);
 
-     // Tekst interwału musi być zgodny z Prognozą godzinową:
-     // dokładnie ten sam zakres X.ci...X.ci+23 i te same weather_code.
-     const rainHours=[];
-     const end=Math.min(X.ci+24,hourly.time.length);
-     for(let idx=X.ci;idx<end;idx++){
-       const code=Number(hourly.weather_code?.[idx]);
-       rainHours.push({idx,code,rain:isRainCode(code),time:hourly.time?.[idx]});
-     }
+    // Bieżący stan opadu: tylko aktualny 15-minutowy slot.
+    // Nie pozwalamy, aby godzinowy weather_code oznaczał "pada teraz",
+    // bo jest to prognoza modelowa, a nie obserwacja bieżącego deszczu.
+    const nowMs=Date.now();
+    const currentSlot=m.find(x=>{
+      const t=new Date(x.t).getTime();
+      return Number.isFinite(t)&&t<=nowMs&&nowMs<t+15*60000;
+    });
+    const currentRainMm=Number(currentSlot?.rain??currentSlot?.mm??0);
+    const activeNow=!snow&&Number.isFinite(currentRainMm)&&currentRainMm>=0.05;
 
-     const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.rain);
-     const currentHourlyRain=rainHours[0]?.rain===true;
-     const activeNow=currentHourlyRain;
+    // Prognoza początku deszczu: dokładnie te same godziny i weather_code,
+    // które pokazuje "Prognoza godzinowa".
+    const rainHours=[];
+    const end=Math.min(X.ci+24,hourly.time.length);
+    for(let idx=X.ci;idx<end;idx++){
+      const code=Number(hourly.weather_code?.[idx]);
+      rainHours.push({idx,code,rain:isRainCode(code),time:hourly.time?.[idx]});
+    }
 
-     let endTime=null;
-     if(activeNow){
-       const startIdx=currentHourlyRain?X.ci:(firstRain?.idx??X.ci);
-       for(const h of rainHours){
-         if(h.idx>startIdx&&!h.rain){endTime=new Date(h.time);break;}
-       }
-     }else if(firstRain){
-       for(const h of rainHours){
-         if(h.idx>firstRain.idx&&!h.rain){endTime=new Date(h.time);break;}
-       }
-     }
+    const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.rain);
+    let endTime=null;
 
-     const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.time)):null;
-     const endLabel=endTime?hhmm(endTime):null;
+    if(activeNow){
+      for(const h of rainHours){
+        if(h.idx>X.ci&&!h.rain){endTime=new Date(h.time);break;}
+      }
+    }else if(firstRain){
+      for(const h of rainHours){
+        if(h.idx>firstRain.idx&&!h.rain){endTime=new Date(h.time);break;}
+      }
+    }
 
-     if(!activeNow&&!firstRain){
-       sum="Bez opadów przez najbliższe 24 godziny";
-     }else if(activeNow){
-       sum=endLabel
-         ? noun+" pada teraz i powinien potrwać do około "+endLabel+"."
-         : noun+" pada teraz i powinien potrwać co najmniej przez najbliższe godziny.";
-     }else if(startTime){
-       sum=endLabel
-         ? noun+" zacznie padać około "+startTime+" i potrwa do około "+endLabel+"."
-         : noun+" zacznie padać około "+startTime+".";
-     }else{
-       sum=noun+" w najbliższych godzinach.";
-     }
+    const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.time)):null;
+    const endLabel=endTime?hhmm(endTime):null;
+
+    if(activeNow){
+      sum=endLabel
+        ? noun+" pada teraz i powinien potrwać do około "+endLabel+"."
+        : noun+" pada teraz.";
+    }else if(firstRain){
+      sum=endLabel
+        ? noun+" zacznie padać około "+startTime+" i potrwa do około "+endLabel+"."
+        : noun+" zacznie padać około "+startTime+".";
+    }else{
+      sum="Brak opadów w najbliższych godzinach";
+    }
 
     const peak=Math.max(...v);
     if(peak>=.1)sub=`Największe natężenie: ${peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne"} (${fnum(peak,1)} mm/h)`;
@@ -1528,7 +1532,6 @@ function nowcastHTML(X){
     <div class="nc-legend tn">${ax}</div>
     ${sub?`<div class="note">${esc(sub)}</div>`:""}</section>`;
 }
-
 function isDayAt(iso){
   const {daily}=S.data,di=daily.time.indexOf(iso.slice(0,10));
   const t=new Date(iso);
