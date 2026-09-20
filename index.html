@@ -1323,7 +1323,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -1978,7 +1978,7 @@ function modelsHTML(){
   }else if(!c)body+=`<div class="note" style="margin-top:0">Porównanie modeli pojawi się po chwili.</div>`;
   if(acc)body+=`<div class="note">Trafność temperatury z historii tej aplikacji: ${acc.accuracy}% (${acc.count} zweryfikowanych prognoz).</div>`;
   return`<section class="card"><div class="ch">${mini("layers")}<span class="grow">Zgodność modeli</span></div>${body}
-    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="model">Zmień model</button><button class="btn" data-act="raw">Surowe dane</button><button class="btn" data-act="pipeline">🔧 Pipeline Debug</button></div></section>`;
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="model">Zmień model</button><button class="btn" data-act="raw">Surowe dane</button><button class="btn" data-act="pipeline">🩺 Live Health Check</button></div></section>`;
 }
 
 function stationHTML(){
@@ -2148,18 +2148,48 @@ function openModelSheet(){
     ${WEATHER_MODELS.map(m=>`<button class="mi ${m.id===activeModel.id?"on":""}" data-act="pickmodel" data-id="${m.id}"><span class="fl">${m.flag}</span><span><b>${esc(m.name)}</b><small>${esc(m.desc)}</small></span></button>`).join("")}
     <div class="note">Modele o krótszym zasięgu (np. Météo-France) pokażą mniej dni w prognozie 10-dniowej.</div>`);
 }
+function runLiveDataQualityGuard(){
+  const d=S.pipelineDiag;
+  if(!d){S.liveHealth=null;return null;}
+  const rows=d.rows||[],alerts=[];
+  const add=(code,severity,message,step=null)=>alerts.push({code,severity,message,step});
+  const now=new Date(),expected=new Date(now);expected.setMinutes(0,0,0);
+  const expectedHour=expected.getHours();
+  if(d.uiCurrentHour!==d.fusionCurrentHour||rows[0]&&new Date(rows[0].time).getHours()!==expectedHour)
+    add("CRITICAL_TIME_DESYNC","critical","Bieżący slot UI/Fusion nie odpowiada lokalnej pełnej godzinie.",0);
+  if(Math.abs(Number(d.fusionBias?.temperature||0))>2){
+    const a=rows.slice(1,3).find(r=>Number.isFinite(Number(r.auraFinal))&&Number.isFinite(Number(r.openMeteo))&&Math.abs(r.auraFinal-r.openMeteo)>2);
+    if(a)add("ERROR_BIAS_EXPLOSION","error","Bias temperatury > ±2°C powoduje >2°C odchylenia Aura Final od modelu.",a.step);
+  }
+  for(let i=1;i<rows.length;i++){
+    const p=rows[i-1],r=rows[i],drop=Number(p.openMeteo)-Number(r.openMeteo),precip=Number(r.precipitation),lag=Number(r.auraFinal)-Number(r.openMeteo);
+    if(drop>=4&&precip>=1.5&&Number.isFinite(lag)&&Math.abs(lag)>1.5)
+      add("ERROR_FRONT_LAG","error","Front: spadek >=4°C/h + opad >=1.5 mm, ale Aura Final pozostaje >1.5°C od modelu.",r.step);
+  }
+  if(d.imgwForecastAvailable===false)
+    add("WARN_MISSING_IMGW_FORECAST","warn","Brak godzinowego feedu IMGW Hybrid; prognoza używa modelu i obserwacji stacji.",null);
+  for(const key of ["tempWeight","humidityWeight","windWeight"]){
+    for(let i=1;i<rows.length;i++){
+      if(Number(rows[i-1][key])>0.25&&Number(rows[i][key])===0){
+        add("WARN_ZERO_WEIGHT_DROP","warn",key+" spada do 0 dla T+"+i+" zamiast wygaszać korektę.",i);break;
+      }
+    }
+  }
+  if(d.nullFlags?.length)add("WARN_NULL_SOURCE","warn","Brakujące wartości: "+d.nullFlags.join(", "),null);
+  const map=new Map();
+  for(const a of alerts){const k=a.step==null?"global":a.step;if(!map.has(k))map.set(k,[]);map.get(k).push(a);}
+  rows.forEach(r=>r.alerts=map.get(r.step)||[]);
+  S.liveHealth={capturedAt:Date.now(),status:alerts.some(a=>a.severity==="critical"||a.severity==="error")?"ERROR":alerts.length?"WARN":"OK",alerts};
+  return S.liveHealth;
+}
 function pipelineInspectorHTML(){
   const d=S.pipelineDiag;
   if(!d)return "<div class='sd'>Brak danych diagnostycznych. Najpierw pobierz pogodę.</div>";
-  const timeErr=d.uiCurrentHour!==d.fusionCurrentHour;
-  const rows=d.rows||[];
-  const frontRows=rows.filter(r=>r.dynamicFront);
-  const alerts=[];
-  if(timeErr)alerts.push("<div class='err'>⚠️ Błąd czasu: UI_current_hour="+d.uiCurrentHour+", Fusion_current_hour="+d.fusionCurrentHour+"</div>");
-  if(frontRows.length)alerts.push("<div class='note'>⚡ Wykryto dynamiczny front/opad w przebiegu modelu krótkoterminowego.</div>");
+  const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]};
+  const rows=d.rows||[],alerts=[];
+  if(health.alerts.length)health.alerts.forEach(a=>alerts.push("<div class='"+(a.severity==="error"||a.severity==="critical"?"err":"err warn")+"'><b>"+esc(a.code)+"</b> — "+esc(a.message)+(a.step==null?"":" · T+"+a.step)+"</div>"));
+  else alerts.push("<div class='note'>✅ Live Health Check: brak wykrytych rozbieżności.</div>");
   alerts.push("<div class='note'>ℹ️ "+esc(d.imgwForecastNote)+"</div>");
-  if(d.nullFlags?.length)alerts.push("<div class='err warn'>⚠️ Null/undefined: "+esc(d.nullFlags.join(", "))+"</div>");
-  if(!alerts.length)alerts.push("<div class='note'>✅ Brak wykrytych rozbieżności.</div>");
   const fmt=v=>v==null?"—":(typeof v==="number"?fnum(v,1):esc(String(v)));
   const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v)*100)+"%":"—";
   const table="<div style='overflow:auto;margin-top:10px'><table style='width:100%;min-width:720px;border-collapse:collapse;font-size:11px'><thead><tr><th>Godzina</th><th>IMGW Stacja</th><th>IMGW Model</th><th>Open-Meteo</th><th>Aura Final</th><th>Waga T</th><th>Front</th></tr></thead><tbody>"+
@@ -2172,7 +2202,7 @@ function pipelineInspectorHTML(){
     "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'><button class='btn pri' data-act='pipeline-refresh'>Bypass Cache &amp; Re-fetch</button><button class='btn' data-act='copy-pipeline'>Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
-function pipelineDiagnosticsText(){return JSON.stringify(S.pipelineDiag||{error:"brak danych"},null,2);}
+function pipelineDiagnosticsText(){return JSON.stringify({pipeline:S.pipelineDiag||null,liveHealth:S.liveHealth||null},null,2);}
 
 function openRawSheet(){
   const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,zgodnosc:S.confidence||null,powietrze:S.air||null};
@@ -2240,10 +2270,9 @@ function currentHourIndex(data,now=new Date()){
   return best;
 }
 function bridgeAlpha(hoursAhead,weight){
-  // Korekta stacyjna działa przez pełne 6 h, ale stopniowo ustępuje
-  // przebiegowi modelowemu. Dzięki temu pierwszy spadek nie jest gwałtowny.
+  // Decaying Bias: T+1 100%, T+2 50%, T+3 25%, T+4+ 0%.
   const h=clamp(Number(hoursAhead),0,6);
-  const profile=[1,0.92,0.84,0.76,0.68,0.60,0.52];
+  const profile=[1,1,0.5,0.25,0,0,0];
   return clamp((Number(weight)||0)*profile[Math.round(h)],0,1);
 }
 function hasFiniteValue(val){
@@ -2305,7 +2334,7 @@ function applyObservationFusion(data,imgwData){
     windDirection:valid.windDirection?1:0
   };
   const bias={
-    temperature:valid.temperature?obs.temperature-model.temperature:0,
+    temperature:valid.temperature?clamp(obs.temperature-model.temperature,-1.5,1.5):0,
     humidity:valid.humidity?obs.humidity-model.humidity:0,
     wind:valid.wind?obs.wind-model.wind:0
   };
@@ -2369,7 +2398,7 @@ function applyForecastBridge(data,fusion,modelData){
       :-1;
     const prevT=prevSourceIdx>=0?Number(sourceH.temperature_2m?.[prevSourceIdx]):NaN;
     const tempDrop=Number.isFinite(prevT)&&Number.isFinite(modelT)?prevT-modelT:0;
-    const dynamicFront=(Number.isFinite(modelPrecip)&&modelPrecip>1.5)||tempDrop>=3;
+    const dynamicFront=Number.isFinite(modelPrecip)&&modelPrecip>1.5&&tempDrop>=3;
     const alphaT=dynamicFront&&step>0?0:clamp(tempFade[step]||0,0,1);
     const alphaH=bridgeAlpha(Math.min(step,3),weights.humidity);
     const alphaW=bridgeAlpha(Math.min(step,3),weights.wind);
@@ -2703,11 +2732,13 @@ async function loadW(lat,lng,name,isRef){
               imgwModel:null,
               openMeteo:modelT,
               auraFinal:toFiniteNumber(data.hourly.temperature_2m?.[idx]),
-              tempWeight:step===0?fusion.weights?.temperature??0:0,
-              humidityWeight:step===0?fusion.weights?.humidity??0:0,
-              windWeight:step===0?fusion.weights?.wind??0:0,
+              tempWeight:step===0?fusion.weights?.temperature??0:bridgeAlpha(step,fusion.weights?.temperature??0),
+              humidityWeight:step===0?fusion.weights?.humidity??0:bridgeAlpha(Math.min(step,3),fusion.weights?.humidity??0),
+              windWeight:step===0?fusion.weights?.wind??0:bridgeAlpha(Math.min(step,3),fusion.weights?.wind??0),
+              precipitation:Number.isFinite(precip)?precip:null,
+              modelTempDrop:step>0&&prevT!==null&&modelT!==null?prevT-modelT:null,
               sourceModel:bridgeSource?.model||activeModel.id,
-              dynamicFront:step>0&&((Number.isFinite(precip)&&precip>1.5)||(prevT!==null&&modelT!==null&&prevT-modelT>=3))
+              dynamicFront:step>0&&Number.isFinite(precip)&&precip>1.5&&prevT!==null&&modelT!==null&&prevT-modelT>=3
             });
           }
           const nullFlags=[];
@@ -2724,13 +2755,15 @@ async function loadW(lat,lng,name,isRef){
             stationAgeMinutes:imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
             stationDistanceKm:imgwData.dist??null,
             imgwForecastAvailable:false,
-            imgwForecastNote:"Brak godzinowej prognozy IMGW w aktualnym feedzie aplikacji; IMGW dostarcza tu obserwację stacji.",
+            imgwForecastNote:"Brak strukturalnego feedu godzinowej prognozy IMGW Hybrid w aktualnym źródle aplikacji; produkt IMGW Hybrid/INCA/MERGE nie jest jeszcze zintegrowany jako API wartości punktowych.",
             rows:diagRows,
             nullFlags,
             weights:fusion.weights||{},
             fusionBias:fusion.bias||{},
-            bridgeSource:bridgeSource?.model||activeModel.id
+            bridgeSource:bridgeSource?.model||activeModel.id,
+            dynamicFrontDetected:diagRows.some(r=>r.dynamicFront)
           };
+          runLiveDataQualityGuard();
 
           S.fusion={
             source:"IMGW",
