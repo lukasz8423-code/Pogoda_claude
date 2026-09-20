@@ -409,9 +409,24 @@ const LOCATIVE={
 function locativeCity(city){
   const raw=String(city??"").trim();
   if(!raw)return raw;
+
   if(LOCATIVE[raw])return LOCATIVE[raw];
+
   const key=Object.keys(LOCATIVE).find(k=>k.toLowerCase()===raw.toLowerCase());
-  return key?LOCATIVE[key]:raw;
+  if(key)return LOCATIVE[key];
+
+  // Nominatim może zwrócić lokalizację w formie:
+  // "Ryszewek, Powiat lipnowski". Odmieniamy nazwę miejscowości,
+  // zachowując pozostałą część lokalizacji.
+  const parts=raw.split(",");
+  const placeName=parts[0].trim();
+  const placeKey=Object.keys(LOCATIVE).find(k=>k.toLowerCase()===placeName.toLowerCase());
+  if(placeKey){
+    const rest=parts.slice(1).map(x=>x.trim()).filter(Boolean);
+    return [LOCATIVE[placeKey],...rest].join(", ");
+  }
+
+  return raw;
 }
 
 function advice(city,cur){
