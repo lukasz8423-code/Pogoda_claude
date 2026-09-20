@@ -923,8 +923,11 @@ async function apiMinutely(lat,lng){
     if(idx<0)return null;
     const out=[];
     for(let i=idx+1;i<=idx+16&&i<t.length;i++){
-      const hourKey=String(t[i]).slice(0,13);
-      const hi=Array.isArray(ht)?ht.findIndex(x=>String(x).slice(0,13)===hourKey):-1;
+      const tm=new Date(t[i]).getTime();
+      // Open-Meteo opisuje hourly precipitation_probability jako prawdopodobieństwo
+      // opadu w godzinie poprzedzającej znacznik czasu. Dlatego przedział 10:00–11:00
+      // musi korzystać z wartości 11:00, a nie 10:00.
+      const hi=Array.isArray(ht)?ht.findIndex(x=>new Date(x).getTime()>=tm):-1;
       out.push({t:t[i],mm:+(p[i]||0),pop:hi>=0&&hp?.[hi]!=null?+hp[hi]:null,hourlyMm:hi>=0&&hpr?.[hi]!=null?+(hpr[hi]||0):null});
     }
     return out.length>=4?out:null;
@@ -1331,36 +1334,49 @@ function smoothPath(pts){
 function meteogramHTML(X){
   const {hourly}=S.data;
   const N=Math.min(48,hourly.time.length-X.ci);if(N<8)return"";
-  const step=30,pl=16,W=pl*2+step*(N-1),H=194;
-  const temps=[];for(let i=0;i<N;i++)temps.push(hourly.temperature_2m[X.ci+i]);
-  const tmin=Math.min(...temps),tmax=Math.max(...temps),y0=46,y1=104;
-  const ty=t=>y1-(t-tmin)/Math.max(1,tmax-tmin)*(y1-y0);
-  const pts=temps.map((t,i)=>[pl+i*step,+ty(t).toFixed(1)]);
-  const line=smoothPath(pts);
-  let svg=`<defs><linearGradient id="mgA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC857" stop-opacity=".42"/><stop offset="1" stop-color="#FFC857" stop-opacity="0"/></linearGradient></defs>`;
-  svg+=`<path d="${line}L${pts[N-1][0]},${y1+16}L${pts[0][0]},${y1+16}Z" fill="url(#mgA)"/><path d="${line}" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>`;
+  // 48 h: jeden czytelny punkt co 3 godziny. Każdy punkt ma osobno temperaturę,
+  // opad (mm + %) i wiatr/poryw — bez nakładania elementów.
+  const step=54,pl=24,rows=Math.ceil(N/3),W=pl*2+step*(rows-1),H=226;
+  const samples=[];
+  for(let i=0;i<N;i+=3){
+    const idx=X.ci+i,t=new Date(hourly.time[idx]);
+    samples.push({
+      i,idx,x:pl+samples.length*step,t,
+      temp:+(hourly.temperature_2m[idx]??X.T),
+      pop:+(hourly.precipitation_probability?.[idx]??0),
+      pr:+(hourly.precipitation?.[idx]??0),
+      wind:hourly.wind_speed_10m?.[idx],
+      gust:hourly.wind_gusts_10m?.[idx],
+      wd:hourly.wind_direction_10m?.[idx]
+    });
+  }
+  const temps=samples.map(s=>s.temp),tmin=Math.min(...temps),tmax=Math.max(...temps);
+  const ty=t=>92-(t-tmin)/Math.max(1,tmax-tmin)*48;
+  let svg="";
   let lastDay="";
-  for(let i=0;i<N;i++){
-    const idx=X.ci+i,t=new Date(hourly.time[idx]),x=pl+i*step,h=t.getHours();
-    const dayKey=hourly.time[idx].slice(0,10);
+  samples.forEach((s,k)=>{
+    const dayKey=hourly.time[s.idx].slice(0,10);
     if(dayKey!==lastDay){
       lastDay=dayKey;
-      if(i>0)svg+=`<line x1="${x}" y1="22" x2="${x}" y2="176" stroke="rgba(255,255,255,.2)" stroke-dasharray="2 4"/>`;
-      svg+=`<text x="${x+(i>0?6:-2)}" y="16" font-weight="600" style="fill:#fff">${i===0?"Dziś":DAY_SHORT(hourly.time[idx])}</text>`;
+      if(k>0)svg+=`<line x1="${s.x}" y1="24" x2="${s.x}" y2="208" stroke="rgba(255,255,255,.2)" stroke-dasharray="3 4"/>`;
+      svg+=`<text x="${s.x}" y="16" text-anchor="middle" font-weight="600" style="fill:#fff">${k===0?"Dziś":DAY_SHORT(hourly.time[s.idx])}</text>`;
     }
-    if(i%3===0){
-      svg+=`<circle cx="${x}" cy="${pts[i][1]}" r="2.6" fill="#fff"/><text x="${x}" y="${pts[i][1]-9}" text-anchor="middle" class="tn" style="fill:#fff;font-weight:600">${Math.round(temps[i])}°</text>`;
-      const w=hourly.wind_speed_10m?.[idx],g=hourly.wind_gusts_10m?.[idx],wd=hourly.wind_direction_10m?.[idx];
-      if(w!=null){
-        svg+=`<g transform="translate(${x} 128) rotate(${((wd??0)+180)%360})"><path d="M0 -6L4 4L0 2L-4 4Z" fill="rgba(255,255,255,.75)"/></g><text x="${x}" y="146" text-anchor="middle" class="tn">${Math.round(w)}${g!=null?"/"+Math.round(g):""}</text>`;
-      }
-      svg+=`<text x="${x}" y="190" text-anchor="middle" class="tn">${pad(h)}</text>`;
+    const rainH=Math.min(34,s.pr*12);
+    svg+=`<text x="${s.x}" y="35" text-anchor="middle" class="tn" style="fill:#fff;font-size:11px;font-weight:600">${pad(s.t.getHours())}</text>`;
+    svg+=`<circle cx="${s.x}" cy="${ty(s.temp)}" r="3" fill="#fff"/><text x="${s.x}" y="${ty(s.temp)-8}" text-anchor="middle" class="tn" style="fill:#fff;font-weight:600">${Math.round(s.temp)}°</text>`;
+    if(s.pr>=0.05){
+      svg+=`<rect x="${s.x-8}" y="${174-rainH}" width="16" height="${rainH}" rx="4" fill="#8ADBFF" opacity=".9"/>`;
+    }else{
+      svg+=`<rect x="${s.x-8}" y="171" width="16" height="3" rx="2" fill="rgba(255,255,255,.14)"/>`;
     }
-    const pr=+(hourly.precipitation?.[idx]||0);
-    if(pr>=.05)svg+=`<rect x="${x-6}" y="${(172-Math.min(20,pr*9)).toFixed(1)}" width="12" height="${Math.min(20,pr*9).toFixed(1)}" rx="3" fill="#8ADBFF" opacity=".9"/>`;
-  }
-  svg+=`<line x1="${pl}" y1="22" x2="${pl}" y2="176" stroke="rgba(255,255,255,.35)" stroke-width="1"/>`;
-  return`<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div><div class="mg"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Wykres temperatury, wiatru i opadów na 48 godzin">${svg}</svg></div><div class="note">Krzywa to temperatura, liczby pod nią to wiatr/porywy w km/h (np. 18/31) ze strzałką kierunku, niebieskie słupki to opady.</div></section>`;
+    svg+=`<text x="${s.x}" y="190" text-anchor="middle" class="tn" style="fill:#8ADBFF;font-size:9px;font-weight:600">${s.pr>=0.01?fnum(s.pr,1)+" mm":"—"}</text>`;
+    svg+=`<text x="${s.x}" y="202" text-anchor="middle" class="tn" style="fill:var(--ink3);font-size:9px">${s.pop>=20?s.pop+"%":"—"}</text>`;
+    if(s.wind!=null){
+      svg+=`<g transform="translate(${s.x} 218) rotate(${((s.wd??0)+180)%360})"><path d="M0 -5L3 3L0 1L-3 3Z" fill="rgba(255,255,255,.75)"/></g><text x="${s.x+9}" y="221" text-anchor="start" class="tn" style="fill:var(--ink2);font-size:8px">${Math.round(s.wind)}${s.gust!=null?"/"+Math.round(s.gust):""}</text>`;
+    }
+  });
+  svg+=`<line x1="${pl}" y1="24" x2="${pl+(samples.length-1)*step}" y2="24" stroke="rgba(255,255,255,.14)"/>`;
+  return`<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div><div class="mg"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Przebieg temperatury, opadów i wiatru na 48 godzin">${svg}</svg></div><div class="note">Co 3 godziny: temperatura u góry, opad w mm i szansa opadu %, na dole wiatr/porywy w km/h. Przewiń wykres w bok.</div></section>`;
 }
 
 function dailyRows(){
@@ -1514,8 +1530,16 @@ function wLayers(X){
 }
 function wRain(X){
   const {hourly}=S.data;let next="";
-  for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
-    if((hourly.precipitation_probability?.[X.ci+i]??0)>=50){next=`Najbliższy deszcz ok. ${pad(new Date(hourly.time[X.ci+i]).getHours())}:00.`;break;}
+  if(S.minutely?.length){
+    const hit=S.minutely.find(x=>x.mm>=0.1);
+    if(hit)next=`Najbliższy deszcz ok. ${hhmm(hit.t)}.`;
+  }
+  if(!next){
+    for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
+      if((hourly.precipitation?.[X.ci+i]??0)>=0.1 || (hourly.precipitation_probability?.[X.ci+i]??0)>=50){
+        next=`Najbliższy deszcz ok. ${hhmm(hourly.time[X.ci+i])}.`;break;
+      }
+    }
   }
   return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Bez opadów o wysokim prawdopodobieństwie w 24 h."}</div></div>`;
 }
