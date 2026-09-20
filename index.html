@@ -358,43 +358,46 @@ function calcSunShadeTemp(tempC, radiation, windKmh, humidity){
 }
 
 
-// Nowcast - krotkoterminowa prognoza opadow na najblizsze 3h
-// bazujaca na trendzie prawdopodobienstwa opadow z modelu
+// Nowcast — ta sama definicja opadu co kafelek "Opady w najbliższych godzinach".
+// Godzina opadu wynika z instantowego WMO weather_code, nie z precipitation,
+// ponieważ precipitation w danych godzinowych jest sumą z poprzedniej godziny.
 function buildNowcast(hourly,ci){
   const points=[];
-  for(let i=0;i<4;i++){
-    const idx=ci+i;
-    if(idx>=hourly.time.length)break;
+  const end=Math.min(ci+4,hourly.time.length);
+  for(let idx=ci;idx<end;idx++){
+    const code=Number(hourly.weather_code?.[idx]);
     points.push({
-      h:i,
-      pop:hourly.precipitation_probability?.[idx]??0,
-      precip:+(hourly.precipitation?.[idx]??0),
-      code:hourly.weather_code?.[idx]??0
+      h:idx-ci,
+      time:hourly.time?.[idx],
+      pop:Number(hourly.precipitation_probability?.[idx]??0),
+      precip:Number(hourly.precipitation?.[idx]??0),
+      code:Number.isFinite(code)?code:0,
+      rain:isRainCode(code)
     });
   }
   if(points.length===0)return null;
 
   const now=points[0];
   const soon=points.slice(1);
-  const willRainSoon = soon.some(p=>p.pop>=50||p.precip>0.1);
-  const rainingNow = now.pop>=50||now.precip>0.1;
-  const trend = soon.length>0 ? (soon[soon.length-1].pop - now.pop) : 0;
+  const firstRain=soon.find(p=>p.rain);
+  const rainingNow=now.rain;
 
-  let text, emoji, tone;
-  if(rainingNow && trend<-15){
-    text="Opady ustępują w ciągu najbliższej godziny";emoji="🌦️";tone="ok";
-  } else if(rainingNow){
-    text="Opady utrzymają się przez najbliższe godziny";emoji="🌧️";tone="warn";
-  } else if(willRainSoon){
-    const firstIdx=soon.findIndex(p=>p.pop>=50||p.precip>0.1);
-    const inH=firstIdx>=0?firstIdx+1:1;
-    text=`Możliwe opady za ok. ${inH}h`;emoji="🌂";tone="warn";
-  } else {
-    text="Brak opadów w najbliższych godzinach";emoji="🟢";tone="ok";
+  let text,emoji,tone;
+  if(rainingNow){
+    const nextDry=soon.find(p=>!p.rain);
+    text=nextDry
+      ? `Opady trwają teraz, powinny ustąpić około ${hhmm(new Date(nextDry.time))}`
+      : "Opady trwają teraz";
+    emoji="🌧️";tone="warn";
+  }else if(firstRain){
+    text=`Deszcz zacznie padać około ${hhmm(new Date(firstRain.time))}`;
+    emoji="🌂";tone="warn";
+  }else{
+    text="Brak opadów w najbliższych godzinach";
+    emoji="🟢";tone="ok";
   }
   return{text,emoji,tone};
 }
-
 
 const LOCATIVE={
   "Lipno":"Lipnie","Ryszewek":"Ryszewku","Tomaszewo":"Tomaszewie",
