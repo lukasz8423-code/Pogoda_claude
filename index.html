@@ -706,17 +706,20 @@ async function findNearestIMGW(lat,lng){
       ageOK
     };
 
+    const tempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     console.log("IMGW Głodowo diagnostyka:",{
       kod_stacji:glodowo.kod_stacji,
       nazwa:glodowo.nazwa_stacji,
       temperatura:glodowo.temperatura,
       temperatura_data:glodowo.temperatura_data,
+      tempFields,
       rawAge,
       ageMinutes,
       dist:distRounded,
       distOK,
       tempOK,
-      ageOK
+      ageOK,
+      rawStation:glodowo
     });
 
     if(dist<=30 && Number.isFinite(temp) && (ageMinutes===null || ageMinutes<180)){
