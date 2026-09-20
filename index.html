@@ -361,18 +361,26 @@ function calcSunShadeTemp(tempC, radiation, windKmh, humidity){
 // Nowcast — ta sama definicja opadu co kafelek "Opady w najbliższych godzinach".
 // Godzina opadu wynika z instantowego WMO weather_code, nie z precipitation,
 // ponieważ precipitation w danych godzinowych jest sumą z poprzedniej godziny.
-function buildNowcast(hourly,ci){
+function buildNowcast(hourly,ci,precipitationModelWeight=1){
   const points=[];
   const end=Math.min(ci+4,hourly.time.length);
+  const w=clamp(Number(precipitationModelWeight),0,1);
   for(let idx=ci;idx<end;idx++){
     const code=Number(hourly.weather_code?.[idx]);
+    const rawPop=Number(hourly.precipitation_probability?.[idx]??0);
+    const rawPrecip=Number(hourly.precipitation?.[idx]??0);
+    // Ghost Rain Guard może obniżyć wpływ modelu wyłącznie dla bieżącej godziny.
+    const modelFactor=idx===ci?w:1;
+    const precip=Math.max(0,rawPrecip*modelFactor);
+    const pop=Math.max(0,rawPop*modelFactor);
+    const rain=isRainCode(code)&&((precip>=0.1)||rawPrecip===0);
     points.push({
       h:idx-ci,
       time:hourly.time?.[idx],
-      pop:Number(hourly.precipitation_probability?.[idx]??0),
-      precip:Number(hourly.precipitation?.[idx]??0),
+      pop,
+      precip,
       code:Number.isFinite(code)?code:0,
-      rain:isRainCode(code)
+      rain
     });
   }
   if(points.length===0)return null;
@@ -866,6 +874,8 @@ async function findNearestIMGW(lat,lng){
         temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
         opad_10min:parseFloat(glodowo.opad_10min),
         opad_10min_data:glodowo.opad_10min_data||null,
+        opad10minAgeMinutes:fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data)),
+        opad10minFresh:(Number.isFinite(parseFloat(glodowo.opad_10min))&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))!=null&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))<=20),
         // Ogólny czas stacji = najświeższy użyty parametr, niekoniecznie temperatura.
         observedAt:latestObservedAt,
         fetchedAt,
@@ -1654,9 +1664,12 @@ function nowcastHTML(X){
     ax=`<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>`;
     sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu >0,1 mm w poprzedniej godzinie, mm = suma opadu z poprzednich 15 minut.";
   }else{
-    const nc=buildNowcast(hourly,X.ci);
+    const nc=buildNowcast(hourly,X.ci,S.pipelineDiag?.precipitationModelWeight??1);
     sum=nc?nc.text:"Brak danych o opadach";
-    const pts=[0,1,2,3].map(i=>hourly.precipitation_probability?.[X.ci+i]??0);
+    const pts=[0,1,2,3].map(i=>{
+      const raw=Number(hourly.precipitation_probability?.[X.ci+i]??0);
+      return i===0?raw*clamp(Number(S.pipelineDiag?.precipitationModelWeight??1),0,1):raw;
+    });
     bars=pts.map((a,i)=>`<i class="${a<5?"z":""}" style="height:${Math.round(a/100*50+4)}px"><b>${Math.round(a)}%</b><small>+${i+1} h</small></i>`).join("");
     ax="";
     sub="Szansa opadów w kolejnych godzinach.";
@@ -2168,6 +2181,8 @@ function runLiveDataQualityGuard(){
   }
   if(d.imgwForecastAvailable===false)
     add("WARN_MISSING_IMGW_FORECAST","warn","Brak godzinowego feedu IMGW Hybrid; prognoza używa modelu i obserwacji stacji.",null);
+  if(d.ghostPrecipitation)
+    add("WARN_GHOST_PRECIPITATION","warn","Wykryto brak opadu w realnym pomiarze stacyjnym - zmniejsz wagę opadu z modelu dla bieżącej godziny.",0);
   for(const key of ["tempWeight","humidityWeight","windWeight"]){
     for(let i=1;i<rows.length;i++){
       if(!rows[i].dynamicFront&&Number(rows[i-1][key])>0.25&&Number(rows[i][key])===0){
@@ -2198,7 +2213,8 @@ function pipelineInspectorHTML(){
   return "<h3>Data Pipeline Inspector</h3><div class='sd'>Debug: bieżące dane, wagi fuzji i kolejne 3 godziny.</div>"+alerts.join("")+
     "<div class='note'>Bridge: <b>"+esc(d.bridgeSource)+"</b> · IMGW: <b>"+esc(d.station)+"</b> · odległość: "+fmt(d.stationDistanceKm)+" km · wiek: "+(d.stationAgeMinutes==null?"—":d.stationAgeMinutes+" min")+"</div>"+
     table+
-    "<div class='note' style='margin-top:10px'>Wagi bieżące: T <b>"+pct(d.weights.temperature)+"</b> · RH <b>"+pct(d.weights.humidity)+"</b> · wiatr <b>"+pct(d.weights.wind)+"</b> · kierunek <b>"+pct(d.weights.windDirection)+"</b></div>"+
+    "<div class='note' style='margin-top:10px'>Wagi bieżące: T <b>"+pct(d.weights.temperature)+"</b> · RH <b>"+pct(d.weights.humidity)+"</b> · wiatr <b>"+pct(d.weights.wind)+"</b> · kierunek <b>"+pct(d.weights.windDirection)+"</b> · opad T0 <b>"+pct(d.precipitationModelWeight??1)+"</b></div>"+
+    (d.ghostPrecipitation?"<div class='note' style='color:var(--warn);margin-top:6px'>⚠️ Ghost Rain Guard: stacja "+fmt(d.stationPrecip10min)+" mm/10 min, model T0 "+fmt(d.modelCurrentPrecipitation)+" mm → waga modelu opadu T0: <b>"+pct(d.precipitationModelWeight)+"</b></div>":"")+
     "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'><button class='btn pri' data-act='pipeline-refresh'>Bypass Cache &amp; Re-fetch</button><button class='btn' data-act='copy-pipeline'>Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
@@ -2736,11 +2752,25 @@ async function loadW(lat,lng,name,isRef){
               humidityWeight:step===0?fusion.weights?.humidity??0:bridgeAlpha(Math.min(step,3),fusion.weights?.humidity??0),
               windWeight:step===0?fusion.weights?.wind??0:bridgeAlpha(Math.min(step,3),fusion.weights?.wind??0),
               precipitation:Number.isFinite(precip)?precip:null,
+              precipitationModelWeight:step===0?precipitationModelWeight:1,
               modelTempDrop:step>0&&prevT!==null&&modelT!==null?prevT-modelT:null,
               sourceModel:bridgeSource?.model||activeModel.id,
               dynamicFront:step>0&&Number.isFinite(precip)&&precip>1.5&&prevT!==null&&modelT!==null&&prevT-modelT>=3
             });
           }
+          const diagCurrentPrecip=Number(data.hourly?.precipitation?.[diagCi]);
+          const diagCurrentCode=Number(data.hourly?.weather_code?.[diagCi]);
+          const stationPrecip10=Number(imgwData.opad_10min);
+          const stationPrecipAge=Number(imgwData.opad10minAgeMinutes);
+          const stationPrecipFresh=imgwData.opad10minFresh===true;
+          const ghostPrecipitation=
+            Number(imgwData.dist)<=5 &&
+            stationPrecipFresh &&
+            Number.isFinite(stationPrecip10) &&
+            stationPrecip10<=0 &&
+            ((Number.isFinite(diagCurrentPrecip)&&diagCurrentPrecip>0) || isRainCode(diagCurrentCode));
+          const precipitationModelWeight=ghostPrecipitation?0.25:1;
+
           const nullFlags=[];
           const nullCheck=(label,value)=>{if(value===null||value===undefined||value==="")nullFlags.push(label);};
           ["temperature_2m","relative_humidity_2m","wind_speed_10m","wind_direction_10m","weather_code"].forEach(k=>{
@@ -2761,7 +2791,14 @@ async function loadW(lat,lng,name,isRef){
             weights:fusion.weights||{},
             fusionBias:fusion.bias||{},
             bridgeSource:bridgeSource?.model||activeModel.id,
-            dynamicFrontDetected:diagRows.some(r=>r.dynamicFront)
+            dynamicFrontDetected:diagRows.some(r=>r.dynamicFront),
+            stationPrecip10min:Number.isFinite(stationPrecip10)?stationPrecip10:null,
+            stationPrecipAgeMinutes:Number.isFinite(stationPrecipAge)?stationPrecipAge:null,
+            stationPrecipFresh,
+            modelCurrentPrecipitation:Number.isFinite(diagCurrentPrecip)?diagCurrentPrecip:null,
+            modelCurrentWeatherCode:Number.isFinite(diagCurrentCode)?diagCurrentCode:null,
+            ghostPrecipitation,
+            precipitationModelWeight
           };
           runLiveDataQualityGuard();
 
