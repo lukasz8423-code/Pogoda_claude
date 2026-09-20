@@ -432,7 +432,7 @@ function locativeCity(city){
   return raw;
 }
 
-function advice(city,cur){
+function advice(city,cur,hourly,ci=0){
   const t=Math.round(cur?.temperature_2m??15);
   const c=cur?.weather_code??0;
   const place=locativeCity(city);
@@ -441,17 +441,32 @@ function advice(city,cur){
   const isRain=(c>=51&&c<=67)||(c>=80&&c<=82);
   const isMist=c>=45&&c<=48;
 
-  if(isStorm)return{a:`Burza w ${place} (${t}°C)! Zostań w domu, odłącz urządzenia elektryczne.`,cl:"Zostań w domu",ac:"Obserwuj błyskawice przez okno"};
-  if(isSnow&&t<=3)return{a:`Śnieg w ${place} przy ${t}°C. Weź łopatę!`,cl:"Kożuch, czapa uszatka, ciepłe buty",ac:"Odśnieżanie lub bałwan"};
-  if(isRain)return{a:`Deszcz w ${place} (${t}°C). Parasol obowiązkowy.`,cl:"Kalosze, kurtka przeciwdeszczowa",ac:"Kawa i kanapa"};
+  // Rule Engine: aktywność jest walidowana względem bieżącej i najbliższych godzin.
+  const nextHours=Array.from({length:3},(_,i)=>hourly?.time?.[ci+i]?({
+    precipitationMm:Number(hourly.precipitation?.[ci+i]??0),
+    precipitationProbability:Number(hourly.precipitation_probability?.[ci+i]??0),
+    weatherCode:Number(hourly.weather_code?.[ci+i]??0)
+  }):null).filter(Boolean);
+  const blockedOutdoor=nextHours.some(h =>
+    h.precipitationMm>0.5 ||
+    h.precipitationProbability>40 ||
+    isRainCode(h.weatherCode) ||
+    isStormCode(h.weatherCode)
+  );
+
+  const safeActivity=(outdoorText,indoorText)=>blockedOutdoor?indoorText:outdoorText;
+
+  if(isStorm)return{a:`Burza w ${place} (${t}°C)! Zostań w domu, odłącz urządzenia elektryczne.`,cl:"Kurtka przeciwdeszczowa pod ręką",ac:"Zostań w domu"};
+  if(isSnow&&t<=3)return{a:`Śnieg w ${place} przy ${t}°C.`,cl:"Ciepła kurtka, czapka i wodoodporne buty",ac:safeActivity("Krótki spacer, jeśli opad osłabnie","Coś pod dachem — opad może się utrzymać")};
+  if(isRain)return{a:`Deszcz w ${place} (${t}°C). Parasol się przyda.`,cl:"Kurtka przeciwdeszczowa i nieprzemakalne buty",ac:"Kawa i kanapa"};
   if(isMist)return{a:`Mgła w ${place} (${t}°C). Jedź ostrożnie.`,cl:"Kurtka i sweter",ac:"Ostrożna jazda, włącz światła"};
-  if(t>=32)return{a:`Upał w ${place} – aż ${t}°C! Unikaj słońca między 11-15.`,cl:"Przewiewne ubranie, kapelusz, okulary",ac:"Klimatyzacja lub basen"};
-  if(t>=27)return{a:`Gorąco w ${place}, ${t}°C. Pij dużo wody.`,cl:"Lekkie ubranie, nakrycie głowy",ac:"Spacer rano lub wieczorem"};
-  if(t>=22)return{a:`Piękna pogoda w ${place}, ${t}°C! Wychodzisz?`,cl:"T-shirt lub lekka koszula",ac:"Rower, spacer, taras"};
-  if(t>=17)return{a:`Przyjemne ${t}°C w ${place}. Idealna pogoda.`,cl:"Bluza lub cienka kurtka",ac:"Spacer, rower, zakupy"};
-  if(t>=12)return{a:`Chłodnawo w ${place} (${t}°C). Weź kurtkę.`,cl:"Kurtka i bluza",ac:"Szybki spacer lub zakupy"};
-  if(t>=5)return{a:`Zimno w ${place} (${t}°C). Ubierz się ciepło.`,cl:"Kurtka, sweter, długie spodnie",ac:"Herbata i krótki spacer"};
-  return{a:`Mróz w ${place} (${t}°C)! Bez grubej kurtki ani kroku.`,cl:"Najgrubsza kurtka, szal, czapka",ac:"Dom, kaloryfer, herbata z prądem"};
+  if(t>=32)return{a:`Upał w ${place} – aż ${t}°C! Unikaj słońca między 11–15.`,cl:"Przewiewne ubranie, nakrycie głowy",ac:safeActivity("Spacer rano lub wieczorem","Lepiej zaplanować aktywność pod dachem")};
+  if(t>=27)return{a:`Gorąco w ${place}, ${t}°C. Pij dużo wody.`,cl:"Lekkie ubranie, nakrycie głowy",ac:safeActivity("Spacer rano lub wieczorem","Aktywność pod dachem — najbliższe godziny są deszczowe")};
+  if(t>=22)return{a:`Przyjemne ${t}°C w ${place}.`,cl:"T-shirt lub lekka koszula",ac:safeActivity("Rower, spacer, taras","Najbliższe godziny mają podwyższone ryzyko opadu")};
+  if(t>=17)return{a:`Przyjemne ${t}°C w ${place}.`,cl:"Bluza lub cienka kurtka",ac:safeActivity("Spacer, rower, zakupy","Lepiej zaplanować coś pod dachem — możliwy opad")};
+  if(t>=12)return{a:`Chłodnawo w ${place} (${t}°C). Weź kurtkę.`,cl:"Kurtka i bluza",ac:safeActivity("Szybki spacer lub zakupy","Szybkie zakupy albo aktywność pod dachem")};
+  if(t>=5)return{a:`Zimno w ${place} (${t}°C). Ubierz się ciepło.`,cl:"Kurtka, sweter, długie spodnie",ac:safeActivity("Krótki spacer","Herbata i coś pod dachem")};
+  return{a:`Mróz w ${place} (${t}°C)!`,cl:"Ciepła kurtka, szal i czapka",ac:safeActivity("Krótki spacer, jeśli warunki są spokojne","Dom i coś ciepłego do picia")};
 }
 
 // POPRAWIONY indeks dyskomfortu
@@ -1259,10 +1274,53 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
+
+// ═══════════════════════════════════════════════
+// WEATHER FUSION — Cloud Cover Engine
+// To jest estymacja wizualna, a nie zamiennik surowego cloud_cover.
+// Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
+// ═══════════════════════════════════════════════
+function calculateVisualCloud({low,mid,high,total,radiation,uv,uvClear,isDay}){
+  const L=clamp(Number(low)/100,0,1);
+  const M=clamp(Number(mid)/100,0,1);
+  const H=clamp(Number(high)/100,0,1);
+  const raw=clamp(Number(total),0,100);
+
+  // Niskie chmury są wizualnie ważniejsze; wysokie mają mniejszy wpływ.
+  const optical=1-(1-L*0.78)*(1-M*0.38)*(1-H*0.12);
+  let visual=optical*100;
+
+  // Silny sygnał słoneczny ogranicza interpretację "całkowicie pochmurno".
+  let solarSignal=0;
+  if(isDay){
+    const r=Number(radiation);
+    if(Number.isFinite(r)&&r>250) solarSignal=Math.max(solarSignal,clamp((r-250)/500,0,1));
+    const u=Number(uv),uc=Number(uvClear);
+    if(Number.isFinite(u)&&Number.isFinite(uc)&&uc>1){
+      solarSignal=Math.max(solarSignal,clamp((u/uc-0.45)/0.55,0,1));
+    }
+  }
+
+  if(solarSignal>0){
+    visual=visual*(1-0.35*solarSignal);
+  }
+
+  // Nigdy nie pozwalamy, by estymacja "wizualna" była bardziej skrajna
+  // niż informacja o warstwach; total pozostaje diagnostycznym sygnałem.
+  if(Number.isFinite(raw)&&solarSignal<0.15){
+    visual=visual*0.85+raw*0.15;
+  }
+
+  visual=Math.round(clamp(visual,0,100));
+  const category=visual<20?"clear":visual<50?"partly-cloudy":visual<80?"mostly-cloudy":"overcast";
+  return {visualCover:visual,category,rawTotal:raw,solarSignal:+solarSignal.toFixed(2)};
+}
+
+function isStormCode(code){ return Number(code)>=95; }
 
 // Jedno miejsce, w którym liczymy wszystkie wartości pochodne
 function computeCtx(){
@@ -1281,17 +1339,16 @@ function computeCtx(){
   const gusts=Math.round(current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  // Główne zachmurzenie = surowe total cloud_cover z aktywnego modelu Open-Meteo.
-  // Nie przeliczamy go własnym wzorem z warstw low/mid/high ani UV.
-  // Open-Meteo definiuje cloud_cover jako całkowite zachmurzenie; warstwy są
-  // osobnymi wartościami diagnostycznymi.
   const cloudTotal=Number(current.cloud_cover??g(hourly.cloud_cover));
   const cloudLow=Number(current.cloud_cover_low??g(hourly.cloud_cover_low));
   const cloudMid=Number(current.cloud_cover_mid??g(hourly.cloud_cover_mid));
   const cloudHigh=Number(current.cloud_cover_high??g(hourly.cloud_cover_high));
-  let cloud=Number.isFinite(cloudTotal)?clamp(Math.round(cloudTotal),0,100):null;
-  if(cloud==null && S.cloudSource?.value!=null) cloud=clamp(Math.round(S.cloudSource.value),0,100);
-  if(cloud==null) cloud=0;
+  const cloudEngine=calculateVisualCloud({
+    low:cloudLow,mid:cloudMid,high:cloudHigh,total:cloudTotal,
+    radiation:rad,uv,uvClear,isDay
+  });
+  const cloud=cloudEngine.visualCover;
+  S.cloudEngine=cloudEngine;
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
@@ -1861,7 +1918,7 @@ function stationHTML(){
 }
 
 function assistantHTML(X){
-  const adv=advice(S.city,S.data.current);
+  const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0);
   return`<section class="card"><div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div><div class="say">${esc(adv.a)}</div>
     <div class="arow"><div><small>Ubiór</small>${esc(adv.cl)}</div></div><div class="arow"><div><small>Pomysł na dzień</small>${esc(adv.ac)}</div></div></section>`;
 }
@@ -2213,6 +2270,7 @@ async function handleGPS(){
 
 async function loadW(lat,lng,name,isRef){
   S.fusion=null;
+  S.cloudEngine=null;
   if(isRef){S.refreshing=true;render();}
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
 
