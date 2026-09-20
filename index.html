@@ -1745,23 +1745,27 @@ function wLayers(X){
 }
 function wRain(X){
   const {hourly}=S.data;let next="";
-  const rainCode=isRainCode(X.code);
   const nowWet=isRainingNow(X);
+
+  // "Opady dziś" musi być spójne z prognozą godzinową aktywnego modelu.
+  // Minutely_15 jest osobnym, krótkoterminowym źródłem (ICON-D2/AROME)
+  // i pozostaje wyłącznie dla nowcastu; nie może wyznaczać godziny tutaj.
   if(nowWet){
     next="Pada teraz.";
-  }else if(S.minutely?.length){
-    const now=Date.now();
-    const hit=S.minutely.find(x=>new Date(x.t).getTime()>now&&x.mm>=0.1);
-    if(hit){const end=new Date(hit.t);const start=new Date(end.getTime()-15*60000);next=`Najbliższy deszcz około ${hhmm(start)}–${hhmm(end)}.`;}
-  }
-  if(!next){
+  }else{
     for(let i=1;i<24&&X.ci+i<hourly.time.length;i++){
-      if((hourly.precipitation?.[X.ci+i]??0)>=0.1 || (hourly.precipitation_probability?.[X.ci+i]??0)>=50){
-        next=`Najbliższy deszcz ok. ${hhmm(hourly.time[X.ci+i])}.`;break;
+      const idx=X.ci+i;
+      const code=Number(hourly.weather_code?.[idx]);
+      const mm=Number(hourly.precipitation?.[idx]);
+      const liquidRain=isRainCode(code);
+      if(liquidRain || (Number.isFinite(mm)&&mm>=0.1&&!isSnowCode(code))){
+        next=`Najbliższy deszcz ok. ${hhmm(hourly.time[idx])}.`;
+        break;
       }
     }
   }
-  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Bez opadów o wysokim prawdopodobieństwie w 24 h."}</div></div>`;
+
+  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
