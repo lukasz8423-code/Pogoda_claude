@@ -1318,7 +1318,7 @@ function getAlerts(X){
   if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
   if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
   else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
-  if(!S.minutely&&X.precip<0.1&&X.code<51){
+  if(!isRainingNow(X)&&X.code<51){
     for(let i=1;i<=2;i++){
       const idx=X.ci+i;
       if(idx<hourly.time.length&&(hourly.precipitation_probability?.[idx]??0)>=60){A.push({c:"info",t:`Prognoza opadów około ${hhmm(hourly.time[idx])}. Weź parasol.`});break;}
@@ -1361,6 +1361,38 @@ function gpsDiagHTML(){
   </div>`;
 }
 
+function isRainCode(code){
+  return (code>=51&&code<=67)||(code>=80&&code<=82);
+}
+function isSnowCode(code){
+  return (code>=71&&code<=77)||(code>=85&&code<=86);
+}
+// Jeden wspólny sygnał "opad ciekły teraz" dla Hero, kafelków i alertów.
+// current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
+// a nie dowolnego starego slotu z historii.
+function currentRainMm(X){
+  let mm=Number(X?.precip);
+  if(!Number.isFinite(mm)||mm<0)mm=0;
+  const m=S.minutely;
+  if(Array.isArray(m)){
+    const now=Date.now();
+    const slot=m.find(x=>{
+      const t=new Date(x.t).getTime();
+      return Number.isFinite(t)&&t<=now&&now<t+15*60000;
+    });
+    if(slot){
+      const r=Number(slot.rain);
+      const p=Number(slot.mm);
+      if(Number.isFinite(r)&&r>mm)mm=r;
+      else if(Number.isFinite(p)&&p>mm&&!isSnowCode(X.code))mm=p;
+    }
+  }
+  return mm;
+}
+function isRainingNow(X){
+  if(isRainCode(X.code)||currentRainMm(X)>=0.05)return true;
+  return false;
+}
 function heroHTML(X){
   const chips=[];
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
@@ -1375,11 +1407,15 @@ function heroHTML(X){
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
-  return`<section class="hero">
+  const rainNow=isRainingNow(X);
+  const heroCode=rainNow&&!isSnowCode(X.code)&&!isRainCode(X.code)?61:X.code;
+  const heroMeta=rainNow&&!isSnowCode(X.code)?wMeta(heroCode,X.isDay,X.cloud):X.meta;
+  return`<div id="s-hero">
+  <section class="hero">
     <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
-    <div class="hero-ico">${ico(X.code,X.isDay,108)}</div>
+    <div class="hero-ico">${ico(heroCode,X.isDay,108)}</div>
   </section>
-  <div class="cond">${esc(X.meta.t)}</div>
+  <div class="cond">${esc(heroMeta.t)}</div>
   <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
   <div class="hero-metrics" aria-label="Najważniejsze warunki teraz">
     <div class="hero-metric"><div class="hm-label">${mini("wind")}Wiatr</div><div class="hm-value tn">${X.wind}<small>km/h</small></div></div>
@@ -1387,7 +1423,8 @@ function heroHTML(X){
     <div class="hero-metric"><div class="hm-label">${mini("sun")}UV</div><div class="hm-value tn">${fnum(X.uv,X.uv<10?1:0)}<small>${uvWord(X.uv)}</small></div></div>
     <div class="hero-metric"><div class="hm-label">${mini("cloud")}Chmury</div><div class="hm-value tn">${X.cloud}<small>%</small></div></div>
   </div>
-  <div class="chips">${chips.join("")}</div>`;
+  <div class="chips">${chips.join("")}</div>
+  </div>`;
 }
 
 function sunlineHTML(X){
@@ -1419,8 +1456,8 @@ function nowcastHTML(X){
     const wet=v.map(a=>a>=.1);
     const nowMs=Date.now();
     const currentSlot=m.findIndex(x=>new Date(x.t).getTime()<=nowMs&&new Date(x.t).getTime()+15*60000>nowMs);
-    const rainCode=X.code>=51&&X.code<=67||X.code>=80&&X.code<=82;
-    const nowWet=X.precip>=.05||rainCode||(currentSlot>=0&&m[currentSlot].mm>=.01);
+    const rainCode=isRainCode(X.code);
+    const nowWet=isRainingNow(X);
     const futureWet=m.map((x,i)=>i>Math.max(-1,currentSlot)&&wet[i]);
     const firstFuture=futureWet.indexOf(true);
     const first=nowWet?Math.max(0,currentSlot):firstFuture;
@@ -1684,7 +1721,7 @@ function dewWetness(o){
 }
 function wHum(X){
   const dp=X.dewStation!=null?X.dewStation:X.dew;
-  const r=dewWetness({temp:X.T,dew:dp,hum:X.hum,wind:X.wind,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:X.precip});
+  const r=dewWetness({temp:X.T,dew:dp,hum:X.hum,wind:X.wind,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:currentRainMm(X)});
   const dpTxt=dp==null?"–":Math.round(dp)+"°C";
   const txt=`<b style="color:var(--ink);font-weight:600">Rosa ${r?r.score+"/15":"–"}</b> · punkt rosy ${dpTxt}${r?`<br>${r.label}`:""}${X.dewStation!=null?`<br>Punkt rosy ze stacji IMGW`:""}`;
   return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">${txt}</div></div>`;
@@ -1708,8 +1745,8 @@ function wLayers(X){
 }
 function wRain(X){
   const {hourly}=S.data;let next="";
-  const rainCode=X.code>=51&&X.code<=67||X.code>=80&&X.code<=82;
-  const nowWet=X.precip>=0.05||rainCode||S.minutely?.some(x=>new Date(x.t).getTime()<=Date.now()&&x.mm>=0.01);
+  const rainCode=isRainCode(X.code);
+  const nowWet=isRainingNow(X);
   if(nowWet){
     next="Pada teraz.";
   }else if(S.minutely?.length){
@@ -1873,7 +1910,7 @@ function alertsHTML(X){return getAlerts(X).map(a=>`<div class="alert ${a.c}">${m
 function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
   const X=S.X,set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
-  set("s-alerts",alertsHTML(X));set("s-nowcast",nowcastHTML(X));set("s-air",airHTML());set("s-models",modelsHTML());
+  set("s-hero",heroHTML(X));set("s-alerts",alertsHTML(X));set("s-nowcast",nowcastHTML(X));set("s-air",airHTML());set("s-models",modelsHTML());
 }
 
 // ── główny ekran pogody
