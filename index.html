@@ -2771,8 +2771,9 @@ async function loadW(lat,lng,name,isRef){
     if(weatherResult.status==="fulfilled"){
       data=weatherResult.value;
     }else{
-      // apiWeather(activeModel) mogło paść niezależnie od sieci/modeli.
-      // Najpierw wykorzystaj już pobrane surowe dane z ICON-EU/ECMWF/GFS.
+      // IMGW jest całkowicie niezależne od danych Open-Meteo.
+      // W przypadku błędu aktywnego modelu pobieramy surowe LIVE dane
+      // bezpośrednio z Open-Meteo, bez ensemble i bez Demo.
       const preferred=["icon_eu","ecmwf_ifs025","gfs_seamless","icon_d2"];
       const fallbackRecord=preferred
         .map(id=>cloudCompare.find(r=>r.model===id&&r.data))
@@ -3032,13 +3033,15 @@ async function loadW(lat,lng,name,isRef){
       }
     }else stationInfo=`Open-Meteo, ${(+lat).toFixed(3)}°N, ${(+lng).toFixed(3)}°E`;
   }catch(e){
-    // MOCK/Demo tylko przy rzeczywistym braku dostępnych danych sieciowych.
-    // Niedostępność IMGW nigdy nie trafia tutaj jako powód do demo.
-    console.warn("LIVE WEATHER API fail:",e?.message||e);
-    isDemo=true;
+    // PRODUKCJA: awaria IMGW/Open-Meteo nie może zmienić LIVE sesji w Demo.
+    // Mock jest dostępny wyłącznie przez jawny tryb demo, nigdy jako fallback
+    // po błędzie sieciowym podczas normalnego pobierania pogody.
+    console.error("[AURA LIVE FETCH FAILED]",e?.message||e);
+    isDemo=false;
     imgwData=null;
-    stationInfo="Brak danych sieciowych";
-    data=demoData();
+    stationInfo="Brak danych live";
+    data=null;
+    throw e;
   }finally{
     WEATHER_FORCE_REFRESH=false;
   }
