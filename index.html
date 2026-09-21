@@ -1466,16 +1466,24 @@ function sunShape(cx,cy,r){
   return`<path d="${rays}" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#gSun)"/>`;
 }
 function moonShape(){return`<circle cx="22" cy="22" r="11" fill="url(#gMoon)" mask="url(#mMoon)"/>`;}
-function ico(code,isDay=true,px=32){
+function ico(code,isDay=true,px=32,cloud=null){
   const day=isDay!==false&&isDay!==0;
+  let c=Number(code);
+  // Hero korzysta z tego samego kanonicznego mapowania zachmurzenia co opis w wMeta().
+  // Dzięki temu np. WMO 3 + cloud_cover 60% daje ikonę częściowego,
+  // a nie pełnego zachmurzenia.
+  const cloudPct=Number(cloud);
+  if(Number.isFinite(cloudPct)&&c>=0&&c<=3){
+    c=cloudPct<=15?0:cloudPct<=40?2:cloudPct<=70?2:3;
+  }
   let g="";
-  if(code===0)g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
-  else if(code<=2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
-  else if(code===3)g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85">${cloudShape()}</g><g transform="translate(2 2)">${cloudShape(true)}</g>`;
-  else if(code<=48)g=`<g transform="translate(0 -4)">${cloudShape()}</g><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/>`;
-  else if(code<=57)g=`<g transform="translate(0 -3)">${cloudShape(true)}</g><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/>`;
-  else if(code<=67||(code>=80&&code<=82))g=`<g transform="translate(0 -4)">${cloudShape(true)}</g><path d="M16 37.5l-2.4 6.5M24 37.5l-2.4 6.5M32 37.5l-2.4 6.5" stroke="#8ADBFF" stroke-width="2.6" stroke-linecap="round"/>`;
-  else if(code<=77||(code>=85&&code<=86))g=`<g transform="translate(0 -4)">${cloudShape()}</g><g fill="#fff"><circle cx="16" cy="40" r="2"/><circle cx="25" cy="43" r="2"/><circle cx="34" cy="40" r="2"/></g>`;
+  if(c===0)g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
+  else if(c<=2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
+  else if(c===3)g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85">${cloudShape()}</g><g transform="translate(2 2)">${cloudShape(true)}</g>`;
+  else if(c<=48)g=`<g transform="translate(0 -4)">${cloudShape()}</g><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/>`;
+  else if(c<=57)g=`<g transform="translate(0 -3)">${cloudShape(true)}</g><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/>`;
+  else if(c<=67||(c>=80&&c<=82))g=`<g transform="translate(0 -4)">${cloudShape(true)}</g><path d="M16 37.5l-2.4 6.5M24 37.5l-2.4 6.5M32 37.5l-2.4 6.5" stroke="#8ADBFF" stroke-width="2.6" stroke-linecap="round"/>`;
+  else if(c<=77||(c>=85&&c<=86))g=`<g transform="translate(0 -4)">${cloudShape()}</g><g fill="#fff"><circle cx="16" cy="40" r="2"/><circle cx="25" cy="43" r="2"/><circle cx="34" cy="40" r="2"/></g>`;
   else g=`<g transform="translate(0 -4)">${cloudShape(true)}</g><path d="M27 32l-7 10h5l-3 6 10-11h-5z" fill="#FFC857"/>`;
   return`<svg class="ico" viewBox="0 0 48 48" width="${px}" height="${px}" aria-hidden="true">${g}</svg>`;
 }
@@ -1687,7 +1695,7 @@ function heroHTML(X){
   return`<div id="s-hero">
   <section class="hero">
     <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
-    <div class="hero-ico">${ico(heroCode,X.isDay,108)}</div>
+    <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
   <div class="cond">${esc(heroMeta.t)}</div>
   <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
