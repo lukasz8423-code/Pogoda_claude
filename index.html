@@ -596,10 +596,32 @@ function putWeatherCache(key,data){
 
 // Pobierz dane z konkretnego modelu (v6: więcej zmiennych, 10 dni)
 async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
-  // Poszczególne modele mają różne maksymalne horyzonty. ICON-D2 ma tylko 2 dni,
-  // więc żądanie forecast_days=10 kończy się HTTP 400 i wypada z porównania modeli.
-  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16};
+  // Każdy model ma własny zestaw obsługiwanych zmiennych. DWD ICON nie udostępnia
+  // UV w tym endpointcie, więc wspólne zapytanie z uv_index/uv_index_clear_sky daje HTTP 400.
+  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10};
   const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
+  const commonCurrent=[
+    "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
+    "precipitation","weather_code","cloud_cover","visibility","pressure_msl",
+    "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers"
+  ];
+  const commonHourly=[
+    "temperature_2m","weather_code","precipitation_probability","precipitation",
+    "cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high",
+    "apparent_temperature","wind_speed_10m","wind_direction_10m","wind_gusts_10m",
+    "relative_humidity_2m","pressure_msl","visibility"
+  ];
+  const commonDaily=[
+    "weather_code","temperature_2m_max","temperature_2m_min",
+    "precipitation_probability_max","precipitation_sum","sunrise","sunset","wind_speed_10m_max"
+  ];
+  // UV/solar dodajemy tylko modelom, dla których API je obsługuje.
+  const supportsUv=["best_match","ecmwf_ifs025","gfs_seamless"].includes(modelId);
+  if(supportsUv){
+    commonCurrent.push("uv_index","uv_index_clear_sky");
+    commonHourly.push("uv_index","shortwave_radiation","uv_index_clear_sky");
+    commonDaily.push("uv_index_max","uv_index_clear_sky_max");
+  }
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
   const key=weatherCacheKey(lat,lng,modelId,requestDays);
   const cached=!forceFresh&&!WEATHER_FORCE_REFRESH?getWeatherCache(key,policy.ttlMs):null;
@@ -607,24 +629,9 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
 
   const p=new URLSearchParams({
     latitude:lat, longitude:lng,
-    current:[
-      "temperature_2m","relative_humidity_2m","apparent_temperature",
-      "is_day","precipitation","weather_code","cloud_cover","visibility",
-      "pressure_msl","wind_speed_10m","wind_gusts_10m",
-      "wind_direction_10m","uv_index","uv_index_clear_sky","rain","snowfall","showers"
-    ].join(","),
-    hourly:[
-      "temperature_2m","weather_code","precipitation_probability",
-      "precipitation","cloud_cover","cloud_cover_low","cloud_cover_mid",
-      "cloud_cover_high","apparent_temperature","uv_index",
-      "wind_speed_10m","wind_direction_10m","wind_gusts_10m","relative_humidity_2m",
-      "shortwave_radiation","pressure_msl","visibility","uv_index_clear_sky"
-    ].join(","),
-    daily:[
-      "weather_code","temperature_2m_max","temperature_2m_min",
-      "precipitation_probability_max","precipitation_sum",
-      "uv_index_max","uv_index_clear_sky_max","sunrise","sunset","wind_speed_10m_max"
-    ].join(","),
+    current:commonCurrent.join(","),
+    hourly:commonHourly.join(","),
+    daily:commonDaily.join(","),
     timezone:"auto",
     forecast_days:String(requestDays),
     models:modelId
