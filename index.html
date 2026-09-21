@@ -1717,50 +1717,30 @@ function isPrecipCode(code){
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
-  // Świeży pomiar Głodowa <=5 km ma bezwzględny priorytet dla T0.
+  // Gdy istnieje minutely_15, pierwszy slot jest źródłem prawdy dla T0.
+  const timelineMm=currentTimelineMm(X);
+  if(timelineMm!==null)return timelineMm;
+
+  // Fallback tylko wtedy, gdy nie ma osi 15-minutowej.
   const stationPrecip=stationFreshPrecipMm(S.imgwData);
   if(stationPrecip!==null)return stationPrecip;
   if(isSnowCode(X?.code))return 0;
-  let mm=Number(X?.precip);
-  if(!Number.isFinite(mm)||mm<0)mm=0;
-  const m=S.minutely;
-  if(Array.isArray(m)){
-    const now=Date.now();
-    const slot=m.find(x=>{
-      const t=new Date(x.t).getTime();
-      return Number.isFinite(t)&&t<=now&&now<t+15*60000;
-    });
-    if(slot){
-      const r=Number(slot.rain);
-      const p=Number(slot.mm);
-      if(Number.isFinite(r)&&r>mm)mm=r;
-      else if(Number.isFinite(p)&&p>mm&&!isSnowCode(X.code))mm=p;
-    }
-  }
-  return mm;
+  const mm=Number(X?.precip);
+  return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
-  // Jedna definicja "pada teraz" dla całego UI:
-  // najpierw świeża obserwacja IMGW, potem bieżący slot minutely_15,
-  // a dopiero na końcu bieżący WMO/current precipitation.
+  // Pierwszy slot 15-minutowy jest źródłem prawdy dla "pada teraz".
+  const timelineMm=currentTimelineMm(X);
+  if(timelineMm!==null)return timelineMm>0.05;
+
+  // Fallback tylko bez danych minutely_15.
   const station=S.imgwData||{};
   if(stationFreshPrecipMm(station)!==null){
-    return Number(stationFreshPrecipMm(station))>=0.05;
+    return Number(stationFreshPrecipMm(station))>0.05;
   }
-  if(Array.isArray(S.minutely)&&S.minutely.length){
-    const nowMs=Date.now();
-    const slot=S.minutely.find(x=>{
-      const t=new Date(x.t).getTime();
-      return Number.isFinite(t)&&t<=nowMs&&nowMs<t+15*60000;
-    });
-    if(slot){
-      const mm=Number(slot.rain??slot.mm??0);
-      if(Number.isFinite(mm))return mm>=0.05;
-    }
-  }
-  if(isRainCode(X.code)||currentRainMm(X)>=0.05)return true;
-  return false;
+  return isRainCode(X.code)||Number(X?.precip)>0.05;
 }
+
 function heroHTML(X){
   const chips=[];
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
@@ -1853,25 +1833,23 @@ function unifiedPrecipitationTimeline(){
   return {source:"hourly",slots:[],current:null,future:[],hours};
 }
 function nowcastHTML(X){
-  const timeline=unifiedPrecipitationTimeline();
   const snow=isSnowCode(X.code);
   const storm=isStormCode(X.code);
   let sum,sub="",bars="",ax="";
-  if(timeline){
-    const nowMs=Date.now();
-    const current=timeline.current;
-    const future=timeline.future;
-    const activeNow=!!current&&current.mm>=0.05;
-    const rainSlots=future.filter(x=>x.mm>=0.05);
+  if(X?.timeline){
+    const future=X?.timeline?.future||[];
+    const firstMm=currentTimelineMm(X);
+    const activeNow=firstMm!=null&&firstMm>0.05;
+    const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
     const firstRain=rainSlots[0]||null;
     const lastRain=rainSlots[rainSlots.length-1]||null;
     const endTime=lastRain?new Date(lastRain.t.getTime()+15*60000):null;
     const startTime=!activeNow&&firstRain?hhmm(firstRain.t):null;
     const endLabel=endTime?hhmm(endTime):null;
 
-    if(storm){
+    if(activeNow&&storm){
       sum=endLabel?"Burza występuje teraz i może utrzymać się do około "+endLabel+".":"Burza występuje teraz.";
-    }else if(snow&&activeNow){
+    }else if(activeNow&&snow){
       sum=endLabel?"Śnieg pada teraz i może potrwać do około "+endLabel+".":"Śnieg pada teraz.";
     }else if(activeNow){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
@@ -1881,13 +1859,13 @@ function nowcastHTML(X){
       sum="Brak opadów w najbliższych godzinach";
     }
 
-    const v=timeline.slots.map(x=>x.mm*4);
+    const v=X.timeline.slots.map(x=>x.mm*4);
     const peak=v.length?Math.max(...v):0;
     if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne")+" ("+fnum(peak,1)+" mm/h)";
-    bars=timeline.slots.map(x=>{
+    bars=X.timeline.slots.map(x=>{
       const pop=x.pop==null?"–":Math.round(x.pop)+"%";
       const label=x.mm<0.005?"0":fnum(x.mm,2)+" mm";
-      const barH=Math.round(clamp(x.mm*4/4,0,1)*54+4);
+      const barH=Math.round(clamp(x.mm,0,1)*54+4);
       return `<i class="${x.mm<.1?"z":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax="<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>";
@@ -1901,6 +1879,7 @@ function nowcastHTML(X){
     <div class="nc-legend tn">${ax}</div>
     ${sub?`<div class="note">${esc(sub)}</div>`:""}</section>`;
 }
+
 function isDayAt(iso){
   const {daily}=S.data,di=daily.time.indexOf(iso.slice(0,10));
   const t=new Date(iso);
@@ -1943,7 +1922,7 @@ function hourlyHTML(X){
     const hourRain=X?.timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()));
     const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
     const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
-    const rainNow=X?.timeline?.source==="minutely_15"&&hourRain?.mm>=0.05;
+    const nowMm=currentTimelineMm(X);\n    const rainNow=i===0 ? (nowMm!==null&&nowMm>0.05) : (X?.timeline?.source==="minutely_15"&&Number(hourRain?.mm)>0.05);
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
@@ -2181,15 +2160,14 @@ function wLayers(X){
   return`<div class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
 }
 function wRain(X){
-  const timeline=unifiedPrecipitationTimeline();
   let next="";
-  if(timeline?.source==="minutely_15"){
-    const nowMs=Date.now();
-    const active=timeline.current?.mm>=0.05;
+  if(X?.timeline?.source==="minutely_15"){
+    const activeMm=currentTimelineMm(X);
+    const active=activeMm!==null&&activeMm>0.05;
     if(active){
       next="Pada teraz.";
     }else{
-      const first=timeline.future.find(x=>x.mm>=0.05);
+      const first=(X?.timeline?.future||[]).find(x=>Number(x?.mm)>0.05);
       if(first)next="Najbliższy opad ok. "+hhmm(first.t)+".";
     }
   }else{
@@ -2209,6 +2187,7 @@ function wRain(X){
   }
   return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
+
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
   const sh=calcSunShadeTemp(X.T,X.rad,X.wind,X.hum);
