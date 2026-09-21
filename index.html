@@ -1920,8 +1920,12 @@ function hourlyHTML(X){
     const hourRain=timeline?.hours?.find(h=>h.t.getTime()===t.getTime());
     const pop=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
     const rainNow=timeline?.source==="minutely_15"&&hourRain?.mm>=0.05;
-    const temp=i===0?X.T:hourly.temperature_2m[idx];
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(hourly.weather_code[idx]??0,isDayAt(hourly.time[idx]),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?pop+"%":""}${rainNow?" · deszcz":""}</span></div>`;
+    const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
+    const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
+    const rawCode=hourly.weather_code?.[idx];
+    const code=Number.isFinite(Number(rawCode))?Number(rawCode):(Number(hourly.precipitation?.[idx])>=0.05?61:3);
+    const safeIso=hourly.time?.[idx]||t.toISOString();
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
   }
   return`<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span></div><div class="hstrip">${out}</div></section>`;
 }
