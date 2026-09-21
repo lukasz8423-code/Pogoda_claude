@@ -1612,8 +1612,17 @@ function computeCtx(){
   const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
   const opti=optiCloudFromModels(S.modelCompareRaw||[]);
   const cloud=Number.isFinite(modelConsensus)?modelConsensus:toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
-  const code=current.weather_code??0;
-  const precip=+(current.precipitation??current.rain??0);
+  const precipTimeline=unifiedPrecipitationTimeline();
+  const hourlyNowCode=getHourlyCode(hourly,ci);
+  const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
+  const timelineNowMm=Number(timelineCurrent?.mm);
+  const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
+  // Jeden kanoniczny stan "Teraz" dla nagłówka, banera i pierwszego kafelka.
+  const currentStateCode=Number.isFinite(timelineNowMm)&&timelineNowMm>0.05
+    ?61
+    :Number.isFinite(hourlyNowCode)?hourlyNowCode:rawCurrentCode;
+  const code=currentStateCode;
+  const precip=+(current.precipitation??current.rain??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
   const pop=g(hourly.precipitation_probability)??0;
   const uv=+(current.uv_index??g(hourly.uv_index)??0)||0;
   const uvClear=+(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)??0)||0;
@@ -1630,9 +1639,9 @@ function computeCtx(){
   const visMeters=current.visibility??g(hourly.visibility);
   const visKm=visMeters!=null?visMeters/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
-  const precipTimeline=unifiedPrecipitationTimeline();
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
+    currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
     timeline:precipTimeline,
     low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
@@ -1752,13 +1761,13 @@ function heroHTML(X){
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
-  const rainNow=isRainingNow(X);
-  const heroCode=rainNow&&!isSnowCode(X.code)&&!isRainCode(X.code)?61:X.code;
-  const heroMeta=rainNow&&!isSnowCode(X.code)?wMeta(heroCode,X.isDay,X.cloud):X.meta;
+  // Nagłówek korzysta z dokładnie tego samego stanu "Teraz" co pierwszy kafelek.
+  const heroCode=X.currentState?.code??X.code;
+  const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
   return`<div id="s-hero">
   <section class="hero">
     <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
-    <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
+    <div class="hero-ico">${ico(heroCode,X.isDay,108)}</div>
   </section>
   <div class="cond">${esc(heroMeta.t)}</div>
   <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
@@ -1839,24 +1848,28 @@ function currentTimelineMm(X){
   return Number.isFinite(mmVal)?Math.max(0,mmVal):0;
 }
 function nowcastHTML(X){
-  const snow=isSnowCode(X.code);
-  const storm=isStormCode(X.code);
+  const stateCode=X.currentState?.code??X.code;
+  const stateMm=Number(X.currentState?.mm);
+  const statePop=Number(X.currentState?.pop);
+  const snow=isSnowCode(stateCode);
+  const storm=isStormCode(stateCode);
   let sum,sub="",bars="",ax="";
   if(X?.timeline){
     const future=X?.timeline?.future||[];
     const firstMm=currentTimelineMm(X);
-    const activeNow=firstMm!=null&&firstMm>0.05;
+    const activeNow=(Number.isFinite(stateMm)&&stateMm>0.05)||(Number.isFinite(firstMm)&&firstMm>0.05);
+    const stateRain=activeNow||isRainCode(stateCode);
     const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
     const firstRain=rainSlots[0]||null;
     const rainUntil=activeNow?rainUntilTime(X):null;
     const endLabel=rainUntil?hhmm(rainUntil):null;
     const startTime=!activeNow&&firstRain?hhmm(firstRain.t):null;
 
-    if(activeNow&&storm){
+    if(stateRain&&storm){
       sum=endLabel?"Burza występuje teraz i może utrzymać się do około "+endLabel+".":"Burza występuje teraz.";
-    }else if(activeNow&&snow){
+    }else if(stateRain&&snow){
       sum=endLabel?"Śnieg pada teraz i może potrwać do około "+endLabel+".":"Śnieg pada teraz.";
-    }else if(activeNow){
+    }else if(stateRain){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
     }else if(firstRain){
       sum=endLabel?"Opady zaczną się około "+startTime+" i potrwają do około "+endLabel+".":"Opady zaczną się około "+startTime+".";
@@ -1973,8 +1986,10 @@ function hourlyHTML(X){
       ?Number(rawTemp)
       :(Number.isFinite(Number(X.T))?Number(X.T):0);
 
-    // JEDYNE źródło kodu ikony godzinowej: konkretna godzina hourly[idx].
-    const code=getHourlyCode(hourly,idx);
+    // Pierwszy kafelek i nagłówek korzystają z tego samego kanonicznego stanu "Teraz".
+    const code=i===0
+      ?(X.currentState?.code??getHourlyCode(hourly,idx))
+      :getHourlyCode(hourly,idx);
     const pop=Number(hourly.precipitation_probability?.[idx]??0);
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
