@@ -638,10 +638,15 @@ function fuseCloudCover(records,context={}){
   const visibility=Number(context.visibilityMeters);
   const clearAir=Number.isFinite(visibility)&&visibility>=12000;
   const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
-  if(clearAir){
-    const cap=veryClearAir?Math.min(value,Math.max(20,(prior??value)-5)):Math.min(value,Math.max(30,(prior??value)+5));
-    value=cap;
-    reason+=" + clear-air evidence";
+  // Przy suchej, bardzo dobrej widzialności modelowe 70–100% zachmurzenia
+  // jest traktowane jako konflikt z obserwacją lokalną. Nie pozwalamy, aby
+  // jeden model utrzymywał "Duże zachmurzenie", gdy powietrze jest wyraźnie przejrzyste.
+  if(clearAir && !precipitationConfirmed && !modelRainCode){
+    const clearCap=veryClearAir?35:40;
+    if(value>clearCap){
+      value=clearCap;
+      reason+=" + hard clear-sky cap";
+    }
   }
 
   if(prior!=null&&priorAge!=null&&!recentRainConflict){
