@@ -58,18 +58,17 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           LAT="52.802542"
           LNG="19.205053"
 
-          curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G \
-            "https://api.weatherapi.com/v1/current.json" \
-            --data-urlencode "key=$WEATHERAPI_KEY" \
-            --data-urlencode "q=$LAT,$LNG" \
-            --data-urlencode "aqi=no" \
-            -o /tmp/weatherapi.json
-
-          python - <<'PY'
+          # WeatherAPI jest dodatkiem diagnostycznym. Błąd 403/brak klucza NIE może zatrzymać deployu.
+          if [ -z "${WEATHERAPI_KEY:-}" ]; then
+            echo "WeatherAPI: brak WEATHERAPI_KEY — pomijam snapshot."
+            printf '%s' '{"source":"WeatherAPI","status":"unavailable"}' > weatherapi-visibility.json
+          else
+            if curl --fail-with-body --retry 2 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G               "https://api.weatherapi.com/v1/current.json"               --data-urlencode "key=$WEATHERAPI_KEY"               --data-urlencode "q=$LAT,$LNG"               --data-urlencode "aqi=no"               -o /tmp/weatherapi.json; then
+              python - <<'PY'
           import json, pathlib, time
           d=json.loads(pathlib.Path("/tmp/weatherapi.json").read_text(encoding="utf-8"))
           cur=d.get("current") or {}
@@ -81,17 +80,19 @@ jobs:
           pathlib.Path("weatherapi-visibility.json").write_text(json.dumps(out,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
           print("WeatherAPI vis_km:",out["vis_km"],"km")
           PY
+            else
+              echo "WARNING: WeatherAPI zwrócił błąd — pomijam snapshot i kontynuuję deploy."
+              printf '%s' '{"source":"WeatherAPI","status":"unavailable"}' > weatherapi-visibility.json
+            fi
+          fi
 
-          curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G \
-            "https://api.open-meteo.com/v1/forecast" \
-            --data-urlencode "latitude=$LAT" \
-            --data-urlencode "longitude=$LNG" \
-            --data-urlencode "hourly=temperature_2m,precipitation_probability,precipitation,cloud_cover" \
-            --data-urlencode "forecast_days=2" \
-            --data-urlencode "timezone=auto" \
-            -o /tmp/openmeteo-gemini.json
-
-          python - <<'PY'
+          # Gemini również jest warstwą opcjonalną — jego awaria nie blokuje Pages.
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "Gemini: brak GEMINI_API_KEY — pomijam analizę."
+            printf '%s' '{"source":"Gemini","status":"unavailable"}' > gemini-analysis.json
+          else
+            if curl --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G               "https://api.open-meteo.com/v1/forecast"               --data-urlencode "latitude=$LAT"               --data-urlencode "longitude=$LNG"               --data-urlencode "hourly=temperature_2m,precipitation_probability,precipitation,cloud_cover"               --data-urlencode "forecast_days=2"               --data-urlencode "timezone=auto"               -o /tmp/openmeteo-gemini.json; then
+              GEMINI_OK=1 python - <<'PY'
           import json, pathlib, time, os, urllib.request
           om=json.loads(pathlib.Path("/tmp/openmeteo-gemini.json").read_text(encoding="utf-8"))
           h=om.get("hourly") or {}
@@ -107,14 +108,22 @@ jobs:
           schema={"type":"object","properties":{"smoothedPop":{"type":"array","items":{"type":"number","minimum":0,"maximum":100},"minItems":1,"maxItems":24},"smoothedPrecip":{"type":"array","items":{"type":"number","minimum":0},"minItems":1,"maxItems":24},"confidence":{"type":"number","minimum":0,"maximum":1},"summary":{"type":"string"}},"required":["smoothedPop","smoothedPrecip","confidence","summary"]}
           body=json.dumps({"contents":[{"parts":[{"text":prompt}]}],"generationConfig":{"responseMimeType":"application/json","responseSchema":schema,"temperature":0.1}}).encode()
           req=urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",data=body,headers={"Content-Type":"application/json","x-goog-api-key":os.environ["GEMINI_API_KEY"]},method="POST")
-          with urllib.request.urlopen(req,timeout=45) as r:
-              resp=json.load(r)
-          text=resp["candidates"][0]["content"]["parts"][0]["text"]
-          result=json.loads(text)
-          result.update({"fetchedAt":int(time.time()*1000),"source":"Gemini","lat":52.802542,"lng":19.205053})
-          pathlib.Path("gemini-analysis.json").write_text(json.dumps(result,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
-          print("Gemini analysis generated; confidence:",result.get("confidence"))
+          try:
+              with urllib.request.urlopen(req,timeout=45) as r:
+                  resp=json.load(r)
+              result=json.loads(resp["candidates"][0]["content"]["parts"][0]["text"])
+              result.update({"fetchedAt":int(time.time()*1000),"source":"Gemini","lat":52.802542,"lng":19.205053})
+              pathlib.Path("gemini-analysis.json").write_text(json.dumps(result,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
+              print("Gemini analysis generated; confidence:",result.get("confidence"))
+          except Exception as e:
+              print("WARNING: Gemini niedostępne:",e)
+              pathlib.Path("gemini-analysis.json").write_text('{"source":"Gemini","status":"unavailable"}',encoding="utf-8")
           PY
+            else
+              echo "WARNING: Open-Meteo request for Gemini failed — pomijam analizę."
+              printf '%s' '{"source":"Gemini","status":"unavailable"}' > gemini-analysis.json
+            fi
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
