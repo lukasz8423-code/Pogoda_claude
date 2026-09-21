@@ -1817,7 +1817,10 @@ function applyCanonicalWeatherFusion(data,imgwData){
   // bez tworzenia kopii tablic. Dzięki temu każdy komponent widzi ten sam stan.
   if(hourly?.time?.length){
     const ci=currentHourIndex(data,new Date());
-    const end=Math.min(hourly.time.length,ci+7);
+    // Mikroopad <=0.4 mm jest artefaktem krótkoterminowym, który nie może
+    // wracać na dalszych kolumnach 48h po tym, jak filtr uznał go za fałszywy.
+    // Nie kasujemy realnych opadów >0.4 mm.
+    const end=hourly.time.length;
     for(let i=ci;i<end;i++){
       const vals=[
         Number(hourly.precipitation?.[i]),
@@ -2550,10 +2553,16 @@ function getHourlyCode(hourlyData, idx) {
   return 3;
 }
 
+function canonicalHourlyForRender(){
+  // Twarda granica renderera: używamy dokładnie tej samej referencji,
+  // którą zamknął lockFusionState po fuzji. Fallback do S.data.hourly
+  // jest tylko dla starego cache, który nie ma jeszcze blokady.
+  return S.fusionLockedHourly||S.data?.hourly||null;
+}
+
 function hourlyHTML(X){
-  // Widok godzinowy czyta wyłącznie kanoniczne S.data.hourly po fuzji.
-  // Nie ma tu żadnego odczytu surowego payloadu Open-Meteo.
-  const hourly=S.data?.hourly;let out="";
+  // Renderer godzinowy NIE wybiera już sam źródła danych.
+  const hourly=canonicalHourlyForRender();let out="";
   if(!hourly?.time?.length)return "";
   const currentIdx=Number.isFinite(Number(X.ci))?Number(X.ci):currentHourIndex(S.data,new Date());
 
@@ -2595,9 +2604,8 @@ function smoothPath(pts){
 }
 // Meteogram 48h: temperatura, wiatr, opady w jednym wykresie
 function meteogramHTML(X){
-  // TO jest jedyne źródło danych dla wykresu 48h.
-  // Nie pobieramy ponownie Open-Meteo i nie korzystamy z S.minutely.
-  const hourly=S.data?.hourly;
+  // 48h musi czytać dokładnie tę samą referencję co widok godzinowy.
+  const hourly=canonicalHourlyForRender();
   if(!hourly?.time?.length)return"";
   const N=Math.min(48,hourly.time.length-X.ci);if(N<8)return"";
   const pts=[];
@@ -4229,7 +4237,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   if(token!==LOAD_SEQ)return;
   if(!lockFusionState(token,lat,lng,data,imgwData))return;
 
-  try{localStorage.setItem("aura_v6",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
+  try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
   if(data&&data.current)checkForecastAccuracy(data.current.temperature_2m,data.current.weather_code);
   if(data&&data.hourly&&!isDemo){
@@ -4391,8 +4399,8 @@ document.addEventListener("visibilitychange",()=>{
 
 (function init(){
   try{
-    ["aura","aura_v2","aura_v3","aura_v4","aura_v5"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
-    const c=localStorage.getItem("aura_v6");
+    ["aura","aura_v2","aura_v3","aura_v4","aura_v5","aura_v6"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+    const c=localStorage.getItem("aura_v7");
     if(c){
       const d=JSON.parse(c);
       if(d&&d.data&&d.city&&d.data.current&&d.data.hourly&&d.data.daily&&(Date.now()-d.ts)<7200000){
