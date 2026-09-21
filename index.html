@@ -486,6 +486,41 @@ function consensusCloudCover(records){
   return vals.length%2?vals[m]:(vals[m-1]+vals[m])/2;
 }
 
+function cloudLayerUnion(low,mid,high){
+  const l=clamp(Number(low),0,100)/100;
+  const m=clamp(Number(mid),0,100)/100;
+  const h=clamp(Number(high),0,100)/100;
+  return 100*(1-(1-l)*(1-m)*(1-h));
+}
+function optiCloudFromModels(records){
+  const perModel=(records||[]).map(r=>{
+    const cur=r?.data?.current||{};
+    const total=Number(cur.cloud_cover),low=Number(cur.cloud_cover_low);
+    const mid=Number(cur.cloud_cover_mid),high=Number(cur.cloud_cover_high);
+    if(![total,low,mid,high].every(Number.isFinite))return null;
+    return {
+      model:r.model||r.name||null,
+      total:clamp(total,0,100),low:clamp(low,0,100),
+      mid:clamp(mid,0,100),high:clamp(high,0,100),
+      union:clamp(Math.min(cloudLayerUnion(low,mid,high),total),0,100)
+    };
+  }).filter(Boolean);
+  if(!perModel.length)return null;
+  const vals=perModel.map(x=>x.union).sort((a,b)=>a-b);
+  const i=Math.floor(vals.length/2);
+  const median=vals.length%2?vals[i]:(vals[i-1]+vals[i])/2;
+  const medLayer=k=>{
+    const v=perModel.map(x=>x[k]).sort((a,b)=>a-b),j=Math.floor(v.length/2);
+    return v.length%2?v[j]:(v[j-1]+v[j])/2;
+  };
+  return {
+    value:Math.round(median*10)/10,
+    models:perModel,
+    layers:{low:medLayer("low"),mid:medLayer("mid"),high:medLayer("high")},
+    totalConsensus:consensusCloudCover(records)
+  };
+}
+
 function discomfortIndex(temp,hum){
   let hi;
   if(temp<=20){
@@ -1558,6 +1593,7 @@ function computeCtx(){
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
   // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
   const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
+  const opti=optiCloudFromModels(S.modelCompareRaw||[]);
   const cloud=Number.isFinite(modelConsensus)?modelConsensus:toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
@@ -1579,7 +1615,7 @@ function computeCtx(){
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
-    low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),
+    low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
     meta:wMeta(code,isDay,cloud),
@@ -2390,7 +2426,7 @@ function pipelineDiagnosticsText(){
     temperature_2m:cur.temperature_2m??null,
     relative_humidity_2m:cur.relative_humidity_2m??null,
     cloud_cover:cur.cloud_cover??null,
-    optical_cloud_cover:S.X?.cloud??null,
+    optical_cloud_cover:S.X?.optiCloud??null,
     weather_code:cur.weather_code??null,
     source:S.cloudSource||null
   };
@@ -2425,7 +2461,7 @@ function openRawSheet(){
       }
     };
   }):[];
-  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.cloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
+  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.optiCloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
   const txt=JSON.stringify(raw,null,2);
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${S.lat}&longitude=${S.lng}&current=temperature_2m,weather_code,wind_speed_10m&models=${activeModel.id}`;
   openSheet(`<h3>Surowe dane źródłowe</h3><div class="sd">Dokładnie to, co aplikacja dostała z modelu i ze stacji.</div><pre class="raw" id="rawtxt">${esc(txt)}</pre>
@@ -2993,6 +3029,9 @@ async function loadWCore(lat,lng,name,isRef){
       S.cloudSource={
         type:Number.isFinite(consensus)?"model-consensus":"open-meteo-current",
         value:mainCloud,
+        opticalValue:optiCloudFromModels(cloudCompare)?.value??null,
+        opticalLayers:optiCloudFromModels(cloudCompare)?.layers??null,
+        opticalModels:optiCloudFromModels(cloudCompare)?.models??[],
         models:modelClouds,
         consensus:Number.isFinite(consensus)?consensus:null,
         layers:{
