@@ -2236,10 +2236,11 @@ function wPress(X){
   return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, trend modelowy: ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
 }
 function wVis(X){
-  const v=X.visKm;
-  const vt=v==null?"–":v>=20?"> 20":fnum(v,v<10?1:0);
-  const w=v==null?"":v>=20?"Bardzo dobra":v>=10?"Dobra":v>=4?"Ograniczona":v>=1?"Słaba":"Mgła";
-  return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${vt}<small>km</small></div><div class="ws">${w}${X.cloudBase?`. Podstawa chmur ok. ${X.cloudBase} m (szac.).`:X.cloud<15?". Niebo prawie bez chmur.":"."}</div></div>`;
+  // Widoczność w UI = wyłącznie surowe current.visibility z API, bez estymacji i bez progów.
+  const rawVisibility=Number(S.data?.current?.visibility);
+  const visibilityKm=Number.isFinite(rawVisibility)&&rawVisibility>0 ? rawVisibility/1000 : null;
+  const value=visibilityKm==null ? "–" : fnum(visibilityKm,1);
+  return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">Dane bezpośrednio z API.</div></div>`;
 }
 function wLayers(X){
   const L=(n,v)=>v==null?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
