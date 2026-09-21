@@ -2213,7 +2213,7 @@ function wWind(X){
   return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
 }
 function wFeels(X){
-  const d=discomfortIndex(X.T,X.hum),diff=Math.round(X.feels-X.T);
+  const d=discomfortIndex(X.T,X.hum,X.wind),diff=Math.round(X.feels-X.T);
   const txt=diff<=-2?"Chłodniej niż wskazuje termometr, głównie przez wiatr.":diff>=2?"Cieplej niż wskazuje termometr, dokłada się wilgotność lub słońce.":"Zbliżona do temperatury rzeczywistej.";
   return`<div class="w"><div class="wh">${mini("thermo")}Odczuwalna</div><div class="wv tn">${Math.round(X.feels)}°<small>${d.label}</small></div><div class="ws">${txt}</div></div>`;
 }
