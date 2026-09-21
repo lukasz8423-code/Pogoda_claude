@@ -1702,6 +1702,72 @@ function correctMinutelyPrecipitation(slots, imgwData){
   });
 }
 
+function correctHourlyPrecipitation(hourlyData,imgwData){
+  if(!hourlyData||!Array.isArray(hourlyData.time))return hourlyData;
+
+  const stationPrecip=Number(imgwData?.opad_10min);
+  const stationAge=Number(imgwData?.opad10minAgeMinutes);
+  const stationDist=Number(imgwData?.dist);
+
+  // Twardy filtr działa wyłącznie przy świeżym pomiarze z bliskiej stacji.
+  const stationDry=
+    imgwData?.opad10minFresh===true &&
+    Number.isFinite(stationPrecip) &&
+    stationPrecip<=0 &&
+    Number.isFinite(stationDist) &&
+    stationDist<=5 &&
+    (!Number.isFinite(stationAge)||stationAge<=30);
+
+  if(!stationDry)return hourlyData;
+
+  const out={...hourlyData};
+  for(const key of [
+    "time","precipitation","rain","weather_code",
+    "precipitation_probability","temperature_2m","cloud_cover",
+    "cloud_cover_low","cloud_cover_mid","cloud_cover_high",
+    "wind_speed_10m","wind_gusts_10m","relative_humidity_2m",
+    "visibility","uv_index","shortwave_radiation"
+  ]){
+    if(Array.isArray(hourlyData[key]))out[key]=hourlyData[key].slice();
+  }
+
+  let correctedCount=0;
+  for(let i=0;i<out.time.length;i++){
+    const precipitation=Number(out.precipitation?.[i]);
+    const rain=Number(out.rain?.[i]);
+    const precipValue=Number.isFinite(precipitation)?precipitation:
+      (Number.isFinite(rain)?rain:null);
+
+    // Usuwamy wyłącznie mikroopad 0 < mm <= 0.4 mm/h.
+    if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
+
+    if(Array.isArray(out.precipitation))out.precipitation[i]=0;
+    if(Array.isArray(out.rain))out.rain[i]=0;
+
+    const code=Number(out.weather_code?.[i]);
+    if(Number.isFinite(code)&&isRainCode(code)){
+      // Brak opadu jest ważniejszy niż kod deszczowy modelu.
+      // Zachowujemy informację o zachmurzeniu, ale nigdy nie pokazujemy
+      // deszczu/mżawki po twardym potwierdzeniu 0 mm z Głodowa.
+      const cloud=Number(out.cloud_cover?.[i]);
+      out.weather_code[i]=Number.isFinite(cloud)
+        ?(cloud<=20?0:cloud<=70?2:3)
+        :0;
+    }
+    correctedCount++;
+  }
+
+  out.__auraHourlyPrecipitationCorrection={
+    applied:correctedCount>0,
+    correctedCount,
+    reason:"IMGW_Glodowo_0mm",
+    stationDistanceKm:stationDist,
+    stationAgeMinutes:Number.isFinite(stationAge)?stationAge:null,
+    thresholdMm:0.4
+  };
+  return out;
+}
+
 async function apiMinutely(lat,lng){
   try{
     const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code,visibility&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{signal:AbortSignal.timeout(8000)});
@@ -3923,6 +3989,18 @@ async function loadWCore(lat,lng,name,isRef){
 
   syncDailyExtremes(data);
   sanitizeVisibility(data,imgwData);
+
+  // OSTATNI SANITYZER OPADU GODZINOWEGO:
+  // musi wykonać się po całej fuzji, ale przed cache i przede wszystkim
+  // przed S.data -> render -> meteogram 48 h. Dzięki temu renderer nigdy
+  // nie dostaje surowych mikroopadów 0.1–0.4 mm/h z Open-Meteo.
+  data.hourly=correctHourlyPrecipitation(data.hourly,imgwData);
+
+  if(data.hourly?.__auraHourlyPrecipitationCorrection?.applied){
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.hourlyPrecipitationCorrection=
+      data.hourly.__auraHourlyPrecipitationCorrection;
+  }
 
   try{localStorage.setItem("aura_v6",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
