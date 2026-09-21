@@ -1956,17 +1956,16 @@ function hourlyHTML(X){
       Number(X.cloud) <= 40 ? 2 : 3;
 
     if(i===0){
-      // Weź pierwszy slot minutowy bezpośrednio z tablicy.
-      const firstSlot=timeline?.slots?.[0]||timeline?.current;
+      // Weź pierwszy slot minutowy z X.timeline.
+      const firstSlot=X?.timeline?.slots?.[0]||X?.timeline?.current;
 
       if(firstSlot){
-        // Oczyść wartość mm z ewentualnych tekstowych jednostek
-        // oraz obsłuż przecinek jako separator dziesiętny.
         const rawSource=firstSlot.mm??firstSlot.precipitation??0;
-        const rawMm=String(rawSource).replace(',','.').replace(/[^0-9.]/g,'');
-        const mmVal=parseFloat(rawMm)||0;
+        const rawMm=String(rawSource)
+          .replace(',','.')
+          .replace(/[^0-9.]/g,'');
 
-        // Jeżeli opad wynosi < 0.05 mm, BEZWZGLĘDNIE ustaw ikonę zachmurzenia.
+        const mmVal=parseFloat(rawMm)||0;
         if(mmVal<0.05){
           code=cloudCode;
         }
