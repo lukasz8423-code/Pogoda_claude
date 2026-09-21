@@ -535,23 +535,13 @@ function optiCloudFromModels(records){
   };
 }
 
-function discomfortIndex(temp,hum){
-  let hi;
-  if(temp<=20){
-    // Standard apparent temperature (BOM/Steadman): wiatr i wilgotność obniżają odczuwalną.
-    const rh=clamp(Number(hum),0,100);
-    const e=6.105*Math.exp(17.27*temp/(237.7+temp))*rh/100;
-    const windKmh=Number.isFinite(Number(S.X?.wind))?Math.max(0,Number(S.X.wind)):0;
-    hi=temp+0.33*e-0.70*(windKmh/3.6)-4.00;
-  } else if(temp<27){
-    hi=temp-(0.55-0.0055*hum)*(temp-14.5);
-  } else {
-    // Steadman dla wysokich temperatur
-    hi=-8.784695+1.61139411*temp+2.3385248*hum
-       -0.14611605*temp*hum-0.012308094*temp*temp
-       -0.016424828*hum*hum+0.002211732*temp*temp*hum
-       +0.00072546*temp*hum*hum-0.000003582*temp*temp*hum*hum;
-  }
+function discomfortIndex(temp,hum,windKmh=0){
+  const t=Number(temp),rh=clamp(Number(hum),0,100),w=Math.max(0,Number(windKmh)||0);
+  if(!Number.isFinite(t))return{value:null,label:"Brak danych",color:"rgba(255,255,255,.08)",emoji:"–"};
+  // Jedna ciągła postać apparent temperature: temperatura + wilgotność - chłodzenie wiatrem.
+  const e=6.105*Math.exp(17.27*t/(237.7+t))*rh/100;
+  const windMs=w/3.6;
+  let hi=Math.round(t+0.33*e-0.70*windMs-4.00);
   hi=Math.round(hi);
   let label,color,emoji;
   if(temp<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
@@ -1778,8 +1768,8 @@ function isStormCode(code){
 }
 function isRainCode(code){
   const c=wmoCode(code);
-  // 80–82 = rain showers.
-  return (c>=51&&c<=67)||(c>=80&&c<=82);
+  // Deszcz, śnieg, przelotne opady i burze.
+  return (c>=51&&c<=67)||(c>=71&&c<=77)||(c>=80&&c<=82)||(c>=85&&c<=86)||(c>=95&&c<=99);
 }
 function isSnowCode(code){
   const c=wmoCode(code);
@@ -2041,17 +2031,17 @@ function hourlyRainEvidence(hourlyData, idx){
 
 function getHourlyCode(hourlyData, idx) {
   const rawPop=Number(hourlyData?.precipitation_probability?.[idx]??0);
+  const rawPopSafe=Number.isFinite(rawPop)?clamp(rawPop,0,100):0;
   const gemPop=Number(S.geminiAnalysis?.smoothedPop?.[idx]);
-  const pop=Number.isFinite(gemPop)?clamp(gemPop,0,100):rawPop;
+  const gemPopSafe=Number.isFinite(gemPop)?clamp(gemPop,0,100):null;
+  // Gemini może wygładzać tylko w granicy ±20 pp od surowego Open-Meteo.
+  const pop=gemPopSafe!=null&&Math.abs(gemPopSafe-rawPopSafe)<=20?gemPopSafe:rawPopSafe;
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
   const rainEvidence=hourlyRainEvidence(hourlyData,idx);
-
-  // Kod opadowy nie wystarcza przy śladowym 0,1 mm.
-  if(isPrecipCode(rawCode)&&rainEvidence)return rawCode;
-
-  // Gemini wygładza wyłącznie prawdopodobieństwo opadu dla prezentacji godzinowej.
-  // Surowe wartości Open-Meteo pozostają nienaruszone.
+  const minuteEvidence=minuteRainEvidenceForHour(hourlyData,idx);
+  if(isPrecipCode(rawCode)&&(rainEvidence||minuteEvidence))return rawCode;
+  if(minuteEvidence)return 61;
   if(pop>=50)return cloud>70?3:2;
   if(cloud<=20)return 0;
   if(cloud<=70)return 2;
@@ -2284,9 +2274,13 @@ function wPress(X){
   return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, trend modelowy: ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
 }
 function wVis(X){
-  const visKm=Number(S.weatherapi?.vis_km);
-  const value=Number.isFinite(visKm)&&visKm>=0?fnum(visKm,1):"–";
-  const source=Number.isFinite(visKm)&&visKm>=0?"WeatherAPI · vis_km":"Brak pomiaru WeatherAPI";
+  const wa=Number(S.weatherapi?.vis_km);
+  const om=Number(X?.visKm);
+  const waOk=Number.isFinite(wa)&&wa>=0;
+  const omOk=Number.isFinite(om)&&om>=0;
+  const km=waOk?wa:omOk?Math.min(10,om):null;
+  const value=km==null?"–":fnum(km,1);
+  const source=waOk?"WeatherAPI · vis_km":omOk?"Open-Meteo · visibility":"Brak pomiaru";
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">${source}</div></div>`;
 }
 function wLayers(X){
