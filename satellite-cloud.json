@@ -65,7 +65,7 @@
       "error": "name 'bbox' is not defined"
     }
   ],
-  "generatedAt": "2026-09-21T18:19:16.041737+00:00",
+  "generatedAt": "2026-09-21T22:05:16.734365+00:00",
   "status": "NO_VALID_SAMPLES",
   "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used."
 }
