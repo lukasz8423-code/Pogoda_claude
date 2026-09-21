@@ -1979,27 +1979,38 @@ function isDayAt(iso){
   if(di>=0&&daily.sunrise?.[di]&&daily.sunset?.[di])return t>=new Date(daily.sunrise[di])&&t<new Date(daily.sunset[di]);
   const h=t.getHours();return h>=6&&h<19;
 }
-function getHourlyCode(hourlyData, idx) {
-  const pop = Number(hourlyData?.precipitation_probability?.[idx] ?? 0);
-  const rawCode = Number(hourlyData?.weather_code?.[idx] ?? 0);
-  const cloud = Number(hourlyData?.cloud_cover?.[idx] ?? 0);
-
-  // 1. Priorytet: twardy kod opadowy z API
-  if (isPrecipCode(rawCode)) {
-    return rawCode;
-  }
-
-  // 2. Twardy bezpiecznik: wysokie pop NIE MOŻE dać słońca (0 lub 1)
-  if (pop >= 50) {
-    return cloud > 70 ? 3 : 2; // Chmura lub słońce za chmurą
-  }
-
-  // 3. Standardowa logika zachmurzenia dla braku opadu i pop < 50
-  if (cloud <= 20) return 0; // Słońce
-  if (cloud <= 70) return 2; // Słońce za chmurą
-  return 3;                  // Pełna chmura
+function minuteRainEvidenceForHour(hourlyData, idx){
+  const startMs=Date.parse(hourlyData?.time?.[idx]);
+  if(!Number.isFinite(startMs))return false;
+  const endMs=startMs+60*60000;
+  const mins=Array.isArray(S.minutely)?S.minutely:[];
+  return mins.some(x=>{
+    const t=Date.parse(x?.t);
+    const mm=Number(x?.mm??x?.rain??0);
+    return Number.isFinite(t)&&t>=startMs&&t<endMs&&Number.isFinite(mm)&&mm>0.005;
+  });
 }
 
+function hourlyRainEvidence(hourlyData, idx){
+  const pr=Number(hourlyData?.precipitation?.[idx]??0);
+  return (Number.isFinite(pr)&&pr>=0.2)||minuteRainEvidenceForHour(hourlyData,idx);
+}
+
+function getHourlyCode(hourlyData, idx) {
+  const pop=Number(hourlyData?.precipitation_probability?.[idx]??0);
+  const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
+  const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
+  const rainEvidence=hourlyRainEvidence(hourlyData,idx);
+
+  // Kod opadowy nie wystarcza przy śladowym 0,1 mm.
+  if(isPrecipCode(rawCode)&&rainEvidence)return rawCode;
+
+  // Bez potwierdzonego opadu pokazujemy zachmurzenie/przejaśnienia.
+  if(pop>=50)return cloud>70?3:2;
+  if(cloud<=20)return 0;
+  if(cloud<=70)return 2;
+  return 3;
+}
 
 function hourlyHTML(X){
   const {hourly}=S.data;let out="";
@@ -2061,8 +2072,9 @@ function meteogramHTML(X){
   const maxPr=Math.max(.5,...pts.map(p=>p.pr));
   const cells=pts.map((p,i)=>{
     const day=i===0||p.t.toDateString()!==pts[i-1].t.toDateString();
-    const rain=p.pr>=0.05;
-    const bar=Math.round(clamp(p.pr/maxPr,0,1)*38);
+    const rain=hourlyRainEvidence(hourly,X.ci+i);
+    const displayPr=rain?p.pr:0;
+    const bar=Math.round(clamp(displayPr/maxPr,0,1)*38);
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
     const pop=Math.round(p.pop);
