@@ -692,6 +692,18 @@ async function apiWeather(lat,lng,forceFresh=false){
   return apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
 }
 
+async function apiSatelliteCloudMask(lat,lng){
+  try{
+    const r=await fetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return null;
+    const d=await r.json();
+    const slat=Number(d.lat),slng=Number(d.lon);
+    if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
+    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
+    return {...d,distanceKm:+distanceKm.toFixed(2)};
+  }catch{return null;}
+}
+
 async function apiCity(lat,lng){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
@@ -1568,7 +1580,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -2441,6 +2453,7 @@ function pipelineDiagnosticsText(){
     stacja_IMGW:S.imgwData||null,
     modele_OpenMeteo:models,
     ensemble:S.ensemble||null,
+    satelliteCloud:S.satelliteCloud||null,
     pipeline:S.pipelineDiag||null,
     liveHealth:S.liveHealth||null
   },null,2);
@@ -2465,7 +2478,7 @@ function openRawSheet(){
       }
     };
   }):[];
-  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.optiCloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
+  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.optiCloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null,satelliteCloud:S.satelliteCloud||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
   const txt=JSON.stringify(raw,null,2);
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${S.lat}&longitude=${S.lng}&current=temperature_2m,weather_code,wind_speed_10m&models=${activeModel.id}`;
   openSheet(`<h3>Surowe dane źródłowe</h3><div class="sd">Dokładnie to, co aplikacja dostała z modelu i ze stacji.</div><pre class="raw" id="rawtxt">${esc(txt)}</pre>
@@ -2925,6 +2938,7 @@ async function loadWCore(lat,lng,name,isRef){
   S.sourceMode=null;
   S.imgwStatus=null;
   S.ensemble=null;
+  S.satelliteCloud=null;
   const sameGps=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
   if(!sameGps)S.gpsDiag=null;
   if(isRef){
@@ -2942,12 +2956,14 @@ async function loadWCore(lat,lng,name,isRef){
   let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
-    const [weatherResult,imgwResult,cloudResult]=await Promise.allSettled([
+    const [weatherResult,imgwResult,cloudResult,satelliteResult]=await Promise.allSettled([
       apiWeather(lat,lng,isRef),
       findNearestIMGW(lat,lng),
-      fetchAllModelsCompare(lat,lng,isRef)
+      fetchAllModelsCompare(lat,lng,isRef),
+      apiSatelliteCloudMask(lat,lng)
     ]);
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
+    if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
     // źródłem i musi nadal dostarczyć dane live.
     if(weatherResult.status==="fulfilled"){
