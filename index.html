@@ -1934,20 +1934,19 @@ function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,t
 function hourlyHTML(X){
   const {hourly,daily}=S.data;let out="";
   if(!hourly?.time?.length)return "";
-  const timeline=unifiedPrecipitationTimeline();
   const currentIdx=Number.isFinite(Number(X.ci))?Number(X.ci):currentHourIndex(S.data,new Date());
   for(let i=0;i<24;i++){
     const idx=currentIdx+i;if(idx>=hourly.time.length)break;
     const t=new Date(hourly.time[idx]);
-    const hourRain=timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()));
+    const hourRain=X?.timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()));
     const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
     const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
-    const rainNow=timeline?.source==="minutely_15"&&hourRain?.mm>=0.05;
+    const rainNow=X?.timeline?.source==="minutely_15"&&hourRain?.mm>=0.05;
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
     const modelCode=Number.isFinite(Number(rawCode))?Number(rawCode):(Number(hourly.precipitation?.[idx])>=0.05?61:3);
-    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:Number(X.cloud),timeline});
+    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:Number(X.cloud),timeline:X?.timeline});
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
     // TWARDY OVERRIDE DLA "TERAZ"
