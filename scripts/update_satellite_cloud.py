@@ -24,7 +24,7 @@ def point_query(lat, lon):
     # Small bbox around the queried point; the center pixel is requested.
     dlat = 0.015
     dlon = 0.015 / max(0.2, math.cos(math.radians(lat)))
-    bbox = f"{lon-dlon},{lat-dlat},{lon+dlon},{lat+dlat}"
+    # WMS 1.3.0 + EPSG:4326: kolejność osi to lat,lon.\n    bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
     params = {
         "SERVICE": "WMS",
         "VERSION": "1.3.0",
