@@ -3531,16 +3531,6 @@ function lockFusionState(token,lat,lng,data,imgwData){
   return true;
 }
 
-function canCommitFusion(token,lat,lng){
-  return token===LOAD_SEQ &&
-    (!S.fusionLock||S.fusionLock.token===token) &&
-    Number(S.lat)==null ? true : (
-      token===LOAD_SEQ &&
-      Math.abs(Number(S.lat)-Number(lat))<0.000001 &&
-      Math.abs(Number(S.lng)-Number(lng))<0.000001
-    );
-}
-
 async function loadW(lat,lng,name,isRef){
   const token=++LOAD_SEQ;
   S.isFusionLocked=false;
@@ -4108,7 +4098,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
   const same=()=>token===LOAD_SEQ&&S.lat===lat&&S.lng===lng;
   apiMinutely(lat,lng).then(m=>{
-    if(same()&&!S.fusionLock?.token||same()&&S.fusionLock?.token===token){
+    if(same()&&(!S.fusionLock||S.fusionLock.token===token)){
       const correctedMinutely=correctMinutelyPrecipitation(m,S.imgwData);
       S.minutely=correctedMinutely;
       // Widoczność: preferujemy bieżący 15-min slot modelu wysokiej rozdzielczości
