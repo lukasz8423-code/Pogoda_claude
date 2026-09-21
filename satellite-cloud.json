@@ -1,10 +1,71 @@
 {
-  "source": "EUMETSAT",
+  "source": "EUMETSAT EUMETView",
   "collection": "EO:EUM:DAT:MSG:CLM",
-  "status": "WAITING_FOR_WORKFLOW",
+  "layer": "msg_fes:clm",
   "lat": 52.8142,
   "lon": 19.21174,
   "cloudFraction": null,
-  "note": "Plik zostanie zastąpiony przez GitHub Actions po skonfigurowaniu sekretów EUMETSAT.",
-  "generatedAt": null
+  "classification": "cloud_fraction_from_9_real_satellite_pixels",
+  "sampleCount": 0,
+  "cloudPixels": 0,
+  "clearPixels": 0,
+  "samples": [
+    {
+      "lat": 52.77816396396396,
+      "lon": 19.152117340406765,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.77816396396396,
+      "lon": 19.21174,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.77816396396396,
+      "lon": 19.271362659593233,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.8142,
+      "lon": 19.152117340406765,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.8142,
+      "lon": 19.21174,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.8142,
+      "lon": 19.271362659593233,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.85023603603604,
+      "lon": 19.152117340406765,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.85023603603604,
+      "lon": 19.21174,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    },
+    {
+      "lat": 52.85023603603604,
+      "lon": 19.271362659593233,
+      "class": "error",
+      "error": "name 'bbox' is not defined"
+    }
+  ],
+  "generatedAt": "2026-09-21T12:42:21.757265+00:00",
+  "status": "NO_VALID_SAMPLES",
+  "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used."
 }
