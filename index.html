@@ -1699,7 +1699,7 @@ function computeCtx(){
     const st=S.imgwData||{};
     const mm=Number(st.opad_10min);
     const age=Number(st.opad10minAgeMinutes);
-    const fresh=st.opad10minFresh===true&&Number.isFinite(age)&&age<=20;
+    const fresh=st.opad10minFresh===true&&Number.isFinite(age)&&age<=30;
     const near=Number.isFinite(Number(st.dist))&&Number(st.dist)<=45;
     const modelMm=Number.isFinite(timelineNowMm)?timelineNowMm:Number(current.precipitation??current.rain??0);
     const drizzleCode=[51,53,55].includes(Number(rawCurrentCode))||[51,53,55].includes(Number(hourlyNowCode));
