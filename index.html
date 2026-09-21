@@ -757,66 +757,44 @@ async function fetchIMGWMeteoAll(){
   // GitHub Pages nie uruchamia serwera Node, więc przeglądarka nie może
   // polegać na bezpośrednim CORS do IMGW. Pages dostaje świeży snapshot
   // IMGW z GitHub Actions i ten sam-origin plik jest źródłem dla Aury.
-  const snapshotUrl="imgw-meteo.json?ts="+Date.now();
   try{
-    const r=await fetch(snapshotUrl,{cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(12000)});
-    if(!r.ok)throw new Error("HTTP "+r.status+" snapshotu IMGW");
-    const payload=await r.json();
-    const list=Array.isArray(payload)?payload:(Array.isArray(payload?.data)?payload.data:null);
-    const fetchedAt=Number(payload?.fetchedAt)||null;
-    if(!list)throw new Error("Nieprawidłowy format snapshotu IMGW METEO");
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
+      mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(12000)
+    });
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const list=await r.json();
+    if(!Array.isArray(list))throw new Error("IMGW METEO zwróciło nieprawidłowy format");
     const station=list.find(s=>{
       const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
       const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
       return code==="252190030"||name==="głodowo"||name==="glodowo";
     });
-    const snapshotAgeMinutes=fetchedAt?Math.max(0,(Date.now()-fetchedAt)/60000):null;
     S.imgwDiag={
       ...S.imgwDiag,
-      status:"pobrano",
+      status:"pobrano-bezpośrednio",
       count:list.length,
       found:!!station,
       station:station?.nazwa_stacji||station?.stacja||null,
       temperature:station?.temperatura_powietrza??station?.temperatura??null,
       timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
-      ageMinutes:snapshotAgeMinutes,
-      snapshotFetchedAt:fetchedAt,
+      ageMinutes:null,
+      snapshotFetchedAt:null,
       error:null
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
-    console.log("IMGW METEO snapshot:",{count:list.length,glodowoFound:!!station,snapshotAgeMinutes,glodowo:station||null});
+    console.log("IMGW METEO:",{count:list.length,glodowoFound:!!station,glodowo:station||null});
     return list;
-  }catch(snapshotError){
-    // Ostateczny fallback: oficjalny endpoint IMGW. Nie uzależniamy
-    // działania Open-Meteo od tego żądania.
-    try{
-      const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
-        mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(12000)
-      });
-      if(!r.ok)throw new Error("HTTP "+r.status);
-      const list=await r.json();
-      if(!Array.isArray(list))throw new Error("IMGW METEO zwróciło nieprawidłowy format");
-      const station=list.find(s=>{
-        const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-        const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
-        return code==="252190030"||name==="głodowo"||name==="glodowo";
-      });
-      S.imgwDiag={...S.imgwDiag,status:"pobrano-bezpośrednio",count:list.length,found:!!station,station:station?.nazwa_stacji||station?.stacja||null,error:null};
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-      return list;
-    }catch(e){
-      S.imgwDiag={
-        ...S.imgwDiag,status:"niedostępne",count:null,found:false,used:false,
-        error:(e?.message||snapshotError?.message||String(e)),
-        station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,
-        reason:"snapshot IMGW niedostępny i bezpośredni endpoint IMGW niedostępny"
-      };
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.warn("IMGW METEO niedostępne:",S.imgwDiag.error);
-      return null;
-    }
+  }catch(e){
+    S.imgwDiag={
+      ...S.imgwDiag,status:"niedostępne",count:null,found:false,used:false,
+      error:(e?.message||String(e)),station:null,temperature:null,timestamp:null,
+      ageMinutes:null,dist:null,
+      reason:"bezpośredni endpoint IMGW METEO niedostępny"
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+    console.warn("IMGW METEO niedostępne:",S.imgwDiag.error);
+    return null;
   }
-}
 function parseImgwMeteoTimestamp(value){
   if(!value)return null;
   const m=String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
@@ -1038,7 +1016,7 @@ async function fetchAllModelsCompare(lat,lng,forceFresh=false){
   // Dla fallbacku IMGW Offline potrzebujemy pełnej prognozy wielodniowej.
   // ICON-EU ma krótszy horyzont, więc nie blokujemy całego ensemble, jeśli
   // któryś model zwróci mniej dni lub chwilowo nie odpowie.
-  const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless"];
+  const modelsToCheck = ["icon_eu","ecmwf_ifs025","gfs_seamless"];
   const results = await Promise.allSettled(
     modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,10,forceFresh))
   );
@@ -2898,7 +2876,7 @@ async function loadWCore(lat,lng,name,isRef){
       // IMGW jest całkowicie niezależne od danych Open-Meteo.
       // W przypadku błędu aktywnego modelu pobieramy surowe LIVE dane
       // bezpośrednio z Open-Meteo, bez ensemble i bez Demo.
-      const preferred=["icon_eu","ecmwf_ifs025","gfs_seamless","icon_d2"];
+      const preferred=["icon_eu","ecmwf_ifs025","gfs_seamless"];
       const fallbackRecord=preferred
         .map(id=>cloudCompare.find(r=>r.model===id&&r.data))
         .find(Boolean);
@@ -3036,7 +3014,7 @@ async function loadWCore(lat,lng,name,isRef){
               }
             }
           }catch{}
-          const bridgeSource=cloudCompare.find(r=>r.model==="icon_d2")?.data
+          const bridgeSource=cloudCompare.find(r=>r.model==="icon_eu")?.data
             ||cloudCompare.find(r=>r.model==="icon_eu")?.data
             ||cloudCompare.find(r=>r.model==="ecmwf_ifs025")?.data
             ||data;
