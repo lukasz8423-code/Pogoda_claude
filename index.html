@@ -1634,8 +1634,10 @@ function computeCtx(){
   const visMeters=current.visibility??g(hourly.visibility);
   const visKm=visMeters!=null?visMeters/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
+  const precipTimeline=unifiedPrecipitationTimeline();
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
+    timeline:precipTimeline,
     low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
@@ -2356,8 +2358,14 @@ function alertsHTML(X){return getAlerts(X).map(a=>`<div class="alert ${a.c}">${m
 // aktualizacja sekcji, które dochodzą z opóźnieniem (bez przerysowania całej strony)
 function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
-  const X=S.X,set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
-  set("s-hero",heroHTML(X));set("s-alerts",alertsHTML(X));set("s-nowcast",nowcastHTML(X));set("s-air",airHTML());set("s-models",modelsHTML());
+  const X=computeCtx();S.X=X;
+  const set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
+  set("s-hero",heroHTML(X));
+  set("s-alerts",alertsHTML(X));
+  set("s-nowcast",nowcastHTML(X));
+  set("s-hourly",hourlyHTML(X));
+  set("s-air",airHTML());
+  set("s-models",modelsHTML());
   const widgets=document.getElementById("s-widgets");if(widgets)widgets.innerHTML=widgetsInnerHTML(X);
 }
 
@@ -2396,7 +2404,7 @@ function weatherHTML(){
     ${topHTML(X)}${heroHTML(X)}${gpsDiagHTML()}${sunlineHTML(X)}
     <div id="s-alerts">${alertsHTML(X)}</div>
     <div id="s-nowcast">${nowcastHTML(X)}</div>
-    ${hourlyHTML(X)}
+    <div id="s-hourly">${hourlyHTML(X)}</div>
     ${assistantHTML(X)}
     ${meteogramHTML(X)}
     ${dailyHTML()}
