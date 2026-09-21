@@ -1851,6 +1851,7 @@ function nowcastHTML(X){
   const stateCode=X.currentState?.code??X.code;
   const stateMm=Number(X.currentState?.mm);
   const statePop=Number(X.currentState?.pop);
+  const statePrecip=Number(X.precip);
   const snow=isSnowCode(stateCode);
   const storm=isStormCode(stateCode);
   let sum,sub="",bars="",ax="";
@@ -1858,7 +1859,7 @@ function nowcastHTML(X){
     const future=X?.timeline?.future||[];
     const firstMm=currentTimelineMm(X);
     const activeNow=(Number.isFinite(stateMm)&&stateMm>0.05)||(Number.isFinite(firstMm)&&firstMm>0.05);
-    const stateRain=activeNow||isRainCode(stateCode);
+    const stateRain=activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05);
     const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
     const firstRain=rainSlots[0]||null;
     const rainUntil=activeNow?rainUntilTime(X):null;
