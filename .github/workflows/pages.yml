@@ -29,13 +29,14 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Pobierz świeże dane IMGW METEO
+      - name: Pobierz świeże dane IMGW METEO (best effort)
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 3 --retry-delay 2 --max-time 30 \\
-            -H "Accept: application/json" \\
-            "https://danepubliczne.imgw.pl/api/data/meteo/" \\
+          curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            -H "Accept: application/json" \
+            "https://danepubliczne.imgw.pl/api/data/meteo/" \
             -o /tmp/imgw-meteo.json
           python - <<'PY'
           import json, pathlib, time
