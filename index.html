@@ -1941,11 +1941,25 @@ function isDayAt(iso){
   const h=t.getHours();return h>=6&&h<19;
 }
 function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,pop,timeline,rainActive=false}){
+  // TWARDY BEZPIECZNIK — wykonywany jako pierwszy:
+  // POP >= 50% nigdy nie może zwrócić kodu 0/1.
+  // Jeżeli kod wskazuje opad, opad ma absolutne pierwszeństwo.
+  const popPct=Number(pop);
+  const safeModelCode=Number(modelCode);
+  const modelIsRain=isRainCode(safeModelCode);
+
+  if(Number.isFinite(popPct)&&popPct>=50){
+    if(rainActive||modelIsRain){
+      return modelIsRain?safeModelCode:61;
+    }
+    if(safeModelCode===0||safeModelCode===1){
+      return 2;
+    }
+  }
+
   const cloudPct=Number(cloudCover);
   const cloudCode=Number.isFinite(cloudPct)
     ?(cloudPct<=20?0:cloudPct<=70?2:3):3;
-  const modelIsRain=isRainCode(modelCode);
-  const popPct=Number(pop);
 
   let code;
   // Kod opadowy z modelu ma pierwszeństwo przed zachmurzeniem.
@@ -1995,8 +2009,10 @@ function hourlyHTML(X){
     const idx=currentIdx+i;if(idx>=hourly.time.length)break;
     const t=new Date(hourly.time[idx]);
     const hourRain=X?.timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()));
-    const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
-    const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
+    const rawHourlyPop=hourly.precipitation_probability?.[idx];
+    const pop=Number.isFinite(Number(rawHourlyPop))
+      ?Math.max(0,Math.min(100,Number(rawHourlyPop)))
+      :0;
     const nowMm=currentTimelineMm(X);
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
@@ -2059,11 +2075,10 @@ function hourlyHTML(X){
       }
     }
 
-    // OSTATECZNY BEZPIECZNIK — musi być po wszystkich override'ach,
-    // aby żadna późniejsza gałąź nie mogła przywrócić kodu 0 przy opadzie/POP>=50.
+    // OSTATECZNY BEZPIECZNIK — również po override "Teraz".
     if(rainActive){
       code=isRainCode(modelCode)?Number(modelCode):61;
-    }else if(pop>=50&&!isRainCode(code)&&Number(code)===0){
+    }else if(pop>=50&&(Number(code)===0||Number(code)===1)){
       code=2;
     }
 
