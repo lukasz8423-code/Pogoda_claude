@@ -3806,15 +3806,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         layers:{
           low:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_low)).filter(Number.isFinite),
           mid:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_mid)).filter(Number.isFinite),
-          high:cloudCompare.map(r=>    const fusionImgw=imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
-      :null;
-    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
-    S.precipitationFusion=precipitationFusion;
-    // Jedna wersja minutówek dla UI — nie dopuszczamy do drugiej, niezależnej korekty.
-    const fusionNowcast=precipitationFusion.minutely||[];
-
-    // Twarda blokada bieżącej widoczności z głównego API.
+          high:cloudCompare.map(r=>    // Twarda blokada bieżącej widoczności z głównego API.
     // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
     const apiVisibilityNow=Number(data?.current?.visibility);
     if(Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0){
