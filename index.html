@@ -546,25 +546,63 @@ function fuseCloudCover(records,context={}){
     const weight=id.includes("icon_eu")?0.40:id.includes("ecmwf")?0.30:id.includes("gfs")?0.20:0.10;
     return {id,value:clamp(v,0,100),weight};
   }).filter(Boolean);
-  if(!rows.length)return {value:null,rawConsensus:null,prior:null,reason:"brak modeli"};
+  if(!rows.length)return {
+    value:null,rawConsensus:null,prior:null,
+    precipitation:Number.isFinite(Number(context.modelPrecip))?Number(context.modelPrecip):0,
+    precipitationCorrected:false,
+    cloudDampeningFactor:1,
+    reason:"brak modeli"
+  };
 
   const weighted=[];
-  rows.forEach(r=>{for(let i=0;i<Math.max(1,Math.round(r.weight*100));i++)weighted.push(r.value);});
+  rows.forEach(r=>{
+    for(let i=0;i<Math.max(1,Math.round(r.weight*100));i++)weighted.push(r.value);
+  });
   weighted.sort((a,b)=>a-b);
   const raw=weighted[Math.floor(weighted.length/2)];
   const spread=Math.max(...rows.map(r=>r.value))-Math.min(...rows.map(r=>r.value));
 
   const station=context.station||{};
-  const stationNoPrecip=stationHasFreshNoPrecip(station);
+  const stationDry=context.stationDry===true;
   const stationNear=Number.isFinite(Number(station.dist))&&Number(station.dist)<=5;
   const modelRain=Number(context.modelPrecip);
   const modelRainCode=isRainCode(Number(context.modelCode));
-  const recentRainConflict=stationNear&&stationNoPrecip&&
-    ((Number.isFinite(modelRain)&&modelRain>0.05)||modelRainCode);
+  const recentRainConflict=stationNear&&stationDry&&
+    ((Number.isFinite(modelRain)&&modelRain>0)||modelRainCode);
 
   const visibility=Number(context.visibilityMeters);
   const clearAir=Number.isFinite(visibility)&&visibility>=12000;
   const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
+
+  const wind=Number(context.windKmh);
+  const moderateWind=Number.isFinite(wind)&&wind>=15;
+  const strongWind=Number.isFinite(wind)&&wind>=25;
+
+  const nowcast=Array.isArray(context.nowcast)?context.nowcast:[];
+  const nowcastRainSlots=nowcast.filter(x=>Number.isFinite(Number(x?.mm))&&Number(x.mm)>0.05);
+  let nowcastConfirmedRain=false;
+  for(let i=0;i<nowcast.length-1;i++){
+    const a=Number(nowcast[i]?.mm);
+    const b=Number(nowcast[i+1]?.mm);
+    if(Number.isFinite(a)&&Number.isFinite(b)&&a>0.05&&b>0.05){
+      nowcastConfirmedRain=true;
+      break;
+    }
+  }
+  if(nowcastRainSlots.length>=3)nowcastConfirmedRain=true;
+
+  const stationConfirmsRain=
+    Number.isFinite(Number(context.stationPrecipMm)) &&
+    Number(context.stationPrecipMm)>0;
+  const precipitationConfirmed=stationConfirmsRain||nowcastConfirmedRain;
+
+  let precipitation=Math.max(0,Number.isFinite(modelRain)?modelRain:0);
+  let precipitationCorrected=false;
+
+  if(precipitation>0&&precipitation<=0.4&&!precipitationConfirmed){
+    precipitation=0;
+    precipitationCorrected=true;
+  }
 
   const key="aura_cloud_fusion_"+Number(context.lat).toFixed(3)+"_"+Number(context.lng).toFixed(3);
   let prior=null,priorAge=null;
@@ -578,27 +616,29 @@ function fuseCloudCover(records,context={}){
   }catch{}
 
   let value=raw;
+  let cloudDampeningFactor=1;
   let reason="weighted-model-median";
 
-  // Świeży brak opadu z bliskiej stacji blokuje nagły skok modelu w górę.
-  // To jest ciągłość stanu, nie sztuczne zerowanie chmur.
+  if(recentRainConflict&&moderateWind){
+    cloudDampeningFactor=strongWind?0.70:0.80;
+    value*=cloudDampeningFactor;
+    reason+=" + post-rain wind dampening "+Math.round((1-cloudDampeningFactor)*100)+"%";
+  }
+
   if(recentRainConflict&&prior!=null&&priorAge!=null){
     const maxRise=priorAge<=20?8:priorAge<=45?14:22;
     value=Math.min(value,prior+maxRise);
-    reason="recent-rain-cleared: station dry";
+    reason+=" + temporal continuity";
   }
 
-  // Widoczność jest niezależnym sygnałem jakości powietrza.
-  // Tylko wyraźnie czyste powietrze może osłabić modelowy sygnał zachmurzenia;
-  // 7–10 km nie jest traktowane jako dowód bezchmurnego nieba.
   if(clearAir){
-    const cap=veryClearAir?Math.min(value,Math.max(20,(prior??value)-5)):Math.min(value,Math.max(30,(prior??value)+5));
+    const cap=veryClearAir
+      ?Math.min(value,Math.max(20,(prior??value)-5))
+      :Math.min(value,Math.max(30,(prior??value)+5));
     value=cap;
     reason+=" + clear-air evidence";
   }
 
-  // Przy braku obserwacyjnego sygnału nie wykonujemy agresywnej korekty.
-  // Model może wygrać, jeśli utrzymuje się w czasie i nie jest sprzeczny z obserwacją.
   if(prior!=null&&priorAge!=null&&!recentRainConflict){
     const maxStep=priorAge<=20?15:priorAge<=45?25:35;
     value=clamp(Math.max(prior-maxStep,Math.min(prior+maxStep,value)),0,100);
@@ -606,6 +646,8 @@ function fuseCloudCover(records,context={}){
   }
 
   value=Math.round(clamp(value,0,100)*10)/10;
+  precipitation=Math.round(Math.max(0,precipitation)*100)/100;
+
   try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),value}));}catch{}
 
   return {
@@ -616,10 +658,15 @@ function fuseCloudCover(records,context={}){
     priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
     recentRainConflict,
     clearAir,
+    precipitation,
+    precipitationCorrected,
+    precipitationConfirmed,
+    nowcastConfirmedRain,
+    cloudDampeningFactor,
+    windKmh:Number.isFinite(wind)?wind:null,
     reason
   };
 }
-
 function discomfortIndex(temp,hum,windKmh=0){
   const t=Number(temp),rh=clamp(Number(hum),0,100),w=Math.max(0,Number(windKmh)||0);
   if(!Number.isFinite(t))return{value:null,label:"Brak danych",color:"rgba(255,255,255,.08)",emoji:"–"};
@@ -3315,12 +3362,14 @@ async function loadWCore(lat,lng,name,isRef){
   let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
-    const [weatherResult,imgwResult,cloudResult,satelliteResult]=await Promise.allSettled([
+    const [weatherResult,imgwResult,cloudResult,satelliteResult,minutelyResult]=await Promise.allSettled([
       apiWeather(lat,lng,isRef),
       findNearestIMGW(lat,lng),
       fetchAllModelsCompare(lat,lng,isRef),
-      apiSatelliteCloudMask(lat,lng)
+      apiSatelliteCloudMask(lat,lng),
+      apiMinutely(lat,lng)
     ]);
+    const fusionNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
@@ -3413,12 +3462,28 @@ async function loadWCore(lat,lng,name,isRef){
       const cloudFusion=fuseCloudCover(cloudCompare,{
         lat,lng,
         station:imgwResult.status==="fulfilled"?(imgwResult.value?.best||imgwResult.value||{}):{},
+        stationPrecipMm:imgwResult.status==="fulfilled"
+          ?stationFreshPrecipMm(imgwResult.value?.best||imgwResult.value||{})
+          :null,
+        stationDry:imgwResult.status==="fulfilled"
+          ?stationHasFreshNoPrecip(imgwResult.value?.best||imgwResult.value||{})
+          :false,
         modelPrecip:Number(data?.current?.precipitation??data?.current?.rain??data?.current?.showers),
         modelCode:Number(data?.current?.weather_code),
-        visibilityMeters:Number(data?.current?.visibility)
+        windKmh:Number(data?.current?.wind_speed_10m),
+        visibilityMeters:Number(data?.current?.visibility),
+        nowcast:fusionNowcast
       });
       const mainCloud=Number.isFinite(cloudFusion.value)?cloudFusion.value:raw;
       data.current.cloud_cover=mainCloud;
+      if(Number.isFinite(cloudFusion.precipitation)){
+        data.current.precipitation=cloudFusion.precipitation;
+        if(cloudFusion.precipitation===0){
+          data.current.rain=0;
+          data.current.showers=0;
+          data.current.snowfall=0;
+        }
+      }
       S.cloudSource={
         type:"weather-fusion",
         value:mainCloud,
