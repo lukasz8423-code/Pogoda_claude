@@ -1665,8 +1665,82 @@ function tempColor(t){
 // ═══════════════════════════════════════════════
 // v6 — dodatkowe źródła danych
 // ═══════════════════════════════════════════════
+// Centralna fuzja opadu: jeden werdykt dla current, hourly i minutówek.
+// Mikroopad z modelu nie jest uznawany za deszcz bez potwierdzenia krótkoterminowego.
+// Jednocześnie realny opad ma priorytet i może natychmiast odblokować model.
+function smartPrecipitationFusion(data,imgwData,minutelySlots){
+  const stationMm=Number(imgwData?.opad_10min);
+  const stationFresh=imgwData?.opad10minFresh===true &&
+    Number.isFinite(stationMm) && stationMm>=0 && Number(imgwData?.dist)<=5 &&
+    (!Number.isFinite(Number(imgwData?.opad10minAgeMinutes))||Number(imgwData.opad10minAgeMinutes)<=30);
+  const stationWet=stationFresh&&stationMm>0;
+  const slots=Array.isArray(minutelySlots)?minutelySlots:[];
+  const first=slots[0]||null;
+  const wetCode=v=>{const n=Number(v);return Number.isFinite(n)&&(isRainCode(n)||isStormCode(n)||isDrizzleCode(n));};
+  const measurable=slots.slice(0,8).map(s=>Number(s?.mm)).filter(Number.isFinite);
+  const heavyNowcast=measurable.some(v=>v>=0.5);
+  let consecutiveWet=0;
+  let confirmedShortTerm=false;
+  for(const s of slots.slice(0,8)){
+    const mm=Number(s?.mm);
+    if(Number.isFinite(mm)&&mm>0&&wetCode(s?.code))consecutiveWet++;else consecutiveWet=0;
+    if(consecutiveWet>=2){confirmedShortTerm=true;break;}
+  }
+  const codeConfirmed=wetCode(first?.code)&&Number(first?.mm)>0.2;
+  const nowcastWet=heavyNowcast||confirmedShortTerm||codeConfirmed;
+  const allowRealRain=stationWet||nowcastWet;
+  const suppressModelMicro=stationFresh&&stationMm<=0&&!allowRealRain;
+  const currentNowMm=Number(first?.mm);
+  const evidence=stationWet?"IMGW_Glodowo":nowcastWet?"Open-Meteo_minutely_15":"IMGW_Glodowo_dry";
+
+  if(data?.current&&allowRealRain){
+    const mm=stationWet?stationMm:(Number.isFinite(currentNowMm)&&currentNowMm>0?currentNowMm:null);
+    if(mm!==null&&mm>0){
+      data.current.precipitation=mm;
+      data.current.rain=mm;
+      data.current.showers=0;
+      data.current.snowfall=0;
+      if(Number.isFinite(Number(first?.code))&&(wetCode(first.code)||isSnowCode(Number(first.code))))data.current.weather_code=Number(first.code);
+    }
+  }else if(data?.current&&suppressModelMicro){
+    const p=Number(data.current.precipitation),r=Number(data.current.rain);
+    if((Number.isFinite(p)&&p>0&&p<=0.4)||(Number.isFinite(r)&&r>0&&r<=0.4)){
+      data.current.precipitation=0;data.current.rain=0;data.current.showers=0;
+      const cloud=Number(data.current.cloud_cover);
+      data.current.weather_code=Number.isFinite(cloud)?(cloud<=20?0:cloud<=70?2:3):0;
+    }
+  }
+
+  const hourly=data?.hourly;
+  if(hourly?.time&&Array.isArray(hourly.time)&&suppressModelMicro){
+    for(let i=0;i<hourly.time.length;i++){
+      const p=Number(hourly.precipitation?.[i]),r=Number(hourly.rain?.[i]);
+      const mm=Number.isFinite(p)?p:(Number.isFinite(r)?r:null);
+      if(mm===null||mm<=0||mm>0.4)continue;
+      if(Array.isArray(hourly.precipitation))hourly.precipitation[i]=0;
+      if(Array.isArray(hourly.rain))hourly.rain[i]=0;
+      if(Array.isArray(hourly.weather_code)&&isRainCode(Number(hourly.weather_code[i]))){
+        const cloud=Number(hourly.cloud_cover?.[i]);
+        hourly.weather_code[i]=Number.isFinite(cloud)?(cloud<=20?0:cloud<=70?2:3):0;
+      }
+    }
+  }
+
+  const correctedMinutely=suppressModelMicro
+    ?correctMinutelyPrecipitation(slots,imgwData,true)
+    :slots;
+  return {
+    stationFresh,stationMm,stationWet,nowcastWet,heavyNowcast,confirmedShortTerm,
+    allowRealRain,suppressModelMicro,evidence,
+    currentNowMm:Number.isFinite(currentNowMm)?currentNowMm:null,
+    minutely:correctedMinutely,
+    hourly:data?.hourly||null,
+    applied:suppressModelMicro||allowRealRain
+  };
+}
+
 // Opad co 15 min na najbliższe 2h (styl MinuteCast z AccuWeather)
-function correctMinutelyPrecipitation(slots, imgwData){
+function correctMinutelyPrecipitation(slots, imgwData, forceDry=false){
   if(!Array.isArray(slots)) return [];
 
   const stationPrecip=Number(imgwData?.opad_10min);
@@ -1679,7 +1753,8 @@ function correctMinutelyPrecipitation(slots, imgwData){
     stationPrecip<=0 &&
     Number.isFinite(stationDist) &&
     stationDist<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
+    (!Number.isFinite(stationAge)||stationAge<=30) &&
+    (forceDry===true);
 
   return slots.map(slot=>{
     const mm=Number(slot?.mm);
@@ -1702,7 +1777,7 @@ function correctMinutelyPrecipitation(slots, imgwData){
   });
 }
 
-function correctHourlyPrecipitation(hourlyData,imgwData){
+function correctHourlyPrecipitation(hourlyData,imgwData,allowDryCorrection=false){
   if(!hourlyData||!Array.isArray(hourlyData.time))return hourlyData;
 
   const stationPrecip=Number(imgwData?.opad_10min);
@@ -1716,7 +1791,8 @@ function correctHourlyPrecipitation(hourlyData,imgwData){
     stationPrecip<=0 &&
     Number.isFinite(stationDist) &&
     stationDist<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
+    (!Number.isFinite(stationAge)||stationAge<=30) &&
+    allowDryCorrection===true;
 
   if(!stationDry)return hourlyData;
 
@@ -3587,12 +3663,7 @@ async function loadWCore(lat,lng,name,isRef,token){
     // Nie wolno jej dalej przetwarzać ani renderować.
     if(token!==LOAD_SEQ)return;
     const rawNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
-  const fusionNowcast=correctMinutelyPrecipitation(
-    rawNowcast,
-    imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
-      :null
-  );
+  const fusionNowcastRaw=rawNowcast;
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
@@ -3626,6 +3697,14 @@ async function loadWCore(lat,lng,name,isRef,token){
         if(!data)throw lastWeatherError||new Error("Open-Meteo niedostępne");
       }
     }
+
+    const fusionImgw=imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null;
+    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
+    S.precipitationFusion=precipitationFusion;
+    // Jedna wersja minutówek dla UI — nie dopuszczamy do drugiej, niezależnej korekty.
+    const fusionNowcast=precipitationFusion.minutely||[];
 
     // Twarda blokada bieżącej widoczności z głównego API.
     // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
@@ -4036,7 +4115,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   // musi wykonać się po całej fuzji, ale przed cache i przede wszystkim
   // przed S.data -> render -> meteogram 48 h. Dzięki temu renderer nigdy
   // nie dostaje surowych mikroopadów 0.1–0.4 mm/h z Open-Meteo.
-  data.hourly=correctHourlyPrecipitation(data.hourly,imgwData);
+  data.hourly=correctHourlyPrecipitation(data.hourly,imgwData,S.precipitationFusion?.suppressModelMicro===true);
 
   if(data.hourly?.__auraHourlyPrecipitationCorrection?.applied){
     S.pipelineDiag=S.pipelineDiag||{};
