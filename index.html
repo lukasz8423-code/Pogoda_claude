@@ -1532,16 +1532,12 @@ function sunShape(cx,cy,r){
   return`<path d="${rays}" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#gSun)"/>`;
 }
 function moonShape(){return`<circle cx="22" cy="22" r="11" fill="url(#gMoon)" mask="url(#mMoon)"/>`;}
-function ico(code,isDay=true,px=32,cloud=null){
+function ico(code,isDay=true,px=32){
   const day=isDay!==false&&isDay!==0;
-  let c=Number(code);
-  // Hero korzysta z tego samego kanonicznego mapowania zachmurzenia co opis w wMeta().
-  // Dzięki temu np. WMO 3 + cloud_cover 60% daje ikonę częściowego,
-  // a nie pełnego zachmurzenia.
-  const cloudPct=Number(cloud);
-  if(Number.isFinite(cloudPct)&&c>=0&&c<=3){
-    c=cloudPct<=15?0:cloudPct<=40?2:cloudPct<=70?2:3;
-  }
+  // ico() jest wyłącznie rendererem. Kod pogody został już rozstrzygnięty
+  // wcześniej (np. przez getHourlyCode) i nie może być tutaj nadpisywany
+  // na podstawie cloud_cover.
+  const c=Number(code);
   let g="";
   if(c===0)g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
   else if(c<=2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
