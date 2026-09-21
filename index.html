@@ -1617,10 +1617,28 @@ function computeCtx(){
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
   const timelineNowMm=Number(timelineCurrent?.mm);
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
+  // Ghost-drizzle guard: kod 51 + śladowy modelowy opad nie może oznaczać
+  // "Mżawka", jeśli świeży pomiar IMGW nie potwierdza opadu.
+  const stationDrizzleGuard=(()=>{
+    const st=S.imgwData||{};
+    const mm=Number(st.opad_10min);
+    const age=Number(st.opad10minAgeMinutes);
+    const fresh=st.opad10minFresh===true&&Number.isFinite(age)&&age<=20;
+    const near=Number.isFinite(Number(st.dist))&&Number(st.dist)<=45;
+    const modelMm=Number.isFinite(timelineNowMm)?timelineNowMm:Number(current.precipitation??current.rain??0);
+    const drizzleCode=[51,53,55].includes(Number(rawCurrentCode))||[51,53,55].includes(Number(hourlyNowCode));
+    return near&&fresh&&Number.isFinite(mm)&&mm<=0&&drizzleCode&&modelMm>=0&&modelMm<0.2;
+  })();
   // Jeden kanoniczny stan "Teraz" dla nagłówka, banera i pierwszego kafelka.
-  const currentStateCode=Number.isFinite(timelineNowMm)&&timelineNowMm>0.05
+  let currentStateCode=Number.isFinite(timelineNowMm)&&timelineNowMm>0.05
     ?61
     :Number.isFinite(hourlyNowCode)?hourlyNowCode:rawCurrentCode;
+  if(stationDrizzleGuard){
+    const c=Number(cloud);
+    currentStateCode=Number.isFinite(c)
+      ?(c<=20?0:c<=70?2:3)
+      :2;
+  }
   const code=currentStateCode;
   const precip=+(current.precipitation??current.rain??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
   const pop=g(hourly.precipitation_probability)??0;
@@ -2935,10 +2953,20 @@ function sanitizeVisibility(data,imgwData){
       data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
     }
   }
+  const stationDrizzleVisibilityGuard=
+    stationNoPrecip &&
+    Number.isFinite(Number(data.current?.precipitation)) &&
+    Number(data.current.precipitation)>=0 &&
+    Number(data.current.precipitation)<0.2 &&
+    Number.isFinite(Number(data.current?.cloud_cover)) &&
+    Number(data.current.cloud_cover)<=70;
+  if(data.current&&stationDrizzleVisibilityGuard&&Number.isFinite(Number(data.current.visibility))){
+    data.current.visibility=Math.max(Number(data.current.visibility),10000);
+  }
   data.__stationVisibilityGuard={
     stationNoPrecip,
     stationFog,
-    forcedCurrentVisibility:false,
+    forcedCurrentVisibility:stationDrizzleVisibilityGuard,
     stationVisibilityAvailable:Number.isFinite(Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m))
   };
 }
