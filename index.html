@@ -1743,13 +1743,21 @@ function correctHourlyPrecipitation(hourlyData,imgwData){
     const precipValue=Number.isFinite(precipitation)?precipitation:
       (Number.isFinite(rain)?rain:null);
 
-    // Usuwamy wyłącznie mikroopad 0 < mm <= 0.4 mm/h.
-    if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
+    // Świeże 0 mm z Głodowa wycina modelowe mikroopady <=0.4 mm/h
+    // z całego horyzontu. To dotyczy również danych używanych przez wykres 48h.
+    if(precipValue!==null && precipValue>0 && precipValue<=0.4){
+      if(Array.isArray(out.precipitation))out.precipitation[i]=0;
+      if(Array.isArray(out.rain))out.rain[i]=0;
 
-    if(Array.isArray(out.precipitation))out.precipitation[i]=0;
-    if(Array.isArray(out.rain))out.rain[i]=0;
+      // Fałszywe 70–80% POP dla śladowego opadu nie może pozostać po filtrze.
+      // Zachowujemy niewielką szansę konwekcyjną, ale nie prezentujemy jej jako
+      // prawdopodobnego deszczu.
+      if(Array.isArray(out.precipitation_probability)){
+        const pop=Number(out.precipitation_probability[i]);
+        if(Number.isFinite(pop))out.precipitation_probability[i]=Math.min(pop,15);
+      }
 
-    const code=Number(out.weather_code?.[i]);
+      const code=Number(out.weather_code?.[i]);
     if(Number.isFinite(code)&&isRainCode(code)){
       // Brak opadu jest ważniejszy niż kod deszczowy modelu.
       // Zachowujemy informację o zachmurzeniu, ale nigdy nie pokazujemy
