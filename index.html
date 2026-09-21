@@ -3006,7 +3006,7 @@ async function loadWCore(lat,lng,name,isRef){
         type:Number.isFinite(consensus)?"model-consensus":"open-meteo-current",
         value:mainCloud,
         models:modelClouds,
-        consensus:offlineEnsemble?.__auraEnsemble||null
+        consensus:Number.isFinite(consensus)?consensus:null
       };
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
