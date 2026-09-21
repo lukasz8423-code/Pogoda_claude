@@ -708,6 +708,40 @@ async function apiSatelliteCloudMask(lat,lng){
     return {...d,distanceKm:+distanceKm.toFixed(2)};
   }catch{return null;}
 }
+function sameLocationSnapshot(lat,lng){
+  return Number.isFinite(Number(S.lat))&&Number.isFinite(Number(S.lng))&&
+    Math.abs(Number(S.lat)-Number(lat))<0.0005&&Math.abs(Number(S.lng)-Number(lng))<0.0005;
+}
+
+async function apiWeatherApiSnapshot(lat,lng){
+  try{
+    const r=await fetch("./weatherapi-visibility.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return null;
+    const d=await r.json();
+    const slat=Number(d.lat),slng=Number(d.lon),v=Number(d.vis_km);
+    if(!Number.isFinite(slat)||!Number.isFinite(slng)||!Number.isFinite(v)||v<0)return null;
+    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
+    if(distanceKm>30)return null;
+    const fetchedAt=Number(d.fetchedAt);
+    if(Number.isFinite(fetchedAt)&&Date.now()-fetchedAt>30*60*1000)return null;
+    return {...d,distanceKm};
+  }catch{return null;}
+}
+
+async function apiGeminiAnalysisSnapshot(lat,lng){
+  try{
+    const r=await fetch("./gemini-analysis.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return null;
+    const d=await r.json();
+    const slat=Number(d.lat),slng=Number(d.lng??d.lon);
+    if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
+    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
+    const fetchedAt=Number(d.fetchedAt);
+    if(distanceKm>30||(Number.isFinite(fetchedAt)&&Date.now()-fetchedAt>30*60*1000))return null;
+    return {...d,distanceKm};
+  }catch{return null;}
+}
+
 
 async function apiCity(lat,lng){
   try{
@@ -1581,7 +1615,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -2001,7 +2035,9 @@ function hourlyRainEvidence(hourlyData, idx){
 }
 
 function getHourlyCode(hourlyData, idx) {
-  const pop=Number(hourlyData?.precipitation_probability?.[idx]??0);
+  const rawPop=Number(hourlyData?.precipitation_probability?.[idx]??0);
+  const gemPop=Number(S.geminiAnalysis?.smoothedPop?.[idx]);
+  const pop=Number.isFinite(gemPop)?clamp(gemPop,0,100):rawPop;
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
   const rainEvidence=hourlyRainEvidence(hourlyData,idx);
@@ -2009,7 +2045,8 @@ function getHourlyCode(hourlyData, idx) {
   // Kod opadowy nie wystarcza przy śladowym 0,1 mm.
   if(isPrecipCode(rawCode)&&rainEvidence)return rawCode;
 
-  // Bez potwierdzonego opadu pokazujemy zachmurzenie/przejaśnienia.
+  // Gemini wygładza wyłącznie prawdopodobieństwo opadu dla prezentacji godzinowej.
+  // Surowe wartości Open-Meteo pozostają nienaruszone.
   if(pop>=50)return cloud>70?3:2;
   if(cloud<=20)return 0;
   if(cloud<=70)return 2;
@@ -2242,11 +2279,10 @@ function wPress(X){
   return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center">hPa${tr?`, trend modelowy: ${tr.toLowerCase()} (3 h)`:""}</div></div>`;
 }
 function wVis(X){
-  // Widoczność w UI = wyłącznie surowe current.visibility z API, bez estymacji i bez progów.
-  const rawVisibility=Number(S.data?.current?.visibility);
-  const visibilityKm=Number.isFinite(rawVisibility)&&rawVisibility>0 ? rawVisibility/1000 : null;
-  const value=visibilityKm==null ? "–" : fnum(visibilityKm,1);
-  return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">Dane bezpośrednio z API.</div></div>`;
+  const visKm=Number(S.weatherapi?.vis_km);
+  const value=Number.isFinite(visKm)&&visKm>=0?fnum(visKm,1):"–";
+  const source=Number.isFinite(visKm)&&visKm>=0?"WeatherAPI · vis_km":"Brak pomiaru WeatherAPI";
+  return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">${source}</div></div>`;
 }
 function wLayers(X){
   const L=(n,v)=>v==null?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
@@ -3514,8 +3550,18 @@ async function loadWCore(lat,lng,name,isRef){
   }
 
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
   render();
+
+  if(!isDemo){
+    Promise.all([apiWeatherApiSnapshot(lat,lng),apiGeminiAnalysisSnapshot(lat,lng)]).then(([wa,ga])=>{
+      if(sameLocationSnapshot(lat,lng)){
+        S.weatherapi=wa;
+        S.geminiAnalysis=ga;
+        softUpdate();
+      }
+    }).catch(()=>{});
+  }
 
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
