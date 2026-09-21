@@ -1708,6 +1708,8 @@ function correctMinutelyPrecipitation(slots, imgwData){
 }
 
 function correctHourlyPrecipitation(hourlyData,imgwData){
+  // WAŻNE: mutujemy TEN SAM obiekt hourly, który pochodzi z Open-Meteo.
+  // Nie tworzymy kopii, żeby żaden renderer nie mógł przypadkiem dostać surowej tablicy.
   if(!hourlyData||!Array.isArray(hourlyData.time))return hourlyData;
 
   const stationPrecip=Number(imgwData?.opad_10min);
@@ -1724,54 +1726,194 @@ function correctHourlyPrecipitation(hourlyData,imgwData){
 
   if(!stationDry)return hourlyData;
 
-  const out={...hourlyData};
-  for(const key of [
-    "time","precipitation","rain","weather_code",
-    "precipitation_probability","temperature_2m","cloud_cover",
-    "cloud_cover_low","cloud_cover_mid","cloud_cover_high",
-    "wind_speed_10m","wind_gusts_10m","relative_humidity_2m",
-    "visibility","uv_index","shortwave_radiation"
-  ]){
-    if(Array.isArray(hourlyData[key]))out[key]=hourlyData[key].slice();
-  }
-
   let correctedCount=0;
-  for(let i=0;i<out.time.length;i++){
-    const precipitation=Number(out.precipitation?.[i]);
-    const rain=Number(out.rain?.[i]);
-    const precipValue=Number.isFinite(precipitation)?precipitation:
-      (Number.isFinite(rain)?rain:null);
+  const nowIdx=currentHourIndex({hourly:hourlyData},new Date());
 
+  for(let i=Math.max(0,nowIdx);i<hourlyData.time.length;i++){
+    const precipitation=Number(hourlyData.precipitation?.[i]);
+    const rain=Number(hourlyData.rain?.[i]);
+    const showers=Number(hourlyData.showers?.[i]);
+    const snowfall=Number(hourlyData.snowfall?.[i]);
+    const candidates=[precipitation,rain,showers,snowfall].filter(Number.isFinite);
+    const precipValue=candidates.length?Math.max(...candidates):null;
+
+    // Czyścimy wyłącznie śladowe 0–0.4 mm/h. Realnego opadu >0.4 mm/h
+    // świeże IMGW nie może automatycznie wyzerować.
     if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
 
-    if(Array.isArray(out.precipitation))out.precipitation[i]=0;
-    if(Array.isArray(out.rain))out.rain[i]=0;
+    if(Array.isArray(hourlyData.precipitation))hourlyData.precipitation[i]=0;
+    if(Array.isArray(hourlyData.rain))hourlyData.rain[i]=0;
+    if(Array.isArray(hourlyData.showers))hourlyData.showers[i]=0;
+    if(Array.isArray(hourlyData.snowfall))hourlyData.snowfall[i]=0;
 
-    if(Array.isArray(out.precipitation_probability)){
-      const pop=Number(out.precipitation_probability[i]);
-      if(Number.isFinite(pop))out.precipitation_probability[i]=Math.min(pop,15);
+    if(Array.isArray(hourlyData.precipitation_probability)){
+      const pop=Number(hourlyData.precipitation_probability[i]);
+      if(Number.isFinite(pop))hourlyData.precipitation_probability[i]=Math.min(pop,15);
     }
 
-    const code=Number(out.weather_code?.[i]);
+    const code=Number(hourlyData.weather_code?.[i]);
     if(Number.isFinite(code)&&isRainCode(code)){
-      const cloud=Number(out.cloud_cover?.[i]);
-      out.weather_code[i]=Number.isFinite(cloud)
+      const cloud=Number(hourlyData.cloud_cover?.[i]);
+      hourlyData.weather_code[i]=Number.isFinite(cloud)
         ?(cloud<=20?0:cloud<=70?2:3)
         :0;
     }
     correctedCount++;
   }
 
-  out.__auraHourlyPrecipitationCorrection={
+  hourlyData.__auraHourlyPrecipitationCorrection={
     applied:correctedCount>0,
     correctedCount,
     reason:"IMGW_Glodowo_0mm",
     stationDistanceKm:stationDist,
     stationAgeMinutes:Number.isFinite(stationAge)?stationAge:null,
     thresholdMm:0.4,
-    probabilityCap:15
+    probabilityCap:15,
+    mutatedInPlace:true
   };
-  return out;
+  return hourlyData;
+}
+
+// KANONICZNA GRANICA FUZJI — po tym punkcie current/hourly/daily są już
+// stanem Aury. Renderery nie mogą korzystać z osobnych surowych tablic modelu.
+function applyCanonicalWeatherFusion(data,imgwData){
+  if(!data?.current)return {applied:false,reason:"brak current"};
+
+  const cur=data.current;
+  const hourly=data.hourly;
+  const daily=data.daily;
+  const stationPrecip=Number(imgwData?.opad_10min);
+  const stationAge=Number(imgwData?.opad10minAgeMinutes);
+  const stationDist=Number(imgwData?.dist);
+
+  const stationDry=
+    imgwData?.opad10minFresh===true &&
+    Number.isFinite(stationPrecip) &&
+    stationPrecip<=0 &&
+    Number.isFinite(stationDist) &&
+    stationDist<=5 &&
+    (!Number.isFinite(stationAge)||stationAge<=30);
+
+  if(!stationDry){
+    data.__auraCanonicalFusion={applied:false,reason:"IMGW brak świeżego 0 mm"};
+    return data.__auraCanonicalFusion;
+  }
+
+  // 1) TERAZ — świeże 0 mm z Głodowa jest twardym dowodem braku opadu.
+  cur.precipitation=0;
+  cur.rain=0;
+  cur.showers=0;
+  cur.snowfall=0;
+
+  // Jeżeli bieżący kod jest opadowy, przeliczamy go z już sfuzowanego cloud_cover.
+  if(isRainCode(cur.weather_code)){
+    const cloud=Number(cur.cloud_cover);
+    cur.weather_code=Number.isFinite(cloud)
+      ?(cloud<=20?0:cloud<=40?2:cloud<=70?3:3)
+      :0;
+  }
+
+  // 2) NAJBLIŻSZE 6 GODZIN — mikroopad i odpowiadający mu POP są czyszczone
+  // bez tworzenia kopii tablic. Dzięki temu każdy komponent widzi ten sam stan.
+  if(hourly?.time?.length){
+    const ci=currentHourIndex(data,new Date());
+    const end=Math.min(hourly.time.length,ci+7);
+    for(let i=ci;i<end;i++){
+      const vals=[
+        Number(hourly.precipitation?.[i]),
+        Number(hourly.rain?.[i]),
+        Number(hourly.showers?.[i]),
+        Number(hourly.snowfall?.[i])
+      ].filter(Number.isFinite);
+      const mm=vals.length?Math.max(...vals):0;
+
+      if(mm>0&&mm<=0.4){
+        if(Array.isArray(hourly.precipitation))hourly.precipitation[i]=0;
+        if(Array.isArray(hourly.rain))hourly.rain[i]=0;
+        if(Array.isArray(hourly.showers))hourly.showers[i]=0;
+        if(Array.isArray(hourly.snowfall))hourly.snowfall[i]=0;
+        if(Array.isArray(hourly.precipitation_probability)){
+          const p=Number(hourly.precipitation_probability[i]);
+          if(Number.isFinite(p))hourly.precipitation_probability[i]=Math.min(p,15);
+        }
+        if(Array.isArray(hourly.weather_code)&&isRainCode(Number(hourly.weather_code[i]))){
+          const c=Number(hourly.cloud_cover?.[i]);
+          hourly.weather_code[i]=Number.isFinite(c)
+            ?(c<=20?0:c<=70?2:3)
+            :0;
+        }
+      }
+    }
+
+    // Twarda korekta bieżącego zachmurzenia: przy świeżym suchym Głodowie
+    // i braku potwierdzonego opadu nie pozwalamy modelowi utrzymać 70–100%.
+    // 40% jest granicą "częściowego zachmurzenia" dla stanu wizualnego.
+    const currentCloud=Number(cur.cloud_cover);
+    const currentCode=Number(cur.weather_code);
+    if(Number.isFinite(currentCloud)&&!isRainCode(currentCode)){
+      cur.cloud_cover=Math.min(currentCloud,40);
+    }
+
+    // Ta sama kanoniczna wartość trafia do najbliższych godzin, ale tylko
+    // tam, gdzie model sam nie przewiduje rzeczywistego opadu >0.4 mm/h.
+    for(let i=ci;i<end;i++){
+      const mm=Math.max(
+        Number(hourly.precipitation?.[i])||0,
+        Number(hourly.rain?.[i])||0,
+        Number(hourly.showers?.[i])||0,
+        Number(hourly.snowfall?.[i])||0
+      );
+      if(mm<=0.4&&Array.isArray(hourly.cloud_cover)){
+        const c=Number(hourly.cloud_cover[i]);
+        if(Number.isFinite(c))hourly.cloud_cover[i]=Math.min(c,40);
+      }
+      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_low)){
+        const c=Number(hourly.cloud_cover_low[i]);
+        if(Number.isFinite(c))hourly.cloud_cover_low[i]=Math.min(c,40);
+      }
+      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_mid)){
+        const c=Number(hourly.cloud_cover_mid[i]);
+        if(Number.isFinite(c))hourly.cloud_cover_mid[i]=Math.min(c,40);
+      }
+      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_high)){
+        const c=Number(hourly.cloud_cover_high[i]);
+        if(Number.isFinite(c))hourly.cloud_cover_high[i]=Math.min(c,40);
+      }
+    }
+  }
+
+  // 3) DZISIAJ — dzienny kafel nie może pokazywać "nieprzemakalnych butów"
+  // tylko dlatego, że model zsumował śladowe 0–0.4 mm.
+  if(daily?.time?.length){
+    const todayIndex=0;
+    const dayMm=Number(daily.precipitation_sum?.[todayIndex]);
+    if(Number.isFinite(dayMm)&&dayMm<=0.4){
+      if(Array.isArray(daily.precipitation_sum))daily.precipitation_sum[todayIndex]=0;
+      if(Array.isArray(daily.precipitation_probability_max)){
+        const p=Number(daily.precipitation_probability_max[todayIndex]);
+        if(Number.isFinite(p))daily.precipitation_probability_max[todayIndex]=Math.min(p,15);
+      }
+      if(Array.isArray(daily.weather_code)&&isRainCode(Number(daily.weather_code[todayIndex]))){
+        daily.weather_code[todayIndex]=isRainCode(Number(cur.weather_code))
+          ?2
+          :Number(cur.weather_code)||0;
+      }
+    }
+  }
+
+  data.__auraCanonicalFusion={
+    applied:true,
+    mutatedInPlace:true,
+    station:"Głodowo",
+    stationDistanceKm:stationDist,
+    stationAgeMinutes:Number.isFinite(stationAge)?stationAge:null,
+    currentCloud:Number(cur.cloud_cover),
+    currentPrecipitation:Number(cur.precipitation),
+    hourlyWindowHours:6,
+    microPrecipThresholdMm:0.4,
+    popCap:15
+  };
+  return data.__auraCanonicalFusion;
 }
 
 async function apiMinutely(lat,lng){
@@ -4050,17 +4192,16 @@ async function loadWCore(lat,lng,name,isRef,token){
   syncDailyExtremes(data);
   sanitizeVisibility(data,imgwData);
 
-  // OSTATNI SANITYZER OPADU GODZINOWEGO:
-  // musi wykonać się po całej fuzji, ale przed cache i przede wszystkim
-  // przed S.data -> render -> meteogram 48 h. Dzięki temu renderer nigdy
-  // nie dostaje surowych mikroopadów 0.1–0.4 mm/h z Open-Meteo.
-  data.hourly=correctHourlyPrecipitation(data.hourly,imgwData);
+  // OSTATNIA, KANONICZNA GRANICA FUZJI:
+  // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
+  correctHourlyPrecipitation(data.hourly,imgwData);
+  const canonicalFusion=applyCanonicalWeatherFusion(data,imgwData);
+  S.canonicalWeatherFusion=canonicalFusion;
 
-  if(data.hourly?.__auraHourlyPrecipitationCorrection?.applied){
-    S.pipelineDiag=S.pipelineDiag||{};
-    S.pipelineDiag.hourlyPrecipitationCorrection=
-      data.hourly.__auraHourlyPrecipitationCorrection;
-  }
+  S.pipelineDiag=S.pipelineDiag||{};
+  S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
+  S.pipelineDiag.hourlyPrecipitationCorrection=
+    data.hourly?.__auraHourlyPrecipitationCorrection||null;
 
   // GRANICA ATOMOWEGO COMMITU:
   // po tej chwili wynik fuzji jest własnością bieżącej generacji.
