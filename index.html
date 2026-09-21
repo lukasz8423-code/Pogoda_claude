@@ -549,15 +549,11 @@ function fuseCloudCover(records,context={}){
   if(!rows.length)return {
     value:null,rawConsensus:null,prior:null,
     precipitation:Number.isFinite(Number(context.modelPrecip))?Number(context.modelPrecip):0,
-    precipitationCorrected:false,
-    cloudDampeningFactor:1,
-    reason:"brak modeli"
+    precipitationCorrected:false,cloudDampeningFactor:1,reason:"brak modeli"
   };
 
   const weighted=[];
-  rows.forEach(r=>{
-    for(let i=0;i<Math.max(1,Math.round(r.weight*100));i++)weighted.push(r.value);
-  });
+  rows.forEach(r=>{for(let i=0;i<Math.max(1,Math.round(r.weight*100));i++)weighted.push(r.value);});
   weighted.sort((a,b)=>a-b);
   const raw=weighted[Math.floor(weighted.length/2)];
   const spread=Math.max(...rows.map(r=>r.value))-Math.min(...rows.map(r=>r.value));
@@ -570,39 +566,32 @@ function fuseCloudCover(records,context={}){
   const recentRainConflict=stationNear&&stationDry&&
     ((Number.isFinite(modelRain)&&modelRain>0)||modelRainCode);
 
-  const visibility=Number(context.visibilityMeters);
-  const clearAir=Number.isFinite(visibility)&&visibility>=12000;
-  const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
-
-  const wind=Number(context.windKmh);
-  const moderateWind=Number.isFinite(wind)&&wind>=15;
-  const strongWind=Number.isFinite(wind)&&wind>=25;
-
   const nowcast=Array.isArray(context.nowcast)?context.nowcast:[];
   const nowcastRainSlots=nowcast.filter(x=>Number.isFinite(Number(x?.mm))&&Number(x.mm)>0.05);
   let nowcastConfirmedRain=false;
   for(let i=0;i<nowcast.length-1;i++){
-    const a=Number(nowcast[i]?.mm);
-    const b=Number(nowcast[i+1]?.mm);
-    if(Number.isFinite(a)&&Number.isFinite(b)&&a>0.05&&b>0.05){
-      nowcastConfirmedRain=true;
-      break;
-    }
+    const a=Number(nowcast[i]?.mm),b=Number(nowcast[i+1]?.mm);
+    if(Number.isFinite(a)&&Number.isFinite(b)&&a>0.05&&b>0.05){nowcastConfirmedRain=true;break;}
   }
   if(nowcastRainSlots.length>=3)nowcastConfirmedRain=true;
 
-  const stationConfirmsRain=
-    Number.isFinite(Number(context.stationPrecipMm)) &&
-    Number(context.stationPrecipMm)>0;
+  const stationConfirmsRain=Number.isFinite(Number(context.stationPrecipMm))&&Number(context.stationPrecipMm)>0;
   const precipitationConfirmed=stationConfirmsRain||nowcastConfirmedRain;
-
   let precipitation=Math.max(0,Number.isFinite(modelRain)?modelRain:0);
   let precipitationCorrected=false;
-
   if(precipitation>0&&precipitation<=0.4&&!precipitationConfirmed){
     precipitation=0;
     precipitationCorrected=true;
   }
+
+  const satellite=context.satellite||null;
+  const satCloud=Number(satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
+  const satDistance=Number(satellite?.distanceKm);
+  const satFetched=Number(satellite?.fetchedAt??satellite?.timestamp??satellite?.ts);
+  const satAgeMin=Number.isFinite(satFetched)?(Date.now()-satFetched)/60000:null;
+  const satelliteUsable=Number.isFinite(satCloud)&&satCloud>=0&&satCloud<=100&&
+    Number.isFinite(satDistance)&&satDistance<=15&&
+    (satAgeMin===null||(satAgeMin>=0&&satAgeMin<=30));
 
   const key="aura_cloud_fusion_"+Number(context.lat).toFixed(3)+"_"+Number(context.lng).toFixed(3);
   let prior=null,priorAge=null;
@@ -616,13 +605,28 @@ function fuseCloudCover(records,context={}){
   }catch{}
 
   let value=raw;
-  let cloudDampeningFactor=1;
   let reason="weighted-model-median";
+  let cloudDampeningFactor=1;
+
+  /*
+   * Satelita jest obserwacją nadrzędną wobec modelu, ale tylko gdy snapshot
+   * jest świeży, blisko lokalizacji i zawiera rzeczywisty cloud fraction.
+   * Nie wymuszamy wyniku satelity, tylko nadajemy mu 60% wagi.
+   */
+  if(satelliteUsable){
+    const satWeight=0.60;
+    value=raw*(1-satWeight)+satCloud*satWeight;
+    reason="model+satellite";
+  }
+
+  const wind=Number(context.windKmh);
+  const moderateWind=Number.isFinite(wind)&&wind>=15;
+  const strongWind=Number.isFinite(wind)&&wind>=25;
 
   if(recentRainConflict&&moderateWind){
     cloudDampeningFactor=strongWind?0.70:0.80;
     value*=cloudDampeningFactor;
-    reason+=" + post-rain wind dampening "+Math.round((1-cloudDampeningFactor)*100)+"%";
+    reason+=" + post-rain wind dampening";
   }
 
   if(recentRainConflict&&prior!=null&&priorAge!=null){
@@ -631,10 +635,11 @@ function fuseCloudCover(records,context={}){
     reason+=" + temporal continuity";
   }
 
+  const visibility=Number(context.visibilityMeters);
+  const clearAir=Number.isFinite(visibility)&&visibility>=12000;
+  const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
   if(clearAir){
-    const cap=veryClearAir
-      ?Math.min(value,Math.max(20,(prior??value)-5))
-      :Math.min(value,Math.max(30,(prior??value)+5));
+    const cap=veryClearAir?Math.min(value,Math.max(20,(prior??value)-5)):Math.min(value,Math.max(30,(prior??value)+5));
     value=cap;
     reason+=" + clear-air evidence";
   }
@@ -647,23 +652,18 @@ function fuseCloudCover(records,context={}){
 
   value=Math.round(clamp(value,0,100)*10)/10;
   precipitation=Math.round(Math.max(0,precipitation)*100)/100;
-
   try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),value}));}catch{}
 
   return {
-    value,
-    rawConsensus:Math.round(raw*10)/10,
-    spread:Math.round(spread*10)/10,
-    prior,
-    priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
-    recentRainConflict,
-    clearAir,
-    precipitation,
-    precipitationCorrected,
-    precipitationConfirmed,
-    nowcastConfirmedRain,
-    cloudDampeningFactor,
+    value,rawConsensus:Math.round(raw*10)/10,spread:Math.round(spread*10)/10,
+    prior,priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
+    recentRainConflict,clearAir,precipitation,precipitationCorrected,
+    precipitationConfirmed,nowcastConfirmedRain,cloudDampeningFactor,
     windKmh:Number.isFinite(wind)?wind:null,
+    satelliteUsed:satelliteUsable,
+    satelliteCloud:satelliteUsable?satCloud:null,
+    satelliteDistanceKm:satelliteUsable?satDistance:null,
+    satelliteAgeMinutes:satelliteUsable&&satAgeMin!==null?Math.round(satAgeMin*10)/10:null,
     reason
   };
 }
@@ -3472,7 +3472,8 @@ async function loadWCore(lat,lng,name,isRef){
         modelCode:Number(data?.current?.weather_code),
         windKmh:Number(data?.current?.wind_speed_10m),
         visibilityMeters:Number(data?.current?.visibility),
-        nowcast:fusionNowcast
+        nowcast:fusionNowcast,
+        satellite:S.satelliteCloud||null
       });
       const mainCloud=Number.isFinite(cloudFusion.value)?cloudFusion.value:raw;
       data.current.cloud_cover=mainCloud;
