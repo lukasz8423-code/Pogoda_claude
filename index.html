@@ -931,6 +931,10 @@ async function findNearestIMGW(lat,lng){
         opad_10min_data:glodowo.opad_10min_data||null,
         opad10minAgeMinutes:fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data)),
         opad10minFresh:(Number.isFinite(parseFloat(glodowo.opad_10min))&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))!=null&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))<=20),
+        poryw_wiatru:parseFloat(glodowo.wiatr_predkosc_maksymalna),
+        poryw_wiatru_data:glodowo.wiatr_predkosc_maksymalna_data||null,
+        porywWiatruAgeMinutes:(fieldAge(parseImgwMeteoTimestamp(glodowo.wiatr_predkosc_maksymalna_data))??windAgeMinutes),
+        porywWiatruFresh:(Number.isFinite(parseFloat(glodowo.wiatr_predkosc_maksymalna))&&((fieldAge(parseImgwMeteoTimestamp(glodowo.wiatr_predkosc_maksymalna_data))??windAgeMinutes)<=20)),
         // Ogólny czas stacji = najświeższy użyty parametr, niekoniecznie temperatura.
         observedAt:latestObservedAt,
         fetchedAt,
@@ -1530,7 +1534,8 @@ function computeCtx(){
   const feels=current.apparent_temperature??g(hourly.apparent_temperature)??T;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
   const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
-  const gusts=Math.round(current.wind_gusts_10m??wind);
+  const stationGust=stationFreshGustKmH(S.imgwData);
+  const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
   // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
@@ -1635,7 +1640,8 @@ function isPrecipCode(code){
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
   // Świeży pomiar Głodowa <=5 km ma bezwzględny priorytet dla T0.
-  if(stationHasFreshNoPrecip(S.imgwData))return 0;
+  const stationPrecip=stationFreshPrecipMm(S.imgwData);
+  if(stationPrecip!==null)return stationPrecip;
   if(isSnowCode(X?.code))return 0;
   let mm=Number(X?.precip);
   if(!Number.isFinite(mm)||mm<0)mm=0;
@@ -2130,9 +2136,10 @@ function stationHTML(){
     ["Temperatura",`${im.temperatura}°C`,!isNaN(parseFloat(im.temperatura))],
     ["Wilgotność",`${im.wilgotnosc_wzgledna}%`,!isNaN(parseFloat(im.wilgotnosc_wzgledna))],
     ["Wiatr",`${Math.round(parseFloat(im.predkosc_wiatru||0)*3.6)} km/h`,true],
+    ["Porywy",`${Math.round(parseFloat(im.poryw_wiatru||0)*3.6)} km/h`,Number.isFinite(parseFloat(im.poryw_wiatru))],
     ["Kierunek",`${im.kierunek_wiatru||"–"}°`,true],
     ["Ciśnienie",`${im.cisnienie} hPa`,parseFloat(im.cisnienie)>0],
-    ["Opad",`${im.suma_opadu||0} mm`,true],
+    ["Opad 10 min",`${Number.isFinite(parseFloat(im.opad_10min))?parseFloat(im.opad_10min):0} mm`,true],
   ].filter(r=>r[2]);
   const stale=im.isFresh===false;
   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
@@ -2638,13 +2645,19 @@ function isDrizzleVisibilityCode(code){
   const c=Number(code);
   return c>=51&&c<=57;
 }
+function stationFreshPrecipMm(imgwData){
+  if(!imgwData||Number(imgwData.dist)>5||imgwData.opad10minFresh!==true)return null;
+  const mm=Number(imgwData.opad_10min);
+  return Number.isFinite(mm)&&mm>=0?mm:null;
+}
 function stationHasFreshNoPrecip(imgwData){
-  if(!imgwData)return false;
-  const age=Number(imgwData.opad10minAgeMinutes);
-  return Number(imgwData.dist)<=5 &&
-    imgwData.opad10minFresh===true &&
-    Number.isFinite(Number(imgwData.opad_10min)) &&
-    Number(imgwData.opad_10min)<=0;
+  const mm=stationFreshPrecipMm(imgwData);
+  return mm!==null&&mm<=0;
+}
+function stationFreshGustKmH(imgwData){
+  if(!imgwData||Number(imgwData.dist)>5||imgwData.porywWiatruFresh!==true)return null;
+  const ms=Number(imgwData.poryw_wiatru);
+  return Number.isFinite(ms)&&ms>=0?ms*3.6:null;
 }
 function stationFogObserved(imgwData){
   if(!imgwData)return false;
@@ -2679,11 +2692,13 @@ function sanitizeVisibility(data,imgwData){
 
   if(data.current&&"visibility"in data.current){
     const v=clean(data.current.visibility);
-    // Świeża stacja <=5 km ma priorytet: bez opadu i bez jawnej mgły
-    // model nie może sztucznie zaniżyć widoczności.
-    data.current.visibility=stationNoPrecip&&!stationFog
-      ?10000
-      :(!fogNow&&!drizzleNow&&!precipNow&&v!==null?Math.max(10000,v):v);
+    // Głodowo nie raportuje widoczności w używanym feedzie METEO.
+    // Bez jawnego pomiaru stacyjnego zachowujemy wartość modelową 1:1.
+    const stationVisibility=Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m);
+    const hasStationVisibility=Number.isFinite(stationVisibility)&&stationVisibility>=0;
+    data.current.visibility=hasStationVisibility
+      ?stationVisibility
+      :v;
   }
 
   if(Array.isArray(data.hourly?.visibility)){
@@ -2694,7 +2709,8 @@ function sanitizeVisibility(data,imgwData){
   data.__stationVisibilityGuard={
     stationNoPrecip,
     stationFog,
-    forcedCurrentVisibility:stationNoPrecip&&!stationFog
+    forcedCurrentVisibility:false,
+    stationVisibilityAvailable:Number.isFinite(Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m))
   };
 }
 
@@ -3183,7 +3199,8 @@ async function loadWCore(lat,lng,name,isRef){
   // ─────────────────────────────────────────────────────────────
   // DATA PIPELINE SANITIZERS — po fuzji, przed cache/render/diagnostyką.
   // Świeża obserwacja Głodowa ma priorytet nad modelem dla T0 opadu.
-  if(stationHasFreshNoPrecip(imgwData)){
+  const stationPrecipNow=stationFreshPrecipMm(imgwData);
+  if(stationPrecipNow!==null){
     const cc=Number(data.current?.cloud_cover);
     const dryCode=Number.isFinite(cc)
       ?(cc<=10?0:cc<=40?2:3)
@@ -3194,6 +3211,18 @@ async function loadWCore(lat,lng,name,isRef){
       data.current.rain=0;
       data.current.showers=0;
       data.current.snowfall=0;
+    }else if(data.current){
+      const rainCode=61;
+      data.current.weather_code=stationPrecipNow>0?rainCode:data.current.weather_code;
+      data.current.precipitation=stationPrecipNow;
+      data.current.rain=stationPrecipNow;
+      data.current.showers=0;
+      data.current.snowfall=0;
+      const ci=currentHourIndex(data,new Date());
+      if(data.hourly?.time?.[ci]!=null){
+        data.hourly.precipitation[ci]=stationPrecipNow;
+        data.hourly.weather_code[ci]=stationPrecipNow>0?rainCode:data.hourly.weather_code[ci];
+      }
     }
   }
   syncDailyExtremes(data);
