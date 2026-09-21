@@ -1616,6 +1616,11 @@ function computeCtx(){
   const hourlyNowCode=getHourlyCode(hourly,ci);
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
   const timelineNowMm=Number(timelineCurrent?.mm);
+  // Jedna kanoniczna godzina pierwszego przyszłego opadu.
+  // Jeśli mamy oś 15-minutową, tylko ona wyznacza firstRainTime.
+  const firstRainTime=precipTimeline?.source==="minutely_15"
+    ?((precipTimeline.future||[]).find(x=>Number(x?.mm)>0.05)?.t||null)
+    :null;
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   // Ghost-drizzle guard: kod 51 + śladowy modelowy opad nie może oznaczać
   // "Mżawka", jeśli świeży pomiar IMGW nie potwierdza opadu.
@@ -1665,6 +1670,7 @@ function computeCtx(){
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
     currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
     timeline:precipTimeline,
+    firstRainTime,
     low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
@@ -1677,11 +1683,8 @@ function getAlerts(X){
   if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
   if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
   else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
-  if(!isRainingNow(X)&&X.code<51){
-    for(let i=1;i<=2;i++){
-      const idx=X.ci+i;
-      if(idx<hourly.time.length&&(hourly.precipitation_probability?.[idx]??0)>=60){A.push({c:"info",t:`Prognoza opadów około ${hhmm(hourly.time[idx])}. Weź parasol.`});break;}
-    }
+  if(!isRainingNow(X)&&X.code<51&&X.firstRainTime){
+    A.push({c:"info",t:`Prognoza opadów około ${hhmm(X.firstRainTime)}. Weź parasol.`});
   }
   if(X.T<=0)A.push({c:"info",t:"Temperatura poniżej zera, możliwe oblodzenie."});
   if(X.T>=32)A.push({c:"warn",t:`Upał ${Math.round(X.T)}°. Unikaj słońca między 11 a 15 i pij dużo wody.`});
@@ -1885,11 +1888,11 @@ function nowcastHTML(X){
     const stateRain=X.timeline.source==="minutely_15"
       ?activeNow
       :(activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05));
-    const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
-    const firstRain=rainSlots[0]||null;
+    const firstRainTime=X.firstRainTime||null;
+    const firstRain=firstRainTime?{t:firstRainTime}:null;
     const rainUntil=activeNow?rainUntilTime(X):null;
     const endLabel=rainUntil?hhmm(rainUntil):null;
-    const startTime=!activeNow&&firstRain?hhmm(firstRain.t):null;
+    const startTime=!activeNow&&firstRainTime?hhmm(firstRainTime):null;
 
     if(stateRain&&storm){
       sum=endLabel?"Burza występuje teraz i może utrzymać się do około "+endLabel+".":"Burza występuje teraz.";
@@ -2244,29 +2247,12 @@ function wLayers(X){
 }
 function wRain(X){
   let next="";
-  if(X?.timeline?.source==="minutely_15"){
-    const activeMm=currentTimelineMm(X);
-    const active=activeMm!==null&&activeMm>0.05;
-    if(active){
-      next="Pada teraz.";
-    }else{
-      const first=(X?.timeline?.future||[]).find(x=>Number(x?.mm)>0.05);
-      if(first)next="Najbliższy opad ok. "+hhmm(first.t)+".";
-    }
-  }else{
-    const {hourly}=S.data;
-    const end=Math.min(X.ci+24,hourly.time.length);
-    for(let idx=X.ci+1;idx<end;idx++){
-      const code=Number(hourly.weather_code?.[idx]);
-      const time=hourly.time?.[idx];
-      if(!Number.isFinite(code)||!time)continue;
-      if(isPrecipCode(code)){
-        next=isStormCode(code)?`Najbliższa burza ok. ${hhmm(new Date(time))}.`:
-          isSnowCode(code)?`Najbliższy śnieg ok. ${hhmm(new Date(time))}.`:
-          `Najbliższy deszcz ok. ${hhmm(new Date(time))}.`;
-        break;
-      }
-    }
+  const activeMm=currentTimelineMm(X);
+  const active=activeMm!==null&&activeMm>0.05;
+  if(active){
+    next="Pada teraz.";
+  }else if(X?.firstRainTime){
+    next="Najbliższy opad ok. "+hhmm(X.firstRainTime)+".";
   }
   return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
@@ -2924,38 +2910,25 @@ function stationFogObserved(imgwData){
 }
 function sanitizeVisibility(data,imgwData){
   if(!data)return;
-
-  // T0 jest osobnym stanem obserwacyjnym. Przyszłe godziny z gorszą
-  // widocznością nie mogą obniżać kafelka „teraz”.
   const clean=v=>{
     const n=toFiniteNumber(v);
     return n!==null&&n>=0?n:null;
   };
-  const currentCode=toFiniteNumber(data.current?.weather_code);
-  const currentPrecip=toFiniteNumber(data.current?.precipitation);
-  const currentRain=toFiniteNumber(data.current?.rain);
-  const currentSnow=toFiniteNumber(data.current?.snow);
 
-  const fogNow=isFogVisibilityCode(currentCode);
-  const drizzleNow=isDrizzleVisibilityCode(currentCode);
-  const precipNow=(currentPrecip!==null&&currentPrecip>0)
-    ||(currentRain!==null&&currentRain>0)
-    ||(currentSnow!==null&&currentSnow>0);
-  const stationNoPrecip=stationHasFreshNoPrecip(imgwData);
-  const stationFog=stationFogObserved(imgwData);
-
-  if(data.current&&"visibility"in data.current){
-    const lockedApiVisibility=Number(data.__auraApiCurrentVisibility);
-    const v=Number.isFinite(lockedApiVisibility)&&lockedApiVisibility>0
-      ?lockedApiVisibility
-      :clean(data.current.visibility);
-    // Głodowo nie raportuje widoczności w używanym feedzie METEO.
-    // Bez jawnego pomiaru stacyjnego zachowujemy wartość modelową 1:1.
-    const stationVisibility=Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m);
-    const hasStationVisibility=Number.isFinite(stationVisibility)&&stationVisibility>=0;
-    data.current.visibility=hasStationVisibility
-      ?stationVisibility
-      :v;
+  // WIDOCZNOŚĆ = wyłącznie surowa wartość z API.
+  // Żadnych estymacji z RH/chmur/opadu i żadnego nadpisywania wartością IMGW.
+  if(data.current){
+    const apiCurrent=Number(data.__auraApiCurrentVisibility);
+    const directCurrent=Number(data.current.visibility);
+    const directRoot=Number(data.visibility);
+    const apiValue=Number.isFinite(apiCurrent)&&apiCurrent>0
+      ?apiCurrent
+      :Number.isFinite(directCurrent)&&directCurrent>0
+        ?directCurrent
+        :Number.isFinite(directRoot)&&directRoot>0
+          ?directRoot
+          :null;
+    if(apiValue!==null)data.current.visibility=apiValue;
   }
 
   if(Array.isArray(data.hourly?.visibility)){
@@ -2963,52 +2936,12 @@ function sanitizeVisibility(data,imgwData){
       data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
     }
   }
-  const stationVisibilityAvailable=
-    Number.isFinite(Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m));
 
-  // Szacowana widoczność nie może być zaniżana wyłącznie przez RH 75–80%
-  // ani przez niską podstawę chmur. Przy suchym powietrzu przy ziemi i
-  // zachmurzeniu <70% przyjmujemy konserwatywne minimum 10 km.
-  const rhNow=Number(data.current?.relative_humidity_2m);
-  const cloudNow=Number(data.current?.cloud_cover);
-  const precipMm=Math.max(
-    0,
-    Number(data.current?.precipitation??0)||0,
-    Number(data.current?.rain??0)||0,
-    Number(data.current?.showers??0)||0,
-    Number(data.current?.snowfall??0)||0
-  );
-  const noActivePrecip=precipMm<=0.005;
-  const moderateHumidityNoRain=
-    noActivePrecip &&
-    Number.isFinite(rhNow) &&
-    rhNow>=75&&rhNow<=80 &&
-    Number.isFinite(cloudNow)&&cloudNow<70 &&
-    !stationFog &&
-    !fogNow;
-
-  // <8 km jest zarezerwowane dla realnych sygnałów ograniczonej widoczności:
-  // mgły, mocnego opadu albo bardzo wysokiej wilgotności (>90%).
-  const strongPrecip=
-    Number(data.current?.precipitation??0)>=1 ||
-    Number(data.current?.rain??0)>=1 ||
-    Number(data.current?.showers??0)>=1 ||
-    Number(data.current?.snowfall??0)>=1;
-  const allowBelow8=stationFog||fogNow||strongPrecip||(Number.isFinite(rhNow)&&rhNow>90);
-
-  const stationDrizzleVisibilityGuard=
-    !stationVisibilityAvailable &&
-    moderateHumidityNoRain;
-  if(data.current&&!stationVisibilityAvailable&&Number.isFinite(Number(data.current.visibility))){
-    const currentVisibility=Number(data.current.visibility);
-    const floorKm=allowBelow8?0:moderateHumidityNoRain?10:8;
-    data.current.visibility=Math.max(currentVisibility,floorKm*1000);
-  }
   data.__stationVisibilityGuard={
-    stationNoPrecip,
-    stationFog,
-    forcedCurrentVisibility:stationDrizzleVisibilityGuard,
-    stationVisibilityAvailable
+    stationNoPrecip:stationHasFreshNoPrecip(imgwData),
+    stationFog:stationFogObserved(imgwData),
+    forcedCurrentVisibility:false,
+    stationVisibilityAvailable:false
   };
 }
 
