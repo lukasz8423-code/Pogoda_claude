@@ -926,7 +926,33 @@ async function findNearestIMGW(lat,lng){
     const windObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_srednia_predkosc_data);
     const windDirObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_kierunek_data);
     const groundObservedAt=parseImgwMeteoTimestamp(glodowo.temperatura_gruntu_data);
-    const fieldAge=ts=>ts==null?null:Math.max(0,Math.round((fetchedAt-ts)/60000));
+
+    // Każdy parametr IMGW ma własny timestamp. Świeżo pobrana paczka
+    // nie oznacza, że wszystkie pola w środku są świeże.
+    const fieldAge=ts=>{
+      if(ts==null)return null;
+      const age=(fetchedAt-ts)/60000;
+      if(!Number.isFinite(age)||age<0)return null;
+      return Math.round(age);
+    };
+
+    const IMGW_FIELD_MAX_AGE_MIN=30;
+
+    const validateFieldFreshness=(value,ts,maxAge=IMGW_FIELD_MAX_AGE_MIN)=>{
+      const numeric=Number(value);
+      const age=fieldAge(ts);
+      const fresh=Number.isFinite(numeric)&&age!=null&&age<=maxAge;
+      if(!fresh&&age!=null&&age>maxAge){
+        console.warn("[IMGW] Zamrożone pole — ignoruję przestarzały odczyt:",{
+          value:numeric,
+          ageMinutes:age,
+          maxAgeMinutes:maxAge,
+          timestamp:ts?new Date(ts).toISOString():null
+        });
+      }
+      return {value:fresh?numeric:null,ageMinutes:age,isFresh:fresh};
+    };
+
     const humidityAgeMinutes=fieldAge(humidityObservedAt);
     const windAgeMinutes=fieldAge(windObservedAt);
     const windDirAgeMinutes=fieldAge(windDirObservedAt);
@@ -938,6 +964,21 @@ async function findNearestIMGW(lat,lng){
     const humidityFresh=humidityAgeMinutes!=null&&humidityAgeMinutes<=HUMIDITY_MAX_AGE_MIN;
     const windFresh=windAgeMinutes!=null&&windAgeMinutes<=WIND_MAX_AGE_MIN;
     const windDirFresh=windDirAgeMinutes!=null&&windDirAgeMinutes<=WIND_MAX_AGE_MIN;
+
+    // OPAD: walidacja wyłącznie na podstawie opad_10min_data.
+    // Nigdy nie używamy tutaj ogólnego czasu pobrania paczki jako dowodu świeżości.
+    const rain10Raw=parseFloat(String(glodowo.opad_10min??"").replace(",","."));
+    const rain10ObservedAt=parseImgwMeteoTimestamp(glodowo.opad_10min_data);
+    const rain10=validateFieldFreshness(rain10Raw,rain10ObservedAt,IMGW_FIELD_MAX_AGE_MIN);
+
+    if(rain10Raw>0&&!rain10.isFresh){
+      console.warn("[IMGW][RAIN] Odrzucono stary opad_10min — nie trafi do fuzji.",{
+        opad_10min:rain10Raw,
+        opad_10min_data:glodowo.opad_10min_data,
+        ageMinutes:rain10.ageMinutes,
+        ttlMinutes:IMGW_FIELD_MAX_AGE_MIN
+      });
+    }
 
     // Czas prezentowany użytkownikowi = najświeższy faktycznie użyty parametr.
     // Temperatura może być starsza od wilgotności/wiatru i nie może narzucać czasu całego rekordu.
@@ -1014,10 +1055,12 @@ async function findNearestIMGW(lat,lng){
         cisnienie:null,
         temperatura_gruntu:parseFloat(glodowo.temperatura_gruntu),
         temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
-        opad_10min:parseFloat(glodowo.opad_10min),
+        opad_10min:rain10.value,
         opad_10min_data:glodowo.opad_10min_data||null,
-        opad10minAgeMinutes:fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data)),
-        opad10minFresh:(Number.isFinite(parseFloat(glodowo.opad_10min))&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))!=null&&fieldAge(parseImgwMeteoTimestamp(glodowo.opad_10min_data))<=20),
+        opad10minAgeMinutes:rain10.ageMinutes,
+        opad10minFresh:rain10.isFresh,
+        opad10minStale:!rain10.isFresh,
+        opad10minIgnored:!rain10.isFresh,
         poryw_wiatru:parseFloat(glodowo.wiatr_predkosc_maksymalna),
         poryw_wiatru_data:glodowo.wiatr_predkosc_maksymalna_data||null,
         porywWiatruAgeMinutes:(fieldAge(parseImgwMeteoTimestamp(glodowo.wiatr_predkosc_maksymalna_data))??windAgeMinutes),
