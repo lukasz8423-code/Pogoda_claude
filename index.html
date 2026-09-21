@@ -1928,8 +1928,12 @@ function isDayAt(iso){
   const h=t.getHours();return h>=6&&h<19;
 }
 function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,timeline}){
-  const cloudCode=Number.isFinite(Number(cloudCover))
-    ?(Number(cloudCover)<=10?0:Number(cloudCover)<=40?2:3):3;
+  const cloudPct=Number(cloudCover);
+  const cloudCode=Number.isFinite(cloudPct)
+    ?(cloudPct<=20?0:cloudPct<=70?2:3):3;
+
+  // Opad zawsze ma priorytet nad samym zachmurzeniem.
+  if(isPrecipCode(modelCode))return modelCode;
 
   // "Teraz": gdy mamy nowcasting 15-minutowy, ikona pochodzi WYŁĄCZNIE
   // z aktualnego slotu 15-minutowego. Godzinowy model nie może jej nadpisać.
@@ -1938,8 +1942,8 @@ function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,t
     return Number.isFinite(mm)&&mm>=0.05?61:cloudCode;
   }
 
-  // "09": najbliższa pełna godzina jest liczona WYŁĄCZNIE z jej
-  // slotów 15-minutowych. Liczymy czas z opadem >= 0.05 mm.
+  // Najbliższa pełna godzina: jeżeli którykolwiek z jej slotów 15-min
+  // ma ciągły opad, pokaż deszcz; w przeciwnym razie użyj chmur tej godziny.
   if(hourIndex===1&&timeline?.source==="minutely_15"){
     const start=hourDate.getTime();
     const end=start+60*60000;
@@ -1951,7 +1955,9 @@ function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,t
     return rainMinutes>=20?61:cloudCode;
   }
 
-  return modelCode;
+  // Dla każdej pozostałej godziny kod bezopadowy jest korygowany
+  // przez jej własne cloud_cover. Dzięki temu 86% chmur nie pokaże słońca.
+  return cloudCode;
 }
 function hourlyHTML(X){
   const {hourly,daily}=S.data;let out="";
@@ -1968,13 +1974,20 @@ function hourlyHTML(X){
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
     const modelCode=Number.isFinite(Number(rawCode))?Number(rawCode):(Number(hourly.precipitation?.[idx])>=0.05?61:3);
-    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:Number(X.cloud),timeline:X?.timeline});
+    const totalCloud=Number(hourly.cloud_cover?.[idx]);
+    const lowCloud=Number(hourly.cloud_cover_low?.[idx]);
+    const midCloud=Number(hourly.cloud_cover_mid?.[idx]);
+    const highCloud=Number(hourly.cloud_cover_high?.[idx]);
+    const hourCloud=Number.isFinite(totalCloud)
+      ? totalCloud
+      : [lowCloud,midCloud,highCloud].some(Number.isFinite)
+        ? Math.round((Number.isFinite(lowCloud)?lowCloud*0.55:0)+(Number.isFinite(midCloud)?midCloud*0.30:0)+(Number.isFinite(highCloud)?highCloud*0.15:0))
+        : Number(X.cloud);
+    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:hourCloud,timeline:X?.timeline});
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
     // TWARDY OVERRIDE DLA "TERAZ"
-    let cloudCode =
-      Number(X.cloud) <= 10 ? 0 :
-      Number(X.cloud) <= 40 ? 2 : 3;
+    const currentCloudCode=hourCloud<=20?0:hourCloud<=70?2:3;
 
     if(i===0){
       // Weź pierwszy slot minutowy z X.timeline.
@@ -1988,7 +2001,7 @@ function hourlyHTML(X){
 
         const mmVal=parseFloat(rawMm)||0;
         if(mmVal<0.05){
-          code=cloudCode;
+          code=currentCloudCode;
         }
       }
     }
