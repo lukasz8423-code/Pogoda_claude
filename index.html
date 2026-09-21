@@ -881,10 +881,67 @@ async function fetchIMGWMeteoAll(){
   }
 }
 function parseImgwMeteoTimestamp(value){
-  if(!value)return null;
-  const m=String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if(!m)return null;
-  return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  if(value==null||value==="")return null;
+  if(value instanceof Date){
+    const ms=value.getTime();
+    return Number.isFinite(ms)?ms:null;
+  }
+  if(typeof value==="number"){
+    const ms=Number(value);
+    return Number.isFinite(ms)?ms:null;
+  }
+  const raw=String(value).trim();
+  if(!raw)return null;
+  const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(m)return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  const parsed=Date.parse(raw);
+  return Number.isFinite(parsed)?parsed:null;
+}
+
+// Centralna walidacja świeżości pól IMGW METEO.
+// Każde pole pomiarowe jest sprawdzane względem własnego pola `${field}_data`.
+// Stary pomiar jest zerowany tylko dla tego pola — reszta stacji pozostaje użyteczna.
+function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=30){
+  const safeData={...station};
+  const stale_fields=[];
+  const warnings=[];
+  const maxAgeMs=maxAgeMinutes*60*1000;
+
+  Object.keys(station||{}).forEach(field=>{
+    if(field.endsWith("_data"))return;
+    const timestampKey=field+"_data";
+    if(!Object.prototype.hasOwnProperty.call(station,timestampKey))return;
+
+    const rawTimestamp=station[timestampKey];
+    if(rawTimestamp==null||rawTimestamp==="")return;
+
+    const observedAt=parseImgwMeteoTimestamp(rawTimestamp);
+    const ageMs=observedAt==null?NaN:nowMs-observedAt;
+    const ageMinutes=Number.isFinite(ageMs)?ageMs/60000:NaN;
+
+    if(!Number.isFinite(observedAt)||!Number.isFinite(ageMs)||ageMs<0||ageMs>maxAgeMs){
+      safeData[field]=null;
+      stale_fields.push(field);
+
+      const reason=!Number.isFinite(observedAt)
+        ?"nieprawidłowy timestamp"
+        :ageMs<0
+          ?"timestamp z przyszłości"
+          :"wiek "+ageMinutes.toFixed(1)+" min > limit "+maxAgeMinutes+" min";
+
+      const warning="[IMGW] STALE FIELD: "+field+" — "+reason+"; wartość ignorowana.";
+      warnings.push(warning);
+      console.warn(warning,{
+        field,
+        value:station[field],
+        timestamp:rawTimestamp,
+        ageMinutes:Number.isFinite(ageMinutes)?Number(ageMinutes.toFixed(1)):null,
+        maxAgeMinutes
+      });
+    }
+  });
+
+  return {data:safeData,stale_fields,warnings,maxAgeMinutes};
 }
 
 // Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
@@ -904,6 +961,19 @@ async function findNearestIMGW(lat,lng){
       })
     : null;
   if(glodowo){
+    // WAŻNE: świeżość oceniamy osobno dla każdego pomiaru, nie dla całej paczki.
+    // Limit 30 min jest kanonicznym TTL dla pól mających własny timestamp.
+    const imgwValidation=validateImgwStationFields(glodowo,fetchedAt,30);
+    Object.assign(glodowo,imgwValidation.data);
+
+    S.imgwDiag={
+      ...(S.imgwDiag||{}),
+      stale_fields:imgwValidation.stale_fields,
+      staleWarnings:imgwValidation.warnings,
+      fieldFreshnessTtlMinutes:30
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+
     const __rawTempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",temperature:glodowo.temperatura??null,timestamp:glodowo.temperatura_data??null,rawTempFields:__rawTempFields,rawKeys:Object.keys(glodowo||{}),rawStation:glodowo};
     window.__AURA_IMGW_DIAG=S.imgwDiag;
@@ -965,20 +1035,12 @@ async function findNearestIMGW(lat,lng){
     const windFresh=windAgeMinutes!=null&&windAgeMinutes<=WIND_MAX_AGE_MIN;
     const windDirFresh=windDirAgeMinutes!=null&&windDirAgeMinutes<=WIND_MAX_AGE_MIN;
 
-    // OPAD: walidacja wyłącznie na podstawie opad_10min_data.
-    // Nigdy nie używamy tutaj ogólnego czasu pobrania paczki jako dowodu świeżości.
+    // Opad jest już odfiltrowany przez centralny walidator.
     const rain10Raw=parseFloat(String(glodowo.opad_10min??"").replace(",","."));
     const rain10ObservedAt=parseImgwMeteoTimestamp(glodowo.opad_10min_data);
-    const rain10=validateFieldFreshness(rain10Raw,rain10ObservedAt,IMGW_FIELD_MAX_AGE_MIN);
-
-    if(rain10Raw>0&&!rain10.isFresh){
-      console.warn("[IMGW][RAIN] Odrzucono stary opad_10min — nie trafi do fuzji.",{
-        opad_10min:rain10Raw,
-        opad_10min_data:glodowo.opad_10min_data,
-        ageMinutes:rain10.ageMinutes,
-        ttlMinutes:IMGW_FIELD_MAX_AGE_MIN
-      });
-    }
+    const rain10AgeMinutes=rain10ObservedAt==null?null:Math.max(0,Math.round((fetchedAt-rain10ObservedAt)/60000));
+    const rain10Fresh=Number.isFinite(rain10Raw)&&!imgwValidation.stale_fields.includes("opad_10min");
+    const rain10={value:rain10Fresh?rain10Raw:null,ageMinutes:rain10AgeMinutes,isFresh:rain10Fresh};
 
     // Czas prezentowany użytkownikowi = najświeższy faktycznie użyty parametr.
     // Temperatura może być starsza od wilgotności/wiatru i nie może narzucać czasu całego rekordu.
@@ -1020,6 +1082,7 @@ async function findNearestIMGW(lat,lng){
       distOK,
       tempOK,
       ageOK,
+      stale_fields:imgwValidation.stale_fields,
       rawStation:glodowo
     });
 
