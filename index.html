@@ -3500,9 +3500,53 @@ async function handleGPS(){
 }
 
 let LOAD_SEQ=0;
+
+// Każde odświeżenie ma własną generację. Stara odpowiedź async nie może
+// już nigdy zatwierdzić danych po wejściu nowszej generacji.
+function isActiveLoad(token,lat,lng){
+  return token===LOAD_SEQ &&
+    Number.isFinite(Number(lat)) &&
+    Number.isFinite(Number(lng)) &&
+    (S.lat==null || Math.abs(Number(S.lat)-Number(lat))<0.000001) &&
+    (S.lng==null || Math.abs(Number(S.lng)-Number(lng))<0.000001);
+}
+
+function lockFusionState(token,lat,lng,data,imgwData){
+  if(token!==LOAD_SEQ)return false;
+  S.isFusionLocked=true;
+  S.fusionLock={
+    token,
+    lat:Number(lat),
+    lng:Number(lng),
+    lockedAt:Date.now(),
+    stationDry:!!(
+      imgwData?.opad10minFresh===true &&
+      Number(imgwData?.opad_10min)===0 &&
+      Number(imgwData?.dist)<=5
+    )
+  };
+  // Renderer dostaje referencję do już skorygowanego obiektu. Nie kopiujemy
+  // surowych danych ponownie po tej granicy.
+  S.fusionLockedHourly=data?.hourly||null;
+  return true;
+}
+
+function canCommitFusion(token,lat,lng){
+  return token===LOAD_SEQ &&
+    (!S.fusionLock||S.fusionLock.token===token) &&
+    Number(S.lat)==null ? true : (
+      token===LOAD_SEQ &&
+      Math.abs(Number(S.lat)-Number(lat))<0.000001 &&
+      Math.abs(Number(S.lng)-Number(lng))<0.000001
+    );
+}
+
 async function loadW(lat,lng,name,isRef){
   const token=++LOAD_SEQ;
-  try{await loadWCore(lat,lng,name,isRef);}catch(e){
+  S.isFusionLocked=false;
+  S.fusionLock=null;
+  S.fusionLockedHourly=null;
+  try{await loadWCore(lat,lng,name,isRef,token);}catch(e){
     console.error("[AURA loadW]",e);
     if(token!==LOAD_SEQ)return;
     S.loading=false;S.refreshing=false;WEATHER_FORCE_REFRESH=false;
@@ -3511,7 +3555,12 @@ async function loadW(lat,lng,name,isRef){
     render();
   }
 }
-async function loadWCore(lat,lng,name,isRef){
+async function loadWCore(lat,lng,name,isRef,token){
+  if(token!==LOAD_SEQ)return;
+  // Nowa generacja może odblokować stan tylko dla siebie.
+  S.isFusionLocked=false;
+  S.fusionLock=null;
+  S.fusionLockedHourly=null;
   S.fusion=null;
   S.cloudEngine=null;
   S.pipelineDiag=null;
@@ -3544,6 +3593,9 @@ async function loadWCore(lat,lng,name,isRef){
       apiSatelliteCloudMask(lat,lng),
       apiMinutely(lat,lng)
     ]);
+    // CRITICAL: po Promise.all/Promise.allSettled starsza generacja może być już nieaktualna.
+    // Nie wolno jej dalej przetwarzać ani renderować.
+    if(token!==LOAD_SEQ)return;
     const rawNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
   const fusionNowcast=correctMinutelyPrecipitation(
     rawNowcast,
@@ -4002,6 +4054,12 @@ async function loadWCore(lat,lng,name,isRef){
       data.hourly.__auraHourlyPrecipitationCorrection;
   }
 
+  // GRANICA ATOMOWEGO COMMITU:
+  // po tej chwili wynik fuzji jest własnością bieżącej generacji.
+  // Żaden późniejszy surowy fetch starej generacji nie może go nadpisać.
+  if(token!==LOAD_SEQ)return;
+  if(!lockFusionState(token,lat,lng,data,imgwData))return;
+
   try{localStorage.setItem("aura_v6",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
   if(data&&data.current)checkForecastAccuracy(data.current.temperature_2m,data.current.weather_code);
@@ -4029,8 +4087,11 @@ async function loadWCore(lat,lng,name,isRef){
     }
   }
 
+  if(token!==LOAD_SEQ)return;
   S.lastUpdate=Date.now();
   Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
+  S.isFusionLocked=true;
+  S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
 
   if(!isDemo){
@@ -4045,9 +4106,9 @@ async function loadWCore(lat,lng,name,isRef){
 
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
-  const same=()=>S.lat===lat&&S.lng===lng;
+  const same=()=>token===LOAD_SEQ&&S.lat===lat&&S.lng===lng;
   apiMinutely(lat,lng).then(m=>{
-    if(same()){
+    if(same()&&!S.fusionLock?.token||same()&&S.fusionLock?.token===token){
       const correctedMinutely=correctMinutelyPrecipitation(m,S.imgwData);
       S.minutely=correctedMinutely;
       // Widoczność: preferujemy bieżący 15-min slot modelu wysokiej rozdzielczości
@@ -4063,7 +4124,7 @@ async function loadWCore(lat,lng,name,isRef){
       softUpdate();
     }
   });
-  apiAir(lat,lng).then(a=>{if(same()){S.air=a;softUpdate();}});
+  apiAir(lat,lng).then(a=>{if(same()&&(!S.fusionLock||S.fusionLock.token===token)){S.air=a;softUpdate();}});
 }
 
 // ═══════════════════════════════════════════════
@@ -4087,6 +4148,9 @@ function handleSearch(val){
 // v6 — render i zdarzenia
 // ═══════════════════════════════════════════════
 function render(){
+  // Renderer jest tylko odbiorcą finalnego snapshotu. Nie przyjmuje stanu,
+  // który pochodzi ze starszej generacji odświeżenia.
+  if(S.phase==="weather"&&S.isFusionLocked&&S.fusionLock&&S.fusionLock.token!==LOAD_SEQ)return;
   if(RV.node&&RV.node.parentNode)RV.node.remove();
   const app=$("#app"),y=window.scrollY;
   if(S.phase!=="weather"&&RAF){cancelAnimationFrame(RAF);RAF=null;}
