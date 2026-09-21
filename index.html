@@ -1852,10 +1852,9 @@ function nowcastHTML(X){
     const activeNow=firstMm!=null&&firstMm>0.05;
     const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
     const firstRain=rainSlots[0]||null;
-    const lastRain=rainSlots[rainSlots.length-1]||null;
-    const endTime=lastRain?new Date(lastRain.t.getTime()+15*60000):null;
+    const rainUntil=activeNow?rainUntilTime(X):null;
+    const endLabel=rainUntil?hhmm(rainUntil):null;
     const startTime=!activeNow&&firstRain?hhmm(firstRain.t):null;
-    const endLabel=endTime?hhmm(endTime):null;
 
     if(activeNow&&storm){
       sum=endLabel?"Burza występuje teraz i może utrzymać się do około "+endLabel+".":"Burza występuje teraz.";
@@ -1890,6 +1889,31 @@ function nowcastHTML(X){
     ${sub?`<div class="note">${esc(sub)}</div>`:""}</section>`;
 }
 
+function rainUntilTime(X){
+  const slots=Array.isArray(X?.timeline?.slots)?X.timeline.slots:[];
+  if(!slots.length)return null;
+
+  const firstMm=currentTimelineMm(X);
+  if(firstMm===null||firstMm<=0.05)return null;
+
+  // Począwszy od bieżącego slotu [0], szukamy pierwszego
+  // suchego slotu. On wyznacza koniec bieżącego ciągłego opadu.
+  for(let i=1;i<slots.length;i++){
+    const mm=Number(slots[i]?.mm);
+    if(!Number.isFinite(mm)||mm<=0.05){
+      const t=slots[i]?.t;
+      return t instanceof Date?t:new Date(t);
+    }
+  }
+
+  // Jeżeli cały dostępny zakres jest mokry, koniec przypada
+  // 15 minut po ostatnim slocie.
+  const last=slots[slots.length-1]?.t;
+  const lastDate=last instanceof Date?last:new Date(last);
+  return Number.isFinite(lastDate.getTime())
+    ? new Date(lastDate.getTime()+15*60000)
+    : null;
+}
 function isDayAt(iso){
   const {daily}=S.data,di=daily.time.indexOf(iso.slice(0,10));
   const t=new Date(iso);
@@ -1933,7 +1957,6 @@ function hourlyHTML(X){
     const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
     const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
     const nowMm=currentTimelineMm(X);
-    const rainNow=i===0 ? (nowMm!==null&&nowMm>0.05) : (X?.timeline?.source==="minutely_15"&&Number(hourRain?.mm)>0.05);
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
@@ -1963,7 +1986,7 @@ function hourlyHTML(X){
       }
     }
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
+    const rainNow=isRainCode(code);\n    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
   }
   return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span></div><div class="hstrip">${out}</div></section>`;
 }
