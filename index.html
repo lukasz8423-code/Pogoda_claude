@@ -3004,11 +3004,23 @@ function applyObservationFusion(data,imgwData){
     wind:Number.isFinite(obs.wind)&&Number.isFinite(model.wind),
     windDirection:Number.isFinite(obs.windDirection)&&Number.isFinite(model.windDirection)
   };
+  // Opad z IMGW jest niezależnym kanałem obserwacyjnym.
+  // Nie może dostać wagi 0 tylko dlatego, że IMGW nie ma prognozy godzinowej
+  // albo że T/RH/wiatr nie mają jeszcze poprawnych timestampów.
+  const stationPrecip=toFiniteNumber(imgwData.opad_10min);
+  const stationPrecipFresh=imgwData.opad10minFresh===true &&
+    Number.isFinite(stationPrecip) &&
+    stationPrecip>=0 &&
+    Number.isFinite(dist) &&
+    dist<=5;
   const weights={
     temperature:fusionParameterWeight(ages.temperature,dist,valid.temperature),
     humidity:fusionParameterWeight(ages.humidity,dist,valid.humidity),
     wind:fusionParameterWeight(ages.wind,dist,valid.wind),
-    windDirection:fusionParameterWeight(ages.windDirection,dist,valid.windDirection)
+    windDirection:fusionParameterWeight(ages.windDirection,dist,valid.windDirection),
+    precipitation:stationPrecipFresh
+      ?fusionParameterWeight(toFiniteNumber(imgwData.opad10minAgeMinutes??ages.temperature)??0,dist,true)
+      :0
   };
   if(!Object.values(weights).some(v=>v>0))return {weight:0,bias:{},weights,completeness:{},used:false};
   if(weights.temperature>0)cur.temperature_2m=+fuseObservedValue(model.temperature,obs.temperature,weights.temperature).toFixed(1);
@@ -3026,8 +3038,69 @@ function applyObservationFusion(data,imgwData){
     humidity:valid.humidity?obs.humidity-model.humidity:0,
     wind:valid.wind?obs.wind-model.wind:0
   };
-  return {weight:Math.max(...Object.values(weights)),weights,bias,completeness,before:model,used:true};
+  return {
+    weight:Math.max(...Object.values(weights)),
+    weights,
+    bias,
+    completeness,
+    before:model,
+    used:true,
+    stationPrecipMm:stationPrecipFresh?stationPrecip:null,
+    stationPrecipFresh
+  };
 }
+function correctWeatherFusion(data,imgwData,cloudFusion){
+  if(!data?.current||!imgwData)return {applied:false,reason:"brak danych"};
+
+  const cur=data.current;
+  const stationPrecip=Number(imgwData.opad_10min);
+  const stationAge=Number(imgwData.opad10minAgeMinutes);
+  const stationFresh=imgwData.opad10minFresh===true &&
+    Number.isFinite(stationPrecip) &&
+    stationPrecip>=0 &&
+    Number(imgwData.dist)<=5 &&
+    (!Number.isFinite(stationAge)||stationAge<=30);
+
+  let precipitationApplied=false;
+  let cloudApplied=false;
+
+  // Twardy dowód dla T0: świeży opad_10min=0 z bliskiej stacji
+  // wygrywa z chwilowym opadem modelowym. Model może nadal mieć opad
+  // w kolejnych godzinach, ale nie może być pokazany jako opad TERAZ.
+  if(stationFresh){
+    if(stationPrecip<=0){
+      cur.precipitation=0;
+      cur.rain=0;
+      cur.showers=0;
+      cur.snowfall=0;
+      precipitationApplied=true;
+    }else{
+      cur.precipitation=stationPrecip;
+      cur.rain=stationPrecip;
+      cur.showers=0;
+      cur.snowfall=0;
+      precipitationApplied=true;
+    }
+  }
+
+  // Zachmurzenie pochodzi z osobnej fuzji. Jeżeli fuzja zwróciła wartość,
+  // zapisujemy ją ponownie w ostatnim punkcie danych przed renderowaniem.
+  if(cloudFusion&&Number.isFinite(Number(cloudFusion.value))){
+    cur.cloud_cover=clamp(Number(cloudFusion.value),0,100);
+    cloudApplied=true;
+  }
+
+  return {
+    applied:precipitationApplied||cloudApplied,
+    precipitationApplied,
+    cloudApplied,
+    stationPrecipMm:stationFresh?stationPrecip:null,
+    stationPrecipFresh:stationFresh,
+    finalPrecipitation:Number.isFinite(Number(cur.precipitation))?Number(cur.precipitation):null,
+    finalCloudCover:Number.isFinite(Number(cur.cloud_cover))?Number(cur.cloud_cover):null
+  };
+}
+
 function findHourIndexByTime(times,time){
   if(!Array.isArray(times)||!times.length||!time)return -1;
   const target=Date.parse(String(time));
@@ -3530,7 +3603,10 @@ async function loadWCore(lat,lng,name,isRef){
           temperatura:tempFresh?imgwTemp:null,
           wilgotnosc_wzgledna:humidityFresh?imgwHum:null,
           predkosc_wiatru:windFresh?imgwWind/3.6:null,
-          kierunek_wiatru:windDirFresh?imgwWindDir:null
+          kierunek_wiatru:windDirFresh?imgwWindDir:null,
+          opad_10min:imgwData.opad_10min,
+          opad10minFresh:imgwData.opad10minFresh,
+          opad10minAgeMinutes:imgwData.opad10minAgeMinutes
         });
         if(tempFresh&&!plausible){
           fusion.weight=0;
@@ -3783,6 +3859,26 @@ async function loadWCore(lat,lng,name,isRef){
       data.current.snowfall=0;
     }
   }
+
+  // OSTATNI PUNKT FUZJI: po wszystkich źródłach i sanityzerach.
+  // Dzięki temu surowy Open-Meteo nie może ponownie nadpisać T0 tuż przed UI.
+  const finalWeatherFusion=correctWeatherFusion(
+    data,
+    imgwData,
+    S.cloudSource?.fusion||null
+  );
+  S.finalWeatherFusion=finalWeatherFusion;
+
+  if(data?.current){
+    // Weryfikacja integralności wyniku — stan finalny musi być identyczny
+    // z tym, który trafi do renderera.
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.finalCurrent={
+      precipitation:Number.isFinite(Number(data.current.precipitation))?Number(data.current.precipitation):null,
+      cloud_cover:Number.isFinite(Number(data.current.cloud_cover))?Number(data.current.cloud_cover):null
+    };
+  }
+
   syncDailyExtremes(data);
   sanitizeVisibility(data,imgwData);
 
