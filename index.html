@@ -2279,6 +2279,13 @@ function introHTML(){
     <div class="sub">Szybki wybór</div><div class="pills">${POPULAR.map((p,i)=>`<button class="pill" data-act="quick" data-i="${i}">${esc(p.n)}</button>`).join("")}</div>
   </div>`;
 }
+function loadErrorHTML(){
+  const e=S.loadError||{};
+  const where=e.name?` dla miejsca „${esc(e.name)}”`:"";
+  return`<div class="intro"><div class="err">Nie udało się wczytać pogody${where}. Sprawdź połączenie i spróbuj ponownie.<div class="note" style="margin-top:8px">Szczegóły: ${esc(e.msg||"brak")}</div></div>
+    <button class="btn pri wide" data-act="retry">Spróbuj ponownie</button>
+    <button class="btn wide" style="margin-top:10px" data-act="back">Wybierz inne miejsce</button></div>`;
+}
 function skeletonHTML(){
   const b=(w,h,r)=>`<div class="sk" style="width:${w};height:${h}px;${r?`border-radius:${r}`:""}"></div>`;
   return`<div style="padding-top:calc(16px + env(safe-area-inset-top));display:grid;gap:14px">${b("60%",40)}${b("70%",110)}${b("45%",26)}${b("100%",120,"28px")}${b("100%",130,"28px")}${b("100%",200,"28px")}</div>`;
@@ -2791,7 +2798,19 @@ async function handleGPS(){
   }
 }
 
+let LOAD_SEQ=0;
 async function loadW(lat,lng,name,isRef){
+  const token=++LOAD_SEQ;
+  try{await loadWCore(lat,lng,name,isRef);}catch(e){
+    console.error("[AURA loadW]",e);
+    if(token!==LOAD_SEQ)return;
+    S.loading=false;S.refreshing=false;WEATHER_FORCE_REFRESH=false;
+    if(isRef&&S.data)S.phase="weather";
+    else Object.assign(S,{phase:"error",loadError:{lat,lng,name:name||S.city||null,msg:String(e?.message||e||"Nieznany błąd")}});
+    render();
+  }
+}
+async function loadWCore(lat,lng,name,isRef){
   S.fusion=null;
   S.cloudEngine=null;
   S.pipelineDiag=null;
@@ -2877,7 +2896,6 @@ async function loadW(lat,lng,name,isRef){
       :null;
     const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
     const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
-    const activeEnsembleModels=offlineEnsemble?.__auraEnsemble?.models||[];
     if(imgwOffline&&offlineEnsemble){
       data=offlineEnsemble;
       // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
@@ -2974,6 +2992,18 @@ async function loadW(lat,lng,name,isRef){
 
           // DATA PIPELINE INSPECTOR
           const diagCi=currentHourIndex(data,new Date());
+          const diagCurrentPrecip=Number(data.hourly?.precipitation?.[diagCi]);
+          const diagCurrentCode=Number(data.hourly?.weather_code?.[diagCi]);
+          const stationPrecip10=Number(imgwData.opad_10min);
+          const stationPrecipAge=Number(imgwData.opad10minAgeMinutes);
+          const stationPrecipFresh=imgwData.opad10minFresh===true;
+          const ghostPrecipitation=
+            Number(imgwData.dist)<=5 &&
+            stationPrecipFresh &&
+            Number.isFinite(stationPrecip10) &&
+            stationPrecip10<=0 &&
+            ((Number.isFinite(diagCurrentPrecip)&&diagCurrentPrecip>0) || isRainCode(diagCurrentCode));
+          const precipitationModelWeight=ghostPrecipitation?0.25:1;
           const diagRows=[];
           for(let step=0;step<=3;step++){
             const idx=diagCi+step;
@@ -3001,18 +3031,6 @@ async function loadW(lat,lng,name,isRef){
               dynamicFront:step>0&&Number.isFinite(precip)&&precip>1.5&&prevT!==null&&modelT!==null&&prevT-modelT>=3
             });
           }
-          const diagCurrentPrecip=Number(data.hourly?.precipitation?.[diagCi]);
-          const diagCurrentCode=Number(data.hourly?.weather_code?.[diagCi]);
-          const stationPrecip10=Number(imgwData.opad_10min);
-          const stationPrecipAge=Number(imgwData.opad10minAgeMinutes);
-          const stationPrecipFresh=imgwData.opad10minFresh===true;
-          const ghostPrecipitation=
-            Number(imgwData.dist)<=5 &&
-            stationPrecipFresh &&
-            Number.isFinite(stationPrecip10) &&
-            stationPrecip10<=0 &&
-            ((Number.isFinite(diagCurrentPrecip)&&diagCurrentPrecip>0) || isRainCode(diagCurrentCode));
-          const precipitationModelWeight=ghostPrecipitation?0.25:1;
           const ghostVisibilityDrop=
             stationHasFreshNoPrecip(imgwData) &&
             !stationFogObserved(imgwData) &&
@@ -3127,6 +3145,7 @@ async function loadW(lat,lng,name,isRef){
         dynamicFront:false
       });
     }
+    const activeEnsembleModels=S.ensemble?.models||[];
     const modelNames=activeEnsembleModels.map(m=>m==="icon_eu"?"ICON-EU":m==="ecmwf_ifs025"?"ECMWF IFS":m==="gfs_seamless"?"GFS":m);
     S.pipelineDiag={
       capturedAt:Date.now(),
@@ -3262,6 +3281,8 @@ function render(){
     if(searchRes.length)updateResults();
   }else if(S.phase==="loading"){
     app.innerHTML=skeletonHTML();
+  }else if(S.phase==="error"){
+    app.innerHTML=loadErrorHTML();
   }else if(S.phase==="weather"&&S.data){
     try{app.innerHTML=weatherHTML();}
     catch(err){
@@ -3292,6 +3313,7 @@ document.addEventListener("click",e=>{
     case"quick":{const p=POPULAR[+t.dataset.i];if(p)loadW(p.lat,p.lng,p.n);break;}
     case"hist":{const h=getHistory()[+t.dataset.i];if(h)loadW(h.lat,h.lng,h.n);break;}
     case"back":searchRes=[];Object.assign(S,{phase:"intro",loading:false});render();break;
+    case"retry":{const r=S.loadError;if(r&&r.lat!=null)loadW(r.lat,r.lng,r.name||null,false);break;}
     case"refresh":if(S.lat!=null)loadW(S.lat,S.lng,S.city,true);break;
     case"day":toggleDay(+t.dataset.i);break;
     case"model":openModelSheet();break;
