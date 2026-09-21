@@ -42,7 +42,7 @@ def point_query(lat, lon):
     }
     r = requests.get(WMS_URL, params=params, timeout=TIMEOUT)
     r.raise_for_status()
-    text = re.sub(r"\\s+", " ", r.text).strip()
+    text = re.sub(r"\s+", " ", r.text).strip()
     low = text.lower()
 
     if "not processed" in low or "off earth" in low:
@@ -51,7 +51,7 @@ def point_query(lat, lon):
         cls = "clear_land"
     elif "clear sky over water" in low or "clear water" in low:
         cls = "clear_water"
-    elif re.search(r"\\bcloud(?:y|s)?\\b", low):
+    elif re.search(r"\bcloud(?:y|s)?\b", low):
         cls = "cloud"
     else:
         cls = "unknown"
