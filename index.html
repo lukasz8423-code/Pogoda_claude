@@ -535,6 +535,91 @@ function optiCloudFromModels(records){
   };
 }
 
+// WEATHER FUSION — obserwacja + modele + ciągłość czasowa.
+// Modelowe cloud_cover jest polem prognostycznym, a nie pomiarem nieba.
+// Fuzja nie zamienia widoczności w zachmurzenie i nie zakłada, że "po deszczu = mgła/chmury".
+function fuseCloudCover(records,context={}){
+  const rows=(records||[]).map(r=>{
+    const v=Number(r?.data?.current?.cloud_cover);
+    if(!Number.isFinite(v)||v<0||v>100)return null;
+    const id=String(r?.model||r?.name||"").toLowerCase();
+    const weight=id.includes("icon_eu")?0.40:id.includes("ecmwf")?0.30:id.includes("gfs")?0.20:0.10;
+    return {id,value:clamp(v,0,100),weight};
+  }).filter(Boolean);
+  if(!rows.length)return {value:null,rawConsensus:null,prior:null,reason:"brak modeli"};
+
+  const weighted=[];
+  rows.forEach(r=>{for(let i=0;i<Math.max(1,Math.round(r.weight*100));i++)weighted.push(r.value);});
+  weighted.sort((a,b)=>a-b);
+  const raw=weighted[Math.floor(weighted.length/2)];
+  const spread=Math.max(...rows.map(r=>r.value))-Math.min(...rows.map(r=>r.value));
+
+  const station=context.station||{};
+  const stationNoPrecip=stationHasFreshNoPrecip(station);
+  const stationNear=Number.isFinite(Number(station.dist))&&Number(station.dist)<=5;
+  const modelRain=Number(context.modelPrecip);
+  const modelRainCode=isRainCode(Number(context.modelCode));
+  const recentRainConflict=stationNear&&stationNoPrecip&&
+    ((Number.isFinite(modelRain)&&modelRain>0.05)||modelRainCode);
+
+  const visibility=Number(context.visibilityMeters);
+  const clearAir=Number.isFinite(visibility)&&visibility>=12000;
+  const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
+
+  const key="aura_cloud_fusion_"+Number(context.lat).toFixed(3)+"_"+Number(context.lng).toFixed(3);
+  let prior=null,priorAge=null;
+  try{
+    const p=JSON.parse(localStorage.getItem(key)||"null");
+    if(p&&Number.isFinite(Number(p.value))&&Number.isFinite(Number(p.ts))){
+      prior=clamp(Number(p.value),0,100);
+      priorAge=(Date.now()-Number(p.ts))/60000;
+      if(priorAge<0||priorAge>180){prior=null;priorAge=null;}
+    }
+  }catch{}
+
+  let value=raw;
+  let reason="weighted-model-median";
+
+  // Świeży brak opadu z bliskiej stacji blokuje nagły skok modelu w górę.
+  // To jest ciągłość stanu, nie sztuczne zerowanie chmur.
+  if(recentRainConflict&&prior!=null&&priorAge!=null){
+    const maxRise=priorAge<=20?8:priorAge<=45?14:22;
+    value=Math.min(value,prior+maxRise);
+    reason="recent-rain-cleared: station dry";
+  }
+
+  // Widoczność jest niezależnym sygnałem jakości powietrza.
+  // Tylko wyraźnie czyste powietrze może osłabić modelowy sygnał zachmurzenia;
+  // 7–10 km nie jest traktowane jako dowód bezchmurnego nieba.
+  if(clearAir){
+    const cap=veryClearAir?Math.min(value,Math.max(20,(prior??value)-5)):Math.min(value,Math.max(30,(prior??value)+5));
+    value=cap;
+    reason+=" + clear-air evidence";
+  }
+
+  // Przy braku obserwacyjnego sygnału nie wykonujemy agresywnej korekty.
+  // Model może wygrać, jeśli utrzymuje się w czasie i nie jest sprzeczny z obserwacją.
+  if(prior!=null&&priorAge!=null&&!recentRainConflict){
+    const maxStep=priorAge<=20?15:priorAge<=45?25:35;
+    value=clamp(Math.max(prior-maxStep,Math.min(prior+maxStep,value)),0,100);
+    if(Math.abs(value-raw)>0.5)reason+=" + temporal continuity";
+  }
+
+  value=Math.round(clamp(value,0,100)*10)/10;
+  try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),value}));}catch{}
+
+  return {
+    value,
+    rawConsensus:Math.round(raw*10)/10,
+    spread:Math.round(spread*10)/10,
+    prior,
+    priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
+    recentRainConflict,
+    clearAir,
+    reason
+  };
+}
+
 function discomfortIndex(temp,hum,windKmh=0){
   const t=Number(temp),rh=clamp(Number(hum),0,100),w=Math.max(0,Number(windKmh)||0);
   if(!Number.isFinite(t))return{value:null,label:"Brak danych",color:"rgba(255,255,255,.08)",emoji:"–"};
@@ -1745,7 +1830,7 @@ function computeCtx(){
   // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
   const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
   const opti=optiCloudFromModels(S.modelCompareRaw||[]);
-  const cloud=Number.isFinite(modelConsensus)?modelConsensus:toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
+  const cloud=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
   const precipTimeline=unifiedPrecipitationTimeline();
   const hourlyNowCode=getHourlyCode(hourly,ci);
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
@@ -3325,11 +3410,20 @@ async function loadWCore(lat,lng,name,isRef){
     const raw=Number(data?.current?.cloud_cover);
     if(Number.isFinite(raw)){
       const consensus=consensusCloudCover(cloudCompare);
-      const mainCloud=Number.isFinite(consensus)?consensus:raw;
+      const cloudFusion=fuseCloudCover(cloudCompare,{
+        lat,lng,
+        station:imgwResult.status==="fulfilled"?(imgwResult.value?.best||imgwResult.value||{}):{},
+        modelPrecip:Number(data?.current?.precipitation??data?.current?.rain??data?.current?.showers),
+        modelCode:Number(data?.current?.weather_code),
+        visibilityMeters:Number(data?.current?.visibility)
+      });
+      const mainCloud=Number.isFinite(cloudFusion.value)?cloudFusion.value:raw;
       data.current.cloud_cover=mainCloud;
       S.cloudSource={
-        type:Number.isFinite(consensus)?"model-consensus":"open-meteo-current",
+        type:"weather-fusion",
         value:mainCloud,
+        rawConsensus:Number.isFinite(consensus)?consensus:null,
+        fusion:cloudFusion,
         opticalValue:optiCloudFromModels(cloudCompare)?.value??null,
         opticalLayers:optiCloudFromModels(cloudCompare)?.layers??null,
         opticalModels:optiCloudFromModels(cloudCompare)?.models??[],
