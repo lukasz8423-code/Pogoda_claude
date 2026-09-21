@@ -1738,7 +1738,24 @@ function currentRainMm(X){
   return mm;
 }
 function isRainingNow(X){
-  if(stationHasFreshNoPrecip(S.imgwData))return false;
+  // Jedna definicja "pada teraz" dla całego UI:
+  // najpierw świeża obserwacja IMGW, potem bieżący slot minutely_15,
+  // a dopiero na końcu bieżący WMO/current precipitation.
+  const station=S.imgwData||{};
+  if(stationFreshPrecipMm(station)!==null){
+    return Number(stationFreshPrecipMm(station))>=0.05;
+  }
+  if(Array.isArray(S.minutely)&&S.minutely.length){
+    const nowMs=Date.now();
+    const slot=S.minutely.find(x=>{
+      const t=new Date(x.t).getTime();
+      return Number.isFinite(t)&&t<=nowMs&&nowMs<t+15*60000;
+    });
+    if(slot){
+      const mm=Number(slot.rain??slot.mm??0);
+      if(Number.isFinite(mm))return mm>=0.05;
+    }
+  }
   if(isRainCode(X.code)||currentRainMm(X)>=0.05)return true;
   return false;
 }
@@ -2108,11 +2125,21 @@ function wRain(X){
   const {hourly}=S.data;let next="";
   const nowWet=isRainingNow(X);
 
-  // Ten kafelek musi czytać dokładnie ten sam zakres i te same indeksy,
-  // które renderuje hourlyHTML(): X.ci ... X.ci+23.
-  // Nie używamy precipitation, bo Open-Meteo opisuje ją jako sumę z poprzedniej godziny.
+  // Ten kafelek korzysta z tej samej osi czasu co nowcastHTML():
+  // świeże IMGW -> bieżący slot minutely_15 -> przyszłe sloty minutely_15.
+  // Hourly WMO nie może samodzielnie oznaczać "pada teraz".
   if(nowWet){
     next="Pada teraz.";
+  }else if(Array.isArray(S.minutely)&&S.minutely.length){
+    const nowMs=Date.now();
+    const future=S.minutely.filter(x=>{
+      const t=new Date(x.t).getTime();
+      return Number.isFinite(t)&&t>=nowMs;
+    });
+    const firstRain=future.find(x=>Number(x.rain??x.mm??0)>=0.05);
+    if(firstRain){
+      next=`Najbliższy opad ok. ${hhmm(new Date(firstRain.t))}.`;
+    }
   }else{
     const end=Math.min(X.ci+24,hourly.time.length);
     for(let idx=X.ci+1;idx<end;idx++){
