@@ -1654,7 +1654,11 @@ function computeCtx(){
   const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
-  const visMeters=current.visibility??g(hourly.visibility);
+  // Bieżące visibility > 0 z API jest źródłem prawdy dla kafelka.
+  const apiVisibilityNow=Number(data.__auraApiCurrentVisibility);
+  const visMeters=Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0
+    ?apiVisibilityNow
+    :(current.visibility??g(hourly.visibility));
   const visKm=visMeters!=null?visMeters/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
   return{
@@ -1877,7 +1881,10 @@ function nowcastHTML(X){
     const future=X?.timeline?.future||[];
     const firstMm=currentTimelineMm(X);
     const activeNow=(Number.isFinite(stateMm)&&stateMm>0.05)||(Number.isFinite(firstMm)&&firstMm>0.05);
-    const stateRain=activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05);
+    // Gdy mamy oś 15-minutową, to ona jest jedynym źródłem prawdy dla alertu opadowego.
+    const stateRain=X.timeline.source==="minutely_15"
+      ?activeNow
+      :(activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05));
     const rainSlots=future.filter(x=>Number(x?.mm)>0.05);
     const firstRain=rainSlots[0]||null;
     const rainUntil=activeNow?rainUntilTime(X):null;
@@ -1893,20 +1900,8 @@ function nowcastHTML(X){
     }else if(firstRain){
       sum=endLabel?"Opady zaczną się około "+startTime+" i potrwają do około "+endLabel+".":"Opady zaczną się około "+startTime+".";
     }else{
-      // Brak mm w osi 15-minutowej nie oznacza "braku opadów", jeżeli
-      // prognoza godzinowa ma wysokie POP albo kod/model opadowy.
-      const {hourly}=S.data;
-      const end=Math.min((Number.isFinite(Number(X.ci))?Number(X.ci):0)+4,hourly?.time?.length||0);
-      let possibleRain=false;
-      for(let idx=Math.max(0,Number(X.ci)||0);idx<end;idx++){
-        const hp=Number(hourly?.precipitation_probability?.[idx]??0);
-        const hm=Number(hourly?.precipitation?.[idx]??0);
-        const hc=Number(hourly?.weather_code?.[idx]);
-        if(hp>=50||hm>0||isPrecipCode(hc)){possibleRain=true;break;}
-      }
-      sum=possibleRain
-        ?"Możliwe przelotne opady"
-        :"Brak opadów w najbliższych godzinach";
+      // Oś 15-minutowa nie pokazuje opadu — nie pobieramy zastępczej godziny z modelu.
+      sum="Brak opadów w najbliższych godzinach";
     }
 
     const v=X.timeline.slots.map(x=>x.mm*4);
@@ -2950,7 +2945,10 @@ function sanitizeVisibility(data,imgwData){
   const stationFog=stationFogObserved(imgwData);
 
   if(data.current&&"visibility"in data.current){
-    const v=clean(data.current.visibility);
+    const lockedApiVisibility=Number(data.__auraApiCurrentVisibility);
+    const v=Number.isFinite(lockedApiVisibility)&&lockedApiVisibility>0
+      ?lockedApiVisibility
+      :clean(data.current.visibility);
     // Głodowo nie raportuje widoczności w używanym feedzie METEO.
     // Bez jawnego pomiaru stacyjnego zachowujemy wartość modelową 1:1.
     const stationVisibility=Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m);
@@ -3190,6 +3188,13 @@ async function loadWCore(lat,lng,name,isRef){
         }
         if(!data)throw lastWeatherError||new Error("Open-Meteo niedostępne");
       }
+    }
+
+    // Twarda blokada bieżącej widoczności z głównego API.
+    // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
+    const apiVisibilityNow=Number(data?.current?.visibility);
+    if(Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0){
+      data.__auraApiCurrentVisibility=apiVisibilityNow;
     }
     S.cloudSource=null;
 
