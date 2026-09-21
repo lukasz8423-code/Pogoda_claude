@@ -29,6 +29,25 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Stamp buildu i wymuszenie świeżego artefaktu
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_ID="${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          printf '%s' "{\"buildId\":\"${BUILD_ID}\",\"commit\":\"${GITHUB_SHA}\",\"runId\":${GITHUB_RUN_ID},\"builtAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > build-version.json
+          python - <<'PY'
+          from pathlib import Path
+          import os, re
+          p=Path("index.html")
+          s=p.read_text(encoding="utf-8")
+          tag=f'<meta name="aura-build" content="{os.environ["GITHUB_SHA"]}-{os.environ["GITHUB_RUN_ID"]}">'
+          if 'name="aura-build"' in s:
+              s=re.sub(r'<meta name="aura-build" content="[^"]*">', tag, s, count=1)
+          else:
+              s=s.replace("<head>", "<head>\n    "+tag, 1)
+          p.write_text(s,encoding="utf-8")
+          PY
+
       - name: Generuj snapshot WeatherAPI + analizę Gemini
         env:
           WEATHERAPI_KEY: ${{ secrets.WEATHERAPI_KEY }}
