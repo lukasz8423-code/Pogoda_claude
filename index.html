@@ -2510,6 +2510,8 @@ function isDayAt(iso){
   const h=t.getHours();return h>=6&&h<19;
 }
 function minuteRainEvidenceForHour(hourlyData, idx){
+  // Renderer 48h nie może omijać fuzji przez surowe S.minutely.
+  if(S.canonicalWeatherFusion?.applied===true)return false;
   const startMs=Date.parse(hourlyData?.time?.[idx]);
   if(!Number.isFinite(startMs))return false;
   const endMs=startMs+60*60000;
@@ -2523,6 +2525,9 @@ function minuteRainEvidenceForHour(hourlyData, idx){
 
 function hourlyRainEvidence(hourlyData, idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
+  // Po zastosowaniu fuzji opad jest oceniany WYŁĄCZNIE z przefiltrowanego hourly.
+  // Nie wolno przywracać słupka przez surowy minutely ani przez stare POP.
+  if(S.canonicalWeatherFusion?.applied===true)return Number.isFinite(pr)&&pr>0;
   return (Number.isFinite(pr)&&pr>=0.2)||minuteRainEvidenceForHour(hourlyData,idx);
 }
 
@@ -2546,7 +2551,9 @@ function getHourlyCode(hourlyData, idx) {
 }
 
 function hourlyHTML(X){
-  const {hourly}=S.data;let out="";
+  // Widok godzinowy czyta wyłącznie kanoniczne S.data.hourly po fuzji.
+  // Nie ma tu żadnego odczytu surowego payloadu Open-Meteo.
+  const hourly=S.data?.hourly;let out="";
   if(!hourly?.time?.length)return "";
   const currentIdx=Number.isFinite(Number(X.ci))?Number(X.ci):currentHourIndex(S.data,new Date());
 
@@ -2588,7 +2595,10 @@ function smoothPath(pts){
 }
 // Meteogram 48h: temperatura, wiatr, opady w jednym wykresie
 function meteogramHTML(X){
-  const {hourly}=S.data;
+  // TO jest jedyne źródło danych dla wykresu 48h.
+  // Nie pobieramy ponownie Open-Meteo i nie korzystamy z S.minutely.
+  const hourly=S.data?.hourly;
+  if(!hourly?.time?.length)return"";
   const N=Math.min(48,hourly.time.length-X.ci);if(N<8)return"";
   const pts=[];
   for(let i=0;i<N;i++){
