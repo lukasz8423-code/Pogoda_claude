@@ -1863,6 +1863,16 @@ function applyCanonicalWeatherFusion(data,imgwData){
         Number(hourly.showers?.[i])||0,
         Number(hourly.snowfall?.[i])||0
       );
+      if(mm<=0.4&&Array.isArray(hourly.precipitation_probability)){
+        const p=Number(hourly.precipitation_probability[i]);
+        if(Number.isFinite(p))hourly.precipitation_probability[i]=Math.min(p,15);
+      }
+      if(mm<=0.4&&Array.isArray(hourly.weather_code)&&isRainCode(Number(hourly.weather_code[i]))){
+        const c=Number(hourly.cloud_cover?.[i]);
+        hourly.weather_code[i]=Number.isFinite(c)
+          ?(c<=20?0:c<=70?2:3)
+          :0;
+      }
       if(mm<=0.4&&Array.isArray(hourly.cloud_cover)){
         const c=Number(hourly.cloud_cover[i]);
         if(Number.isFinite(c))hourly.cloud_cover[i]=Math.min(c,40);
