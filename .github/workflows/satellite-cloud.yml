@@ -1,0 +1,37 @@
+name: Update satellite cloud mask
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  satellite-cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install satellite tools
+        run: pip install --disable-pip-version-check eumdac eccodes
+
+      - name: Fetch latest MSG/SEVIRI Cloud Mask
+        env:
+          EUMETSAT_CONSUMER_KEY: ${{ secrets.EUMETSAT_CONSUMER_KEY }}
+          EUMETSAT_CONSUMER_SECRET: ${{ secrets.EUMETSAT_CONSUMER_SECRET }}
+        run: python scripts/update_satellite_cloud.py
+
+      - name: Publish satellite observation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add satellite-cloud.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Aktualizuj obserwację zachmurzenia satelitarnego"
+          git push
