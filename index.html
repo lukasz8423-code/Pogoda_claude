@@ -3367,7 +3367,7 @@ async function loadWCore(lat,lng,name,isRef){
     }).filter(x=>Number.isFinite(x.t));
     if(ok.length>=2){
       confidenceNow=calcModelAgreement(ok.map(x=>x.t));
-      modelCompareNow=ok.map(x=>({name:x.r.model,temp:Math.round(x.t*10)/10,cloud:x.r.data?.current?.cloud_cover??null,code:x.r.data?.current?.weather_code??null}));
+      modelCompareNow=ok.map(x=>({model:x.r.model,name:x.r.model,temp:Math.round(x.t*10)/10,cloud:x.r.data?.current?.cloud_cover??null,code:x.r.data?.current?.weather_code??null}));
     }
   }
 
