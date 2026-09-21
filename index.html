@@ -486,27 +486,31 @@ function consensusCloudCover(records){
   return vals.length%2?vals[m]:(vals[m-1]+vals[m])/2;
 }
 
-function cloudLayerUnion(low,mid,high){
-  const l=clamp(Number(low),0,100)/100;
-  const m=clamp(Number(mid),0,100)/100;
-  const h=clamp(Number(high),0,100)/100;
-  return 100*(1-(1-l)*(1-m)*(1-h));
-}
 function optiCloudFromModels(records){
   const perModel=(records||[]).map(r=>{
     const cur=r?.data?.current||{};
-    const total=Number(cur.cloud_cover),low=Number(cur.cloud_cover_low);
-    const mid=Number(cur.cloud_cover_mid),high=Number(cur.cloud_cover_high);
+    const total=Number(cur.cloud_cover);
+    const low=Number(cur.cloud_cover_low);
+    const mid=Number(cur.cloud_cover_mid);
+    const high=Number(cur.cloud_cover_high);
     if(![total,low,mid,high].every(Number.isFinite))return null;
+    const l=clamp(low,0,100),m=clamp(mid,0,100),h=clamp(high,0,100);
+    // cloud_cover pozostaje bazą. Warstwy opisują strukturę, nie są sumowane
+    // jako niezależne obszary (co może zaniżać wynik względem totalu).
+    const layerActivity=(l+m+h)/3;
+    const lowDominance=l-Math.max(m,h);
+    const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
+    const optical=clamp(total+structuralAdjustment,0,100);
     return {
       model:r.model||r.name||null,
-      total:clamp(total,0,100),low:clamp(low,0,100),
-      mid:clamp(mid,0,100),high:clamp(high,0,100),
-      union:clamp(Math.min(cloudLayerUnion(low,mid,high),total),0,100)
+      total:clamp(total,0,100),low:l,mid:m,high:h,
+      layerActivity:Math.round(layerActivity*10)/10,
+      structuralAdjustment,
+      optical:Math.round(optical*10)/10
     };
   }).filter(Boolean);
   if(!perModel.length)return null;
-  const vals=perModel.map(x=>x.union).sort((a,b)=>a-b);
+  const vals=perModel.map(x=>x.optical).sort((a,b)=>a-b);
   const i=Math.floor(vals.length/2);
   const median=vals.length%2?vals[i]:(vals[i-1]+vals[i])/2;
   const medLayer=k=>{
