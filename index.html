@@ -1362,7 +1362,15 @@ async function apiMinutely(lat,lng){
     // około 09:00, zamiast przesuwać pierwszy sygnał dopiero na 09:15/10:15.
     for(let i=idx;i<=idx+16&&i<t.length;i++){
       const tm=new Date(t[i]).getTime();
-      const hi=Array.isArray(ht)?ht.findIndex(x=>new Date(x).getTime()>=tm):-1;
+      // Przypisujemy 15-min slot do godziny, w której faktycznie leży.
+      // findIndex(>=) przesuwało np. 09:15 na dane godziny 10:00.
+      let hi=-1;
+      if(Array.isArray(ht)){
+        for(let j=0;j<ht.length;j++){
+          const htm=new Date(ht[j]).getTime();
+          if(Number.isFinite(htm)&&htm<=tm)hi=j;else if(htm>tm)break;
+        }
+      }
       out.push({
         t:t[i],
         mm:+(p[i]||0),
@@ -1807,7 +1815,7 @@ function nowcastHTML(X){
       return `<i class="${a<.1?"z":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax=`<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>`;
-    sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu >0,1 mm w poprzedniej godzinie, mm = suma opadu z poprzednich 15 minut.";
+    sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu w danej godzinie, mm = suma opadu z poprzednich 15 minut.";
   }else{
     const nc=buildNowcast(hourly,X.ci,S.pipelineDiag?.precipitationModelWeight??1);
     sum=nc?nc.text:"Brak danych o opadach";
