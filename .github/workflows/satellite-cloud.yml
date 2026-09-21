@@ -19,12 +19,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install satellite tools
-        run: pip install --disable-pip-version-check eumdac eccodes
+        run: pip install --disable-pip-version-check requests
 
       - name: Fetch latest MSG/SEVIRI Cloud Mask
-        env:
-          EUMETSAT_CONSUMER_KEY: ${{ secrets.EUMETSAT_CONSUMER_KEY }}
-          EUMETSAT_CONSUMER_SECRET: ${{ secrets.EUMETSAT_CONSUMER_SECRET }}
         run: python scripts/update_satellite_cloud.py
 
       - name: Publish satellite observation
