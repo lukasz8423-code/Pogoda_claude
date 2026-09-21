@@ -1906,29 +1906,31 @@ function isDayAt(iso){
   const h=t.getHours();return h>=6&&h<19;
 }
 function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,timeline}){
-  if(!timeline||timeline.source!=="minutely_15"||!Array.isArray(timeline.slots))return modelCode;
-  const start=hourDate.getTime(),end=start+60*60000;
-  const slots=timeline.slots.filter(x=>{const t=x.t.getTime();return t>=start&&t<end;});
-  const rainySlots=slots.filter(x=>Number(x.mm)>=0.05);
-  const rainMinutes=rainySlots.length*15;
   const cloudCode=Number.isFinite(Number(cloudCover))
     ?(Number(cloudCover)<=10?0:Number(cloudCover)<=40?2:3):3;
-  // "Teraz": bieżący slot 15-minutowy ma pierwszeństwo nad ikoną modelu.
-  if(hourIndex===0&&timeline.current){
-    const mm=Number(timeline.current.mm);
-    if(Number.isFinite(mm))return mm>=0.05?61:cloudCode;
-  }
-  // Najbliższa godzina nie może pokazywać pełnego deszczu,
-  // jeżeli jej pierwsze okno 15-minutowe jest suche.
-  if(hourIndex===1&&slots.length){
-    const first=slots[0];
-    if(Number(first.mm)<0.05)return cloudCode;
-  }
-  // Krótki epizod <20 min nie dostaje ikony pełnego deszczu.
-  if(rainMinutes<20)return cloudCode;
-  return 61;
-}
 
+  // "Teraz": gdy mamy nowcasting 15-minutowy, ikona pochodzi WYŁĄCZNIE
+  // z aktualnego slotu 15-minutowego. Godzinowy model nie może jej nadpisać.
+  if(hourIndex===0&&timeline?.source==="minutely_15"){
+    const mm=Number(timeline.current?.mm);
+    return Number.isFinite(mm)&&mm>=0.05?61:cloudCode;
+  }
+
+  // "09": najbliższa pełna godzina jest liczona WYŁĄCZNIE z jej
+  // slotów 15-minutowych. Liczymy czas z opadem >= 0.05 mm.
+  if(hourIndex===1&&timeline?.source==="minutely_15"){
+    const start=hourDate.getTime();
+    const end=start+60*60000;
+    const slots=timeline.slots.filter(x=>{
+      const t=x.t.getTime();
+      return t>=start&&t<end;
+    });
+    const rainMinutes=slots.filter(x=>Number(x.mm)>=0.05).length*15;
+    return rainMinutes>=20?61:cloudCode;
+  }
+
+  return modelCode;
+}
 function hourlyHTML(X){
   const {hourly,daily}=S.data;let out="";
   if(!hourly?.time?.length)return "";
