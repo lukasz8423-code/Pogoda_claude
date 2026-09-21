@@ -1926,7 +1926,21 @@ function hourlyHTML(X){
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
-    const code=Number.isFinite(Number(rawCode))?Number(rawCode):(Number(hourly.precipitation?.[idx])>=0.05?61:3);
+    const modelCode=Number.isFinite(Number(rawCode))?Number(rawCode):(Number(hourly.precipitation?.[idx])>=0.05?61:3);
+    // Dla kafelka „Teraz” minutely_15 jest źródłem prawdy o tym, czy opad
+    // faktycznie trwa w bieżącym 15-minutowym oknie. Nie pokazujemy deszczu
+    // z godzinowego weather_code, jeśli najbliższy slot 15-min jest jeszcze suchy.
+    let code=modelCode;
+    if(i===0&&timeline?.source==="minutely_15"&&timeline.current){
+      const curMm=Number(timeline.current.mm);
+      if(Number.isFinite(curMm)&&curMm<0.05){
+        const cc=Number(X.cloud);
+        code=Number.isFinite(cc)?(cc<=10?0:cc<=40?2:3):3;
+      }else if(Number.isFinite(curMm)&&curMm>=0.05){
+        const curCode=Number(timeline.current.code);
+        code=isRainCode(curCode)?curCode:61;
+      }
+    }
     const safeIso=hourly.time?.[idx]||t.toISOString();
     out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
   }
