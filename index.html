@@ -2059,6 +2059,14 @@ function hourlyHTML(X){
       }
     }
 
+    // OSTATECZNY BEZPIECZNIK — musi być po wszystkich override'ach,
+    // aby żadna późniejsza gałąź nie mogła przywrócić kodu 0 przy opadzie/POP>=50.
+    if(rainActive){
+      code=isRainCode(modelCode)?Number(modelCode):61;
+    }else if(pop>=50&&!isRainCode(code)&&Number(code)===0){
+      code=2;
+    }
+
     // Napis "· deszcz" wolno pokazać tylko wtedy, gdy ikona jest deszczowa.
     const rainNow=pop>=20&&isRainCode(code);
     out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
