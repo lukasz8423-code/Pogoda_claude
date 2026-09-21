@@ -1,40 +1,65 @@
 // Aura Pogoda — service worker
-const CACHE="aura-v7";
-const SHELL=["./","index.html","okno.html","manifest.webmanifest","icon-192.png","icon-512.png"];
-self.addEventListener("install",e=>{
-  e.waitUntil(
+// v8: twarde odświeżenie powłoki aplikacji po zmianach, bez trzymania starego index.html.
+const CACHE = "aura-v8";
+const SHELL = ["./", "index.html", "okno.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+
+self.addEventListener("install", event => {
+  event.waitUntil(
     caches.open(CACHE)
-      .then(c=>c.addAll(SHELL))
-      .then(()=>self.skipWaiting())
+      .then(cache => cache.addAll(SHELL))
+      .then(() => self.skipWaiting())
   );
 });
-self.addEventListener("activate",e=>{
-  e.waitUntil(
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
     caches.keys()
-      .then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
-      .then(()=>self.clients.claim())
+      .then(keys => Promise.all(
+        keys.filter(key => key !== CACHE).map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
   );
 });
-self.addEventListener("fetch",e=>{
-  const r=e.request,u=new URL(r.url);
-  if(r.method!=="GET")return;
-  if(u.origin!==location.origin&&!/fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))return;
 
-  const isAppShell=u.origin===location.origin&&(
-    r.mode==="navigate"||
-    u.pathname.endsWith("/index.html")||
-    u.pathname.endsWith("/sw.js")
+self.addEventListener("fetch", event => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  if (request.method !== "GET") return;
+  if (url.origin !== location.origin && !/fonts\\.(googleapis|gstatic)\\.com$/.test(url.hostname)) return;
+
+  const isNavigation = request.mode === "navigate";
+  const isHtml = url.origin === location.origin && (
+    isNavigation ||
+    url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/okno.html")
   );
 
-  const networkRequest=isAppShell?fetch(r,{cache:"no-store"}):fetch(r);
+  if (isHtml) {
+    // HTML zawsze najpierw z sieci — nie uruchamiamy starego, potencjalnie uszkodzonego cache.
+    event.respondWith(
+      fetch(request, { cache: "no-store" })
+        .then(response => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then(cache => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match("index.html")))
+    );
+    return;
+  }
 
-  e.respondWith(
-    networkRequest.then(res=>{
-      if(res.ok){
-        const c=res.clone();
-        caches.open(CACHE).then(ca=>ca.put(r,c));
-      }
-      return res;
-    }).catch(()=>caches.match(r).then(m=>m||caches.match("index.html")))
+  event.respondWith(
+    fetch(request)
+      .then(response => {
+        if (response.ok && url.origin === location.origin) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request))
   );
 });
