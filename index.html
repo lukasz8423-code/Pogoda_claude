@@ -1865,7 +1865,20 @@ function nowcastHTML(X){
     }else if(firstRain){
       sum=endLabel?"Opady zaczną się około "+startTime+" i potrwają do około "+endLabel+".":"Opady zaczną się około "+startTime+".";
     }else{
-      sum="Brak opadów w najbliższych godzinach";
+      // Brak mm w osi 15-minutowej nie oznacza "braku opadów", jeżeli
+      // prognoza godzinowa ma wysokie POP albo kod/model opadowy.
+      const {hourly}=S.data;
+      const end=Math.min((Number.isFinite(Number(X.ci))?Number(X.ci):0)+4,hourly?.time?.length||0);
+      let possibleRain=false;
+      for(let idx=Math.max(0,Number(X.ci)||0);idx<end;idx++){
+        const hp=Number(hourly?.precipitation_probability?.[idx]??0);
+        const hm=Number(hourly?.precipitation?.[idx]??0);
+        const hc=Number(hourly?.weather_code?.[idx]);
+        if(hp>=50||hm>0||isPrecipCode(hc)){possibleRain=true;break;}
+      }
+      sum=possibleRain
+        ?"Możliwe przelotne opady"
+        :"Brak opadów w najbliższych godzinach";
     }
 
     const v=X.timeline.slots.map(x=>x.mm*4);
@@ -1978,30 +1991,43 @@ function hourlyHTML(X){
     const lowCloud=Number(hourly.cloud_cover_low?.[idx]);
     const midCloud=Number(hourly.cloud_cover_mid?.[idx]);
     const highCloud=Number(hourly.cloud_cover_high?.[idx]);
-    const hourCloud=Number.isFinite(totalCloud)
+    let hourCloud=Number.isFinite(totalCloud)
       ? totalCloud
       : [lowCloud,midCloud,highCloud].some(Number.isFinite)
         ? Math.round((Number.isFinite(lowCloud)?lowCloud*0.55:0)+(Number.isFinite(midCloud)?midCloud*0.30:0)+(Number.isFinite(highCloud)?highCloud*0.15:0))
-        : Number(X.cloud);
-    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:hourCloud,timeline:X?.timeline});
+        : (i===0&&Number.isFinite(Number(X.cloud))?Number(X.cloud):null);
+
+    // Wysokie POP bez kodu opadowego nie może pokazywać pełnego słońca.
+    // Gdy brakuje danych chmurowych, zapewnij co najmniej częściowe zachmurzenie.
+    if(!isPrecipCode(modelCode)&&pop>=50&&(!Number.isFinite(hourCloud)||hourCloud<21)){
+      hourCloud=21;
+    }
+
+    const iconCloud=Number.isFinite(hourCloud)?hourCloud:(pop>=50?50:0);
+    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:iconCloud,timeline:X?.timeline});
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
     // TWARDY OVERRIDE DLA "TERAZ"
     const currentCloudCode=hourCloud<=20?0:hourCloud<=70?2:3;
 
     if(i===0){
-      // Weź pierwszy slot minutowy z X.timeline.
-      const firstSlot=X?.timeline?.slots?.[0]||X?.timeline?.current;
+      // Bieżący kod aury z nagłówka ma bezwzględny priorytet dla "Teraz".
+      // Dzięki temu mżawka/deszcz/przelotny deszcz nie może zostać zastąpiony słońcem.
+      if(isPrecipCode(Number(X.code))){
+        code=Number(X.code);
+      }else{
+        const firstSlot=X?.timeline?.slots?.[0]||X?.timeline?.current;
 
-      if(firstSlot){
-        const rawSource=firstSlot.mm??firstSlot.precipitation??0;
-        const rawMm=String(rawSource)
-          .replace(',','.')
-          .replace(/[^0-9.]/g,'');
+        if(firstSlot){
+          const rawSource=firstSlot.mm??firstSlot.precipitation??0;
+          const rawMm=String(rawSource)
+            .replace(',','.')
+            .replace(/[^0-9.]/g,'');
+          const mmVal=parseFloat(rawMm)||0;
 
-        const mmVal=parseFloat(rawMm)||0;
-        if(mmVal<0.05){
-          code=currentCloudCode;
+          if(mmVal<0.05){
+            code=currentCloudCode;
+          }
         }
       }
     }
