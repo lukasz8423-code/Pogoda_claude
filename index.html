@@ -602,7 +602,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
   const commonCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
-    "precipitation","weather_code","cloud_cover","visibility","pressure_msl",
+    "precipitation","weather_code","cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high","visibility","pressure_msl",
     "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers"
   ];
   const commonHourly=[
@@ -1759,29 +1759,18 @@ function nowcastHTML(X){
     const currentRainMm=Number(currentSlot?.rain??currentSlot?.mm??0);
     const activeNow=!snow&&!storm&&Number.isFinite(currentRainMm)&&currentRainMm>=0.05;
 
-    // Prognoza początku deszczu: dokładnie te same godziny i weather_code,
-    // które pokazuje "Prognoza godzinowa".
-    const rainHours=[];
-    const end=Math.min(X.ci+24,hourly.time.length);
-    for(let idx=X.ci;idx<end;idx++){
-      const code=Number(hourly.weather_code?.[idx]);
-      rainHours.push({idx,code,rain:isRainCode(code),snow:isSnowCode(code),storm:isStormCode(code),precip:isPrecipCode(code),time:hourly.time?.[idx]});
-    }
-
-    const firstRain=rainHours.find(h=>h.idx>=X.ci+1&&h.precip);
-    let endTime=null;
-
-    if(activeNow){
-      for(const h of rainHours){
-        if(h.idx>X.ci&&!h.precip){endTime=new Date(h.time);break;}
-      }
-    }else if(firstRain){
-      for(const h of rainHours){
-        if(h.idx>firstRain.idx&&!h.precip){endTime=new Date(h.time);break;}
-      }
-    }
-
-    const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.time)):null;
+    // Początek i koniec opadu wyznaczamy z TEGO SAMEGO źródła,
+    // które rysuje pasek 15-minutowy. Nie mieszamy już hourly.precipitation
+    // z minutely_15, bo hourly precipitation jest sumą z poprzedniej godziny.
+    const futureSlots=m.filter(x=>{
+      const tm=new Date(x.t).getTime();
+      return Number.isFinite(tm)&&tm>=nowMs;
+    });
+    const rainSlots=futureSlots.filter(x=>Number(x.mm??0)>=0.05 || Number(x.rain??0)>=0.05);
+    const firstRain=rainSlots[0]||null;
+    const lastRain=rainSlots.length?rainSlots[rainSlots.length-1]:null;
+    const endTime=lastRain?new Date(new Date(lastRain.t).getTime()+15*60000):null;
+    const startTime=!activeNow&&firstRain?hhmm(new Date(firstRain.t)):null;
     const endLabel=endTime?hhmm(endTime):null;
 
     if(storm){
@@ -3005,7 +2994,12 @@ async function loadWCore(lat,lng,name,isRef){
         type:Number.isFinite(consensus)?"model-consensus":"open-meteo-current",
         value:mainCloud,
         models:modelClouds,
-        consensus:Number.isFinite(consensus)?consensus:null
+        consensus:Number.isFinite(consensus)?consensus:null,
+        layers:{
+          low:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_low)).filter(Number.isFinite),
+          mid:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_mid)).filter(Number.isFinite),
+          high:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_high)).filter(Number.isFinite)
+        }
       };
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
