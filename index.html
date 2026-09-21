@@ -795,6 +795,7 @@ async function fetchIMGWMeteoAll(){
     console.warn("IMGW METEO niedostępne:",S.imgwDiag.error);
     return null;
   }
+}
 function parseImgwMeteoTimestamp(value){
   if(!value)return null;
   const m=String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
