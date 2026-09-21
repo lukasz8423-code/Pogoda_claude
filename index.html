@@ -1676,7 +1676,7 @@ function smartPrecipitationFusion(data,imgwData,minutelySlots){
   const stationWet=stationFresh&&stationMm>0;
   const slots=Array.isArray(minutelySlots)?minutelySlots:[];
   const first=slots[0]||null;
-  const wetCode=v=>{const n=Number(v);return Number.isFinite(n)&&(isRainCode(n)||isStormCode(n)||isDrizzleCode(n));};
+  const wetCode=v=>{const n=Number(v);return Number.isFinite(n)&&((n>=51&&n<=67)||n>=80);};
   const measurable=slots.slice(0,8).map(s=>Number(s?.mm)).filter(Number.isFinite);
   const heavyNowcast=measurable.some(v=>v>=0.5);
   let consecutiveWet=0;
@@ -3233,11 +3233,14 @@ function correctWeatherFusion(data,imgwData,cloudFusion){
   const cur=data.current;
   const stationPrecip=Number(imgwData.opad_10min);
   const stationAge=Number(imgwData.opad10minAgeMinutes);
+  const smartAllowsRain=S.precipitationFusion?.allowRealRain===true;
   const stationFresh=imgwData.opad10minFresh===true &&
     Number.isFinite(stationPrecip) &&
     stationPrecip>=0 &&
     Number(imgwData.dist)<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
+    (!Number.isFinite(stationAge)||stationAge<=30) &&
+    (stationPrecip>0 || !smartAllowsRain);
+
 
   let precipitationApplied=false;
   let cloudApplied=false;
@@ -3698,57 +3701,6 @@ async function loadWCore(lat,lng,name,isRef,token){
       }
     }
 
-    const fusionImgw=imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
-      :null;
-    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
-    S.precipitationFusion=precipitationFusion;
-    // Jedna wersja minutówek dla UI — nie dopuszczamy do drugiej, niezależnej korekty.
-    const fusionNowcast=precipitationFusion.minutely||[];
-
-    // Twarda blokada bieżącej widoczności z głównego API.
-    // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
-    const apiVisibilityNow=Number(data?.current?.visibility);
-    if(Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0){
-      data.__auraApiCurrentVisibility=apiVisibilityNow;
-    }
-    S.cloudSource=null;
-
-    // IMGW Offline jest stanem źródła, nie powodem do zerowania prognozy.
-    // Najpierw budujemy ensemble z realnie dostępnych modeli, a dopiero potem
-    // wykonujemy pozostałe sanityzery/render.
-    // IMGW status musi opierać się na faktycznej dostępności źródła,
-    // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
-    // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
-    const imgwFeedOffline=
-      imgwResult.status!=="fulfilled" ||
-      !imgwResult.value ||
-      S.imgwDiag?.status==="niedostępne" ||
-      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
-    const imgwOffline=imgwFeedOffline;
-    S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
-    // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
-    // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
-    // ICON-EU, a jeśli go nie ma — ECMWF IFS.
-    const rawCloudSource=imgwOffline
-      ?(cloudCompare.find(r=>r.model==="icon_eu"&&Number.isFinite(Number(r.data?.current?.cloud_cover)))
-        ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
-      :null;
-    const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
-    const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
-    if(imgwOffline&&offlineEnsemble){
-      data=offlineEnsemble;
-      // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
-      if(Number.isFinite(rawCloudCover)){
-        data.current=data.current||{};
-        data.current.cloud_cover=rawCloudCover;
-      }
-      S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
-      S.ensemble=offlineEnsemble.__auraEnsemble;
-    }else{
-      S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
-      S.ensemble=null;
-    }
     if(isGpsLocation){
       S.gpsDiag.model=activeModel.id;
       S.gpsDiag.cloud=data?.current?.cloud_cover??null;
@@ -3800,7 +3752,58 @@ async function loadWCore(lat,lng,name,isRef,token){
         layers:{
           low:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_low)).filter(Number.isFinite),
           mid:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_mid)).filter(Number.isFinite),
-          high:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_high)).filter(Number.isFinite)
+          high:cloudCompare.map(r=>    const fusionImgw=imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null;
+    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
+    S.precipitationFusion=precipitationFusion;
+    // Jedna wersja minutówek dla UI — nie dopuszczamy do drugiej, niezależnej korekty.
+    const fusionNowcast=precipitationFusion.minutely||[];
+
+    // Twarda blokada bieżącej widoczności z głównego API.
+    // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
+    const apiVisibilityNow=Number(data?.current?.visibility);
+    if(Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0){
+      data.__auraApiCurrentVisibility=apiVisibilityNow;
+    }
+    S.cloudSource=null;
+
+    // IMGW Offline jest stanem źródła, nie powodem do zerowania prognozy.
+    // Najpierw budujemy ensemble z realnie dostępnych modeli, a dopiero potem
+    // wykonujemy pozostałe sanityzery/render.
+    // IMGW status musi opierać się na faktycznej dostępności źródła,
+    // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
+    // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
+    const imgwFeedOffline=
+      imgwResult.status!=="fulfilled" ||
+      !imgwResult.value ||
+      S.imgwDiag?.status==="niedostępne" ||
+      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
+    const imgwOffline=imgwFeedOffline;
+    S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
+    // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
+    // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
+    // ICON-EU, a jeśli go nie ma — ECMWF IFS.
+    const rawCloudSource=imgwOffline
+      ?(cloudCompare.find(r=>r.model==="icon_eu"&&Number.isFinite(Number(r.data?.current?.cloud_cover)))
+        ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
+      :null;
+    const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
+    const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
+    if(imgwOffline&&offlineEnsemble){
+      data=offlineEnsemble;
+      // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
+      if(Number.isFinite(rawCloudCover)){
+        data.current=data.current||{};
+        data.current.cloud_cover=rawCloudCover;
+      }
+      S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
+      S.ensemble=offlineEnsemble.__auraEnsemble;
+    }else{
+      S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
+      S.ensemble=null;
+    }
+Number(r.data?.current?.cloud_cover_high)).filter(Number.isFinite)
         }
       };
     }
