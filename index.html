@@ -1671,7 +1671,13 @@ function computeCtx(){
     currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
     timeline:precipTimeline,
     firstRainTime,
-    low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
+    // Piętra chmur pokazujemy jako udział widocznego nieba: żadne piętro nie może przekroczyć total cloud_cover.
+    // Open-Meteo podaje low/mid/high jako niezależne pola, więc surowe 100% warstwy przy total 46%
+    // nie może być prezentowane użytkownikowi jako 100%.
+    low:(g(hourly.cloud_cover_low)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_low)),Number(cloud)):g(hourly.cloud_cover_low),
+    mid:(g(hourly.cloud_cover_mid)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_mid)),Number(cloud)):g(hourly.cloud_cover_mid),
+    high:(g(hourly.cloud_cover_high)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_high)),Number(cloud)):g(hourly.cloud_cover_high),
+    optiCloud:opti?.value??null,optiCloudLayers:opti?.layers??null,optiCloudModels:opti?.models??[],
     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
     meta:wMeta(code,isDay,cloud),
