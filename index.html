@@ -596,8 +596,12 @@ function putWeatherCache(key,data){
 
 // Pobierz dane z konkretnego modelu (v6: więcej zmiennych, 10 dni)
 async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
+  // Poszczególne modele mają różne maksymalne horyzonty. ICON-D2 ma tylko 2 dni,
+  // więc żądanie forecast_days=10 kończy się HTTP 400 i wypada z porównania modeli.
+  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16};
+  const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
-  const key=weatherCacheKey(lat,lng,modelId,days);
+  const key=weatherCacheKey(lat,lng,modelId,requestDays);
   const cached=!forceFresh&&!WEATHER_FORCE_REFRESH?getWeatherCache(key,policy.ttlMs):null;
   if(cached)return structuredClone(cached);
 
@@ -622,7 +626,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
       "uv_index_max","uv_index_clear_sky_max","sunrise","sunset","wind_speed_10m_max"
     ].join(","),
     timezone:"auto",
-    forecast_days:String(days),
+    forecast_days:String(requestDays),
     models:modelId
   });
   const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
