@@ -1,0 +1,10 @@
+{
+  "source": "EUMETSAT",
+  "collection": "EO:EUM:DAT:MSG:CLM",
+  "status": "WAITING_FOR_WORKFLOW",
+  "lat": 52.8142,
+  "lon": 19.21174,
+  "cloudFraction": null,
+  "note": "Plik zostanie zastąpiony przez GitHub Actions po skonfigurowaniu sekretów EUMETSAT.",
+  "generatedAt": null
+}
