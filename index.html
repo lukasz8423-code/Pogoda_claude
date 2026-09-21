@@ -1940,24 +1940,23 @@ function isDayAt(iso){
   if(di>=0&&daily.sunrise?.[di]&&daily.sunset?.[di])return t>=new Date(daily.sunrise[di])&&t<new Date(daily.sunset[di]);
   const h=t.getHours();return h>=6&&h<19;
 }
-function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,timeline}){
+function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,pop,timeline,rainActive=false}){
   const cloudPct=Number(cloudCover);
   const cloudCode=Number.isFinite(cloudPct)
     ?(cloudPct<=20?0:cloudPct<=70?2:3):3;
+  const modelIsRain=isRainCode(modelCode);
+  const popPct=Number(pop);
 
-  // Opad zawsze ma priorytet nad samym zachmurzeniem.
-  if(isPrecipCode(modelCode))return modelCode;
-
-  // "Teraz": gdy mamy nowcasting 15-minutowy, ikona pochodzi WYŁĄCZNIE
-  // z aktualnego slotu 15-minutowego. Godzinowy model nie może jej nadpisać.
-  if(hourIndex===0&&timeline?.source==="minutely_15"){
+  let code;
+  // Kod opadowy z modelu ma pierwszeństwo przed zachmurzeniem.
+  if(isPrecipCode(modelCode)){
+    code=Number(modelCode);
+  // "Teraz": gdy mamy nowcasting 15-minutowy, bieżący slot może wymusić deszcz.
+  }else if(hourIndex===0&&timeline?.source==="minutely_15"){
     const mm=Number(timeline.current?.mm);
-    return Number.isFinite(mm)&&mm>=0.05?61:cloudCode;
-  }
-
-  // Najbliższa pełna godzina: jeżeli którykolwiek z jej slotów 15-min
-  // ma ciągły opad, pokaż deszcz; w przeciwnym razie użyj chmur tej godziny.
-  if(hourIndex===1&&timeline?.source==="minutely_15"){
+    code=Number.isFinite(mm)&&mm>=0.05?61:cloudCode;
+  // Najbliższa pełna godzina: ciągły opad z 15-min może wymusić deszcz.
+  }else if(hourIndex===1&&timeline?.source==="minutely_15"){
     const start=hourDate.getTime();
     const end=start+60*60000;
     const slots=timeline.slots.filter(x=>{
@@ -1965,12 +1964,28 @@ function synchronizedHourlyPrecipCode({hourIndex,hourDate,modelCode,cloudCover,t
       return t>=start&&t<end;
     });
     const rainMinutes=slots.filter(x=>Number(x.mm)>=0.05).length*15;
-    return rainMinutes>=20?61:cloudCode;
+    code=rainMinutes>=20?61:cloudCode;
+  }else{
+    code=cloudCode;
   }
 
-  // Dla każdej pozostałej godziny kod bezopadowy jest korygowany
-  // przez jej własne cloud_cover. Dzięki temu 86% chmur nie pokaże słońca.
-  return cloudCode;
+  // ŻELAZNY BEZPIECZNIK OPADU:
+  // jeżeli godzina jest deszczowa, ikona musi być deszczowa.
+  if(rainActive||modelIsRain){
+    if(modelIsRain){
+      code=Number(modelCode);
+    }else if(!isRainCode(code)){
+      code=61;
+    }
+  }
+
+  // ŻELAZNY BEZPIECZNIK POP:
+  // POP >= 50% nigdy nie może skończyć jako czyste słońce (kod 0).
+  if(Number.isFinite(popPct)&&popPct>=50&&!isRainCode(code)&&Number(code)===0){
+    code=2;
+  }
+
+  return code;
 }
 function hourlyHTML(X){
   const {hourly,daily}=S.data;let out="";
@@ -2004,7 +2019,19 @@ function hourlyHTML(X){
     }
 
     const iconCloud=Number.isFinite(hourCloud)?hourCloud:(pop>=50?50:0);
-    let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:iconCloud,timeline:X?.timeline});
+    const rainActive=
+      isRainCode(modelCode)||
+      Number(hourRain?.mm)>=0.05||
+      Number(hourly.precipitation?.[idx])>=0.05;
+    let code=synchronizedHourlyPrecipCode({
+      hourIndex:i,
+      hourDate:t,
+      modelCode,
+      cloudCover:iconCloud,
+      pop,
+      timeline:X?.timeline,
+      rainActive
+    });
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
     // TWARDY OVERRIDE DLA "TERAZ"
@@ -2032,6 +2059,7 @@ function hourlyHTML(X){
       }
     }
 
+    // Napis "· deszcz" wolno pokazać tylko wtedy, gdy ikona jest deszczowa.
     const rainNow=pop>=20&&isRainCode(code);
     out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
   }
