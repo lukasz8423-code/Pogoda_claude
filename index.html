@@ -1357,9 +1357,8 @@ async function apiMinutely(lat,lng){
     for(let i=0;i<t.length;i++){if(new Date(t[i]).getTime()<=now)idx=i;else break;}
     if(idx<0)return null;
     const out=[];
-    // WAŻNE: zachowujemy także bieżący slot. Open-Meteo 15-min precipitation
-    // jest sumą poprzednich 15 minut, więc slot 09:00 może opisywać opad trwający
-    // około 09:00, zamiast przesuwać pierwszy sygnał dopiero na 09:15/10:15.
+    // Każdy slot 15-min pokazujemy jako własny przedział czasowy.
+    // Prawdopodobieństwo (POP) jest pobierane z godziny zawierającej slot.
     for(let i=idx;i<=idx+16&&i<t.length;i++){
       const tm=new Date(t[i]).getTime();
       // Przypisujemy 15-min slot do godziny, w której faktycznie leży.
