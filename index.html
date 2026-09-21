@@ -1950,20 +1950,26 @@ function hourlyHTML(X){
     let code=synchronizedHourlyPrecipCode({hourIndex:i,hourDate:t,modelCode,cloudCover:Number(X.cloud),timeline});
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
-    // TWARDY OVERRIDE UI: finalna ikona kafelka "Teraz" pochodzi wyłącznie
-    // z aktualnego slotu 15-minutowego. Nie pozwalamy modelowi godzinowemu
-    // przywrócić ikony deszczu po wcześniejszym wyliczeniu.
-    if(i===0&&timeline?.source==="minutely_15"){
-      const nowMs=Date.now();
-      const currentSlot15=timeline.slots?.find(s=>{
-        const slotTime=new Date(s.t).getTime();
-        return Number.isFinite(slotTime)&&slotTime<=nowMs&&nowMs<slotTime+15*60000;
-      });
-      const currentMm=Number(currentSlot15?.mm);
-      if(!Number.isFinite(currentMm)||currentMm<0.05){
-        code=Number(X.cloud)<=10?0:Number(X.cloud)<=40?2:3;
-      }else{
-        code=61;
+    // TWARDY OVERRIDE DLA "TERAZ"
+    let cloudCode =
+      Number(X.cloud) <= 10 ? 0 :
+      Number(X.cloud) <= 40 ? 2 : 3;
+
+    if(i===0){
+      // Weź pierwszy slot minutowy bezpośrednio z tablicy.
+      const firstSlot=timeline?.slots?.[0]||timeline?.current;
+
+      if(firstSlot){
+        // Oczyść wartość mm z ewentualnych tekstowych jednostek
+        // oraz obsłuż przecinek jako separator dziesiętny.
+        const rawSource=firstSlot.mm??firstSlot.precipitation??0;
+        const rawMm=String(rawSource).replace(',','.').replace(/[^0-9.]/g,'');
+        const mmVal=parseFloat(rawMm)||0;
+
+        // Jeżeli opad wynosi < 0.05 mm, BEZWZGLĘDNIE ustaw ikonę zachmurzenia.
+        if(mmVal<0.05){
+          code=cloudCode;
+        }
       }
     }
 
