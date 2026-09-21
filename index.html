@@ -1896,9 +1896,20 @@ function nowcastHTML(X){
     if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne")+" ("+fnum(peak,1)+" mm/h)";
     bars=X.timeline.slots.map(x=>{
       const pop=x.pop==null?"–":Math.round(x.pop)+"%";
-      const label=x.mm<0.005?"0":fnum(x.mm,2)+" mm";
-      const barH=Math.round(clamp(x.mm,0,1)*54+4);
-      return `<i class="${x.mm<.1?"z":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
+      const mm=Number(x.mm)||0;
+      const traceRain=mm>=0.01&&mm<0.15;
+      const activeRain=
+        isRainCode(stateCode) ||
+        (Number.isFinite(stateMm)&&stateMm>0.05) ||
+        (Number.isFinite(statePrecip)&&statePrecip>0.05);
+      const label=traceRain
+        ? "< 0,1 mm"
+        : mm<0.005
+          ? "0"
+          : fnum(mm,2)+" mm";
+      const displayMm=traceRain&&activeRain?0.08:mm;
+      const barH=Math.round(clamp(displayMm,0,1)*54+4);
+      return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax="<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>";
     sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu w danej godzinie, mm = opad w danym oknie 15 min.";
