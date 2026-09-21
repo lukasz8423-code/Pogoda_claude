@@ -1668,24 +1668,6 @@ function tempColor(t){
 // Centralna fuzja opadu: jeden werdykt dla current, hourly i minutówek.
 // Mikroopad z modelu nie jest uznawany za deszcz bez potwierdzenia krótkoterminowego.
 // Jednocześnie realny opad ma priorytet i może natychmiast odblokować model.
-function applyGlobalWeatherFusion(data,imgwData,minutelySlots){
-  if(!data)return {applied:false,minutely:Array.isArray(minutelySlots)?minutelySlots:[]};
-  const result=smartPrecipitationFusion(data,imgwData,minutelySlots);
-  // Nie trzymamy równoległego „raw” stanu minutowego w S.
-  // Renderer ma dostać wyłącznie wynik globalnej fuzji.
-  data.__auraGlobalWeatherFusion={
-    applied:true,
-    suppressModelMicro:result.suppressModelMicro,
-    allowRealRain:result.allowRealRain,
-    evidence:result.evidence,
-    stationFresh:result.stationFresh,
-    stationMm:result.stationMm,
-    nowcastWet:result.nowcastWet
-  };
-  data.__auraMinutelyFusion=result.minutely;
-  return result;
-}
-
 function smartPrecipitationFusion(data,imgwData,minutelySlots){
   const stationMm=Number(imgwData?.opad_10min);
   const stationFresh=imgwData?.opad10minFresh===true &&
@@ -1747,33 +1729,12 @@ function smartPrecipitationFusion(data,imgwData,minutelySlots){
   const correctedMinutely=suppressModelMicro
     ?correctMinutelyPrecipitation(slots,imgwData,true)
     :slots;
-
-  // Daily musi być zgodne z tym samym werdyktem co current/hourly.
-  const daily=data?.daily;
-  if(daily?.time&&Array.isArray(daily.time)&&suppressModelMicro){
-    const n=daily.time.length;
-    for(let i=0;i<n;i++){
-      const p=Number(daily.precipitation_sum?.[i]);
-      const r=Number(daily.rain_sum?.[i]);
-      if((Number.isFinite(p)&&p>0&&p<=0.4)||(Number.isFinite(r)&&r>0&&r<=0.4)){
-        if(Array.isArray(daily.precipitation_sum))daily.precipitation_sum[i]=0;
-        if(Array.isArray(daily.rain_sum))daily.rain_sum[i]=0;
-        if(Array.isArray(daily.showers_sum))daily.showers_sum[i]=0;
-        if(Array.isArray(daily.weather_code)&&isRainCode(Number(daily.weather_code[i]))){
-          const cloud=Number(daily.cloud_cover_mean?.[i]);
-          daily.weather_code[i]=Number.isFinite(cloud)?(cloud<=20?0:cloud<=70?2:3):0;
-        }
-      }
-    }
-  }
-
   return {
     stationFresh,stationMm,stationWet,nowcastWet,heavyNowcast,confirmedShortTerm,
     allowRealRain,suppressModelMicro,evidence,
     currentNowMm:Number.isFinite(currentNowMm)?currentNowMm:null,
     minutely:correctedMinutely,
     hourly:data?.hourly||null,
-    daily:data?.daily||null,
     applied:suppressModelMicro||allowRealRain
   };
 }
@@ -3740,13 +3701,12 @@ async function loadWCore(lat,lng,name,isRef,token){
       }
     }
 
-    // GLOBAL FUSION BOUNDARY: od tego miejsca wszystkie widoki dostają jeden snapshot opadu.
     const fusionImgw=imgwResult.status==="fulfilled"
       ?(imgwResult.value?.best||imgwResult.value||{})
       :null;
-    const globalWeatherFusion=applyGlobalWeatherFusion(data,fusionImgw,fusionNowcastRaw);
-    S.precipitationFusion=globalWeatherFusion;
-    const fusionNowcast=globalWeatherFusion.minutely||[];
+    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
+    S.precipitationFusion=precipitationFusion;
+    const fusionNowcast=precipitationFusion.minutely||[];
 
     if(isGpsLocation){
       S.gpsDiag.model=activeModel.id;
@@ -3799,7 +3759,15 @@ async function loadWCore(lat,lng,name,isRef,token){
         layers:{
           low:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_low)).filter(Number.isFinite),
           mid:cloudCompare.map(r=>Number(r.data?.current?.cloud_cover_mid)).filter(Number.isFinite),
-          high:cloudCompare.map(r=>    // Twarda blokada bieżącej widoczności z głównego API.
+          high:cloudCompare.map(r=>    const fusionImgw=imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null;
+    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
+    S.precipitationFusion=precipitationFusion;
+    // Jedna wersja minutówek dla UI — nie dopuszczamy do drugiej, niezależnej korekty.
+    const fusionNowcast=precipitationFusion.minutely||[];
+
+    // Twarda blokada bieżącej widoczności z głównego API.
     // Jeśli API zwróciło poprawne visibility > 0, UI ma używać dokładnie tej wartości.
     const apiVisibilityNow=Number(data?.current?.visibility);
     if(Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0){
@@ -4201,7 +4169,7 @@ Number(r.data?.current?.cloud_cover_high)).filter(Number.isFinite)
 
   if(token!==LOAD_SEQ)return;
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:S.precipitationFusion?.minutely||[],air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
   S.isFusionLocked=true;
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
