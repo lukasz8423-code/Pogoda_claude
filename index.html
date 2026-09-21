@@ -1832,6 +1832,16 @@ function unifiedPrecipitationTimeline(){
   }
   return {source:"hourly",slots:[],current:null,future:[],hours};
 }
+function currentTimelineMm(X){
+  const firstSlot=X?.timeline?.slots?.[0]||X?.timeline?.current||null;
+  if(!firstSlot)return null;
+  const rawSource=firstSlot.mm??firstSlot.precipitation??0;
+  const rawMm=String(rawSource)
+    .replace(',','.')
+    .replace(/[^0-9.]/g,'');
+  const mmVal=parseFloat(rawMm);
+  return Number.isFinite(mmVal)?Math.max(0,mmVal):0;
+}
 function nowcastHTML(X){
   const snow=isSnowCode(X.code);
   const storm=isStormCode(X.code);
@@ -1922,7 +1932,8 @@ function hourlyHTML(X){
     const hourRain=X?.timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()));
     const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
     const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
-    const nowMm=currentTimelineMm(X);\n    const rainNow=i===0 ? (nowMm!==null&&nowMm>0.05) : (X?.timeline?.source==="minutely_15"&&Number(hourRain?.mm)>0.05);
+    const nowMm=currentTimelineMm(X);
+    const rainNow=i===0 ? (nowMm!==null&&nowMm>0.05) : (X?.timeline?.source==="minutely_15"&&Number(hourRain?.mm)>0.05);
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
     const rawCode=hourly.weather_code?.[idx];
