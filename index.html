@@ -3740,13 +3740,6 @@ async function loadWCore(lat,lng,name,isRef,token){
       }
     }
 
-    const fusionImgw=imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
-      :null;
-    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
-    S.precipitationFusion=precipitationFusion;
-    const fusionNowcast=precipitationFusion.minutely||[];
-
     // GLOBAL FUSION BOUNDARY: od tego miejsca wszystkie widoki dostają jeden snapshot opadu.
     const fusionImgw=imgwResult.status==="fulfilled"
       ?(imgwResult.value?.best||imgwResult.value||{})
