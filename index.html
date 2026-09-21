@@ -1666,6 +1666,42 @@ function tempColor(t){
 // v6 — dodatkowe źródła danych
 // ═══════════════════════════════════════════════
 // Opad co 15 min na najbliższe 2h (styl MinuteCast z AccuWeather)
+function correctMinutelyPrecipitation(slots, imgwData){
+  if(!Array.isArray(slots)) return [];
+
+  const stationPrecip=Number(imgwData?.opad_10min);
+  const stationAge=Number(imgwData?.opad10minAgeMinutes);
+  const stationDist=Number(imgwData?.dist);
+
+  const stationDry=
+    imgwData?.opad10minFresh===true &&
+    Number.isFinite(stationPrecip) &&
+    stationPrecip<=0 &&
+    Number.isFinite(stationDist) &&
+    stationDist<=5 &&
+    (!Number.isFinite(stationAge)||stationAge<=30);
+
+  return slots.map(slot=>{
+    const mm=Number(slot?.mm);
+    if(!Number.isFinite(mm)) return slot;
+
+    if(stationDry && mm>0 && mm<=0.4){
+      const hourlyMm=Number(slot?.hourlyMm);
+      return {
+        ...slot,
+        mm:0,
+        rain:0,
+        code:isRainCode(Number(slot?.code))?0:slot?.code,
+        hourlyMm:Number.isFinite(hourlyMm)&&hourlyMm<=0.4?0:slot?.hourlyMm,
+        precipitationCorrected:true,
+        precipitationCorrectionReason:"IMGW_Glodowo_0mm"
+      };
+    }
+
+    return slot;
+  });
+}
+
 async function apiMinutely(lat,lng){
   try{
     const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code,visibility&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{signal:AbortSignal.timeout(8000)});
@@ -3442,7 +3478,13 @@ async function loadWCore(lat,lng,name,isRef){
       apiSatelliteCloudMask(lat,lng),
       apiMinutely(lat,lng)
     ]);
-    const fusionNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
+    const rawNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
+  const fusionNowcast=correctMinutelyPrecipitation(
+    rawNowcast,
+    imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null
+  );
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
@@ -3928,7 +3970,8 @@ async function loadWCore(lat,lng,name,isRef){
   const same=()=>S.lat===lat&&S.lng===lng;
   apiMinutely(lat,lng).then(m=>{
     if(same()){
-      S.minutely=m;
+      const correctedMinutely=correctMinutelyPrecipitation(m,S.imgwData);
+      S.minutely=correctedMinutely;
       // Widoczność: preferujemy bieżący 15-min slot modelu wysokiej rozdzielczości
       // dla Europy Środkowej zamiast godzinowej wartości Best Match.
       const nowMs=Date.now();
