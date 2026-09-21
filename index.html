@@ -2483,7 +2483,19 @@ function dailyRows(){
   const gmin=Math.min(...idxs.map(i=>daily.temperature_2m_min[i])),gmax=Math.max(...idxs.map(i=>daily.temperature_2m_max[i])),span=Math.max(1,gmax-gmin);
   return idxs.map(i=>{
     const mn=daily.temperature_2m_min[i],mx=daily.temperature_2m_max[i];
-    const pop=daily.precipitation_probability_max?.[i]??0,open=S.expDay===i;
+    const stationDryNow=
+      S.imgwData?.opad10minFresh===true &&
+      Number(S.imgwData?.opad_10min)===0 &&
+      Number(S.imgwData?.dist)<=5 &&
+      (!Number.isFinite(Number(S.imgwData?.opad10minAgeMinutes))||Number(S.imgwData.opad10minAgeMinutes)<=30);
+    const dayPrecip=Number(daily.precipitation_sum?.[i]);
+    const rawPop=Number(daily.precipitation_probability_max?.[i]??0);
+    // Jeżeli dzień ma tylko śladowy modelowy opad, a Głodowo potwierdza sucho,
+    // nie pokazujemy 70–80% POP jako faktu.
+    const pop=stationDryNow && Number.isFinite(dayPrecip) && dayPrecip<=0.4
+      ?Math.min(rawPop,15)
+      :rawPop;
+    const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
     const dot=i===0?`<u style="left:${clamp((X.T-gmin)/span*100,0,100).toFixed(1)}%"></u>`:"";
