@@ -3701,6 +3701,13 @@ async function loadWCore(lat,lng,name,isRef,token){
       }
     }
 
+    const fusionImgw=imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null;
+    const precipitationFusion=smartPrecipitationFusion(data,fusionImgw,fusionNowcastRaw);
+    S.precipitationFusion=precipitationFusion;
+    const fusionNowcast=precipitationFusion.minutely||[];
+
     if(isGpsLocation){
       S.gpsDiag.model=activeModel.id;
       S.gpsDiag.cloud=data?.current?.cloud_cover??null;
