@@ -541,8 +541,7 @@ function discomfortIndex(temp,hum,windKmh=0){
   // Jedna ciągła postać apparent temperature: temperatura + wilgotność - chłodzenie wiatrem.
   const e=6.105*Math.exp(17.27*t/(237.7+t))*rh/100;
   const windMs=w/3.6;
-  let hi=Math.round(t+0.33*e-0.70*windMs-4.00);
-  hi=Math.round(hi);
+  const hi=Math.round(t+0.33*e-0.70*windMs-4.00);
   let label,color,emoji;
   if(temp<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
   else if(hi<10){label="Zimno";color="rgba(56,189,248,.12)";emoji="🧊";}
@@ -1630,7 +1629,7 @@ function computeCtx(){
   const isDay=current.is_day!=null?current.is_day===1:sun.day;
   // Pomiar ze stacji (jeśli zastosowano) siedzi w current — bierzemy go w pierwszej kolejności
   const T=current.temperature_2m??g(hourly.temperature_2m)??15;
-  const feels=current.apparent_temperature??g(hourly.apparent_temperature)??T;
+  const feels=discomfortIndex(T,hum,wind).value??T;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
   const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
   const stationGust=stationFreshGustKmH(S.imgwData);
