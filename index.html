@@ -1917,8 +1917,11 @@ function hourlyHTML(X){
       out+=`<div class="hi sun"><span class="t tn">${hhmm(e.t)}</span>${ico(0,true,30)}<span class="v" style="font-size:12.5px">${e.up?"Wschód":"Zachód"}</span><span class="p"></span></div>`;
     });
     const timeline=unifiedPrecipitationTimeline();
-    const hourRain=timeline?.hours?.find(h=>h.t.getTime()===t.getTime());
-    const pop=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
+    const hourRain=timeline?.hours?.find(h=>h.t.getTime()===t.getTime()||(
+      h.t.getFullYear()===t.getFullYear()&&h.t.getMonth()===t.getMonth()&&h.t.getDate()===t.getDate()&&h.t.getHours()===t.getHours()
+    ));
+    const popRaw=hourRain?.pop??hourly.precipitation_probability?.[idx]??0;
+    const pop=Number.isFinite(Number(popRaw))?Math.max(0,Math.min(100,Number(popRaw))):0;
     const rainNow=timeline?.source==="minutely_15"&&hourRain?.mm>=0.05;
     const rawTemp=i===0?X.T:hourly.temperature_2m?.[idx];
     const temp=Number.isFinite(Number(rawTemp))?Number(rawTemp):(Number.isFinite(Number(X.T))?Number(X.T):0);
