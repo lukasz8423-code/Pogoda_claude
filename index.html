@@ -2139,7 +2139,7 @@ function modelsHTML(){
   }else if(!c)body+=`<div class="note" style="margin-top:0">Porównanie modeli pojawi się po chwili.</div>`;
   if(acc)body+=`<div class="note">Trafność temperatury z historii tej aplikacji: ${acc.accuracy}% (${acc.count} zweryfikowanych prognoz).</div>`;
   return`<section class="card"><div class="ch">${mini("layers")}<span class="grow">Zgodność modeli</span></div>${body}
-    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="model">Zmień model</button><button class="btn" data-act="raw">Surowe dane</button><button class="btn" data-act="pipeline">🩺 Live Health Check</button></div></section>`;
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="model">Zmień model</button><button class="btn" data-act="raw">Surowe dane</button><button class="btn pri" data-act="pipeline">🔬 Diagnostyka źródeł</button></div></section>`;
 }
 
 function stationHTML(){
@@ -2357,30 +2357,17 @@ function runLiveDataQualityGuard(){
   return S.liveHealth;
 }
 function pipelineInspectorHTML(){
-  const d=S.pipelineDiag;
-  if(!d)return "<div class='sd'>Brak danych diagnostycznych. Najpierw pobierz pogodę.</div>";
-  const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]};
-  const rows=d.rows||[],alerts=[];
-  if(health.alerts.length)health.alerts.forEach(a=>alerts.push("<div class='"+(a.severity==="error"||a.severity==="critical"?"err":"err warn")+"'><b>"+esc(a.code)+"</b> — "+esc(a.message)+(a.step==null?"":" · T+"+a.step)+"</div>"));
-  else alerts.push("<div class='note'>✅ Live Health Check: brak wykrytych rozbieżności.</div>");
-  alerts.push("<div class='note'>ℹ️ "+esc(d.imgwForecastNote)+"</div>");
-  if(d.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
-    alerts.push("<div class='err warn'><b>[STATUS] IMGW Offline</b> → Active Ensemble: <b>"+esc((d.activeEnsemble||[]).join(" + "))+"</b> · consensus zachmurzenia: <b>"+(d.ensembleCloudConsensus==null?"—":Math.round(d.ensembleCloudConsensus)+"%")+"</b></div>");
-  }
-  if(S.imgwStatus==="OFFLINE"){
-    alerts.push("<div class='err warn'><b>[STATUS] IMGW Offline</b> → UI cloud hard override: <b>"+(S.ensemble?.cloudCover==null?"—":Math.round(S.ensemble.cloudCover)+"%")+"</b></div>");
-  }
-  const fmt=v=>v==null?"—":(typeof v==="number"?fnum(v,1):esc(String(v)));
-  const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v)*100)+"%":"—";
-  const table="<div style='overflow:auto;margin-top:10px'><table style='width:100%;min-width:720px;border-collapse:collapse;font-size:11px'><thead><tr><th>Godzina</th><th>IMGW Stacja</th><th>IMGW Model</th><th>Open-Meteo</th><th>Aura Final</th><th>Waga T</th><th>Front</th></tr></thead><tbody>"+
-    rows.map(r=>"<tr><td>"+esc(hhmm(new Date(r.time)))+"</td><td class='tn'>"+fmt(r.imgwStation)+"</td><td class='tn'>"+fmt(r.imgwModel)+"</td><td class='tn'>"+fmt(r.openMeteo)+"</td><td class='tn'><b>"+fmt(r.auraFinal)+"</b></td><td>"+pct(r.tempWeight)+"</td><td>"+(r.dynamicFront?"⚡":"")+"</td></tr>").join("")+
-    "</tbody></table></div>";
-  return "<h3>Data Pipeline Inspector</h3><div class='sd'>Debug: bieżące dane, wagi fuzji i kolejne 3 godziny.</div>"+alerts.join("")+
-    "<div class='note'>Bridge: <b>"+esc(d.bridgeSource)+"</b> · IMGW: <b>"+esc(d.station)+"</b> · odległość: "+fmt(d.stationDistanceKm)+" km · wiek: "+(d.stationAgeMinutes==null?"—":d.stationAgeMinutes+" min")+"</div>"+
-    table+
-    "<div class='note' style='margin-top:10px'>Wagi bieżące: T <b>"+pct(d.weights.temperature)+"</b> · RH <b>"+pct(d.weights.humidity)+"</b> · wiatr <b>"+pct(d.weights.wind)+"</b> · kierunek <b>"+pct(d.weights.windDirection)+"</b> · opad T0 <b>"+pct(d.precipitationModelWeight??1)+"</b></div>"+
-    (d.ghostPrecipitation?"<div class='note' style='color:var(--warn);margin-top:6px'>⚠️ Ghost Rain Guard: stacja "+fmt(d.stationPrecip10min)+" mm/10 min, model T0 "+fmt(d.modelCurrentPrecipitation)+" mm → waga modelu opadu T0: <b>"+pct(d.precipitationModelWeight)+"</b></div>":"")+
-    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'><button class='btn pri' data-act='pipeline-refresh'>Bypass Cache &amp; Re-fetch</button><button class='btn' data-act='copy-pipeline'>Kopiuj diagnostykę</button></div>";
+  const d=S.pipelineDiag, rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data):[];
+  const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]}, img=S.imgwData||{}, cur=S.data?.current||{};
+  const fmt=v=>v==null||v===""?"—":(Number.isFinite(Number(v))?fnum(Number(v),1):esc(String(v)));
+  const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v))+"%":"—";
+  const modelRows=rawModels.map(r=>{const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];return {model:r.model||r.name||"—",temp:x.temperature_2m,hum:x.relative_humidity_2m,wind:x.wind_speed_10m,cloud:x.cloud_cover,low:x.cloud_cover_low??g("cloud_cover_low"),mid:x.cloud_cover_mid??g("cloud_cover_mid"),high:x.cloud_cover_high??g("cloud_cover_high"),precip:x.precipitation,code:x.weather_code};});
+  const consensus=consensusCloudCover(S.modelCompareNow||[]);
+  const rows=[["Temperatura","°C",img.temperatura,cur.temperature_2m,S.X?.T],["Wilgotność","%",img.wilgotnosc_wzgledna,cur.relative_humidity_2m,S.X?.hum],["Wiatr","km/h",Number.isFinite(Number(img.predkosc_wiatru))?Number(img.predkosc_wiatru)*3.6:null,cur.wind_speed_10m,S.X?.wind],["Porywy","km/h",stationFreshGustKmH(img),cur.wind_gusts_10m,S.X?.gusts],["Ciśnienie","hPa",img.cisnienie,cur.pressure_msl,S.X?.press],["Opad 10 min","mm",img.opad_10min,null,currentRainMm(S.X||{})]];
+  const sourceTable="<div style=\"overflow:auto\"><table style=\"width:100%;min-width:720px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Parametr</th><th>IMGW Głodowo</th><th>Open-Meteo RAW</th><th>Aura</th><th>Różnica Aura−IMGW</th></tr></thead><tbody>"+rows.map(r=>{const diff=Number.isFinite(Number(r[2]))&&Number.isFinite(Number(r[4]))?Number(r[4])-Number(r[2]):null;return "<tr><td><b>"+r[0]+"</b></td><td class=\"tn\">"+fmt(r[2])+(r[2]!=null?" "+r[1]:"")+"</td><td class=\"tn\">"+fmt(r[3])+(r[3]!=null?" "+r[1]:"")+"</td><td class=\"tn\"><b>"+fmt(r[4])+(r[4]!=null?" "+r[1]:"")+"</b></td><td class=\"tn\">"+(diff==null?"—":(diff>0?"+":"")+fnum(diff,1)+" "+r[1])+"</td></tr>";}).join("")+"</tbody></table></div>";
+  const modelTable=modelRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">Open-Meteo — surowe modele, bieżący slot</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>T</th><th>RH</th><th>Wiatr</th><th>Chmury</th><th>Low</th><th>Mid</th><th>High</th><th>Opad</th><th>WMO</th></tr></thead><tbody>"+modelRows.map(m=>"<tr><td>"+esc(m.model)+"</td><td>"+fmt(m.temp)+"°</td><td>"+fmt(m.hum)+"%</td><td>"+fmt(m.wind)+" km/h</td><td><b>"+pct(m.cloud)+"</b></td><td>"+pct(m.low)+"</td><td>"+pct(m.mid)+"</td><td>"+pct(m.high)+"</td><td>"+fmt(m.precip)+"</td><td>"+fmt(m.code)+"</td></tr>").join("")+"</tbody></table></div><div class=\"note\">Konsensus zachmurzenia: <b>"+(consensus==null?"—":Math.round(consensus)+"%")+"</b> · Aura: <b>"+(S.X?.cloud==null?"—":Math.round(S.X.cloud)+"%")+"</b></div>":"<div class=\"note\">Brak surowych danych Open-Meteo.</div>";
+  const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
+  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+sourceTable+modelTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
 function pipelineDiagnosticsText(){return JSON.stringify({status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",ensemble:S.ensemble||null,pipeline:S.pipelineDiag||null,liveHealth:S.liveHealth||null},null,2);}
@@ -3269,7 +3256,7 @@ async function loadWCore(lat,lng,name,isRef){
   }
 
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef});
   render();
 
   if(isDemo)return;
