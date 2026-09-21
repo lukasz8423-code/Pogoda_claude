@@ -2370,10 +2370,66 @@ function pipelineInspectorHTML(){
   return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+sourceTable+modelTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
-function pipelineDiagnosticsText(){return JSON.stringify({status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",ensemble:S.ensemble||null,pipeline:S.pipelineDiag||null,liveHealth:S.liveHealth||null},null,2);}
+function pipelineDiagnosticsText(){
+  const models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
+    const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];
+    return {
+      model:r.model||r.name||null,
+      current:{
+        temperature_2m:x.temperature_2m??null,
+        relative_humidity_2m:x.relative_humidity_2m??null,
+        wind_speed_10m:x.wind_speed_10m??null,
+        wind_gusts_10m:x.wind_gusts_10m??null,
+        cloud_cover:x.cloud_cover??null,
+        cloud_cover_low:x.cloud_cover_low??g("cloud_cover_low")??null,
+        cloud_cover_mid:x.cloud_cover_mid??g("cloud_cover_mid")??null,
+        cloud_cover_high:x.cloud_cover_high??g("cloud_cover_high")??null,
+        weather_code:x.weather_code??null,
+        precipitation:x.precipitation??null
+      }
+    };
+  }):[];
+  const cur=S.data?.current||{};
+  const aura={
+    temperature_2m:cur.temperature_2m??null,
+    relative_humidity_2m:cur.relative_humidity_2m??null,
+    cloud_cover:cur.cloud_cover??null,
+    optical_cloud_cover:S.X?.cloud??null,
+    weather_code:cur.weather_code??null,
+    source:S.cloudSource||null
+  };
+  return JSON.stringify({
+    status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
+    miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},
+    aura,
+    stacja_IMGW:S.imgwData||null,
+    modele_OpenMeteo:models,
+    ensemble:S.ensemble||null,
+    pipeline:S.pipelineDiag||null,
+    liveHealth:S.liveHealth||null
+  },null,2);
+}
 
 function openRawSheet(){
-  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,zgodnosc:S.confidence||null,powietrze:S.air||null};
+  const rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
+    const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];
+    return {
+      model:r.model||r.name||null,
+      aktualne:{
+        temperature_2m:x.temperature_2m??null,
+        relative_humidity_2m:x.relative_humidity_2m??null,
+        wind_speed_10m:x.wind_speed_10m??null,
+        wind_gusts_10m:x.wind_gusts_10m??null,
+        cloud_cover:x.cloud_cover??null,
+        cloud_cover_low:x.cloud_cover_low??g("cloud_cover_low")??null,
+        cloud_cover_mid:x.cloud_cover_mid??g("cloud_cover_mid")??null,
+        cloud_cover_high:x.cloud_cover_high??g("cloud_cover_high")??null,
+        weather_code:x.weather_code??null,
+        precipitation:x.precipitation??null
+      }
+    };
+  }):[];
+  const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.cloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
   const txt=JSON.stringify(raw,null,2);
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${S.lat}&longitude=${S.lng}&current=temperature_2m,weather_code,wind_speed_10m&models=${activeModel.id}`;
   openSheet(`<h3>Surowe dane źródłowe</h3><div class="sd">Dokładnie to, co aplikacja dostała z modelu i ze stacji.</div><pre class="raw" id="rawtxt">${esc(txt)}</pre>
