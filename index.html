@@ -1629,9 +1629,9 @@ function computeCtx(){
   const isDay=current.is_day!=null?current.is_day===1:sun.day;
   // Pomiar ze stacji (jeśli zastosowano) siedzi w current — bierzemy go w pierwszej kolejności
   const T=current.temperature_2m??g(hourly.temperature_2m)??15;
-  const feels=discomfortIndex(T,hum,wind).value??T;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
   const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
+  const feels=discomfortIndex(T,hum,wind).value??T;
   const stationGust=stationFreshGustKmH(S.imgwData);
   const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
