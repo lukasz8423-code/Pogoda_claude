@@ -351,9 +351,14 @@ function calcSunShadeTemp(tempC, radiation, windKmh, humidity){
   // Korekta wiatru - wiatr chłodzi
   const windCool = windMs > 0.5 ? Math.min(3, windMs * 0.5) : 0;
   
-  const sunTemp = Math.round((tempC + radiationEffect - windCool) * 10) / 10;
   const shadeTemp = Math.round(tempC * 10) / 10;
-  
+  const calculatedSunTemp = Math.round((tempC + radiationEffect - windCool) * 10) / 10;
+
+  // Twarda zasada: słońce nie może wyjść chłodniejsze niż cień.
+  // Promieniowanie może podnieść temperaturę, ale wiatr nie może odwrócić
+  // relacji słońce > cień.
+  const sunTemp = Math.max(shadeTemp, calculatedSunTemp);
+
   return { sun: sunTemp, shade: shadeTemp };
 }
 
