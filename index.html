@@ -3727,7 +3727,7 @@ async function loadWCore(lat,lng,name,isRef,token){
           ?stationFreshPrecipMm(imgwResult.value?.best||imgwResult.value||{})
           :null,
         stationDry:imgwResult.status==="fulfilled"
-          ?stationHasFreshNoPrecip(imgwResult.value?.best||imgwResult.value||{})
+          ?(stationHasFreshNoPrecip(imgwResult.value?.best||imgwResult.value||{}) && S.precipitationFusion?.allowRealRain!==true)
           :false,
         modelPrecip:Number(data?.current?.precipitation??data?.current?.rain??data?.current?.showers),
         modelCode:Number(data?.current?.weather_code),
@@ -4073,7 +4073,8 @@ Number(r.data?.current?.cloud_cover_high)).filter(Number.isFinite)
   // DATA PIPELINE SANITIZERS — po fuzji, przed cache/render/diagnostyką.
   // Świeża obserwacja Głodowa ma priorytet nad modelem dla T0 opadu.
   const stationPrecipNow=stationFreshPrecipMm(imgwData);
-  if(stationPrecipNow!==null&&data.current){
+  if(stationPrecipNow!==null&&data.current &&
+     (stationPrecipNow>0 || S.precipitationFusion?.allowRealRain!==true)){
     const cc=Number(data.current.cloud_cover);
     if(stationPrecipNow>0){
       const rainCode=61;
