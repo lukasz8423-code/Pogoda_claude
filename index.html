@@ -2965,21 +2965,52 @@ function sanitizeVisibility(data,imgwData){
       data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
     }
   }
+  const stationVisibilityAvailable=
+    Number.isFinite(Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m));
+
+  // Szacowana widoczność nie może być zaniżana wyłącznie przez RH 75–80%
+  // ani przez niską podstawę chmur. Przy suchym powietrzu przy ziemi i
+  // zachmurzeniu <70% przyjmujemy konserwatywne minimum 10 km.
+  const rhNow=Number(data.current?.relative_humidity_2m);
+  const cloudNow=Number(data.current?.cloud_cover);
+  const precipMm=Math.max(
+    0,
+    Number(data.current?.precipitation??0)||0,
+    Number(data.current?.rain??0)||0,
+    Number(data.current?.showers??0)||0,
+    Number(data.current?.snowfall??0)||0
+  );
+  const noActivePrecip=precipMm<=0.005;
+  const moderateHumidityNoRain=
+    noActivePrecip &&
+    Number.isFinite(rhNow) &&
+    rhNow>=75&&rhNow<=80 &&
+    Number.isFinite(cloudNow)&&cloudNow<70 &&
+    !stationFog &&
+    !fogNow;
+
+  // <8 km jest zarezerwowane dla realnych sygnałów ograniczonej widoczności:
+  // mgły, mocnego opadu albo bardzo wysokiej wilgotności (>90%).
+  const strongPrecip=
+    Number(data.current?.precipitation??0)>=1 ||
+    Number(data.current?.rain??0)>=1 ||
+    Number(data.current?.showers??0)>=1 ||
+    Number(data.current?.snowfall??0)>=1;
+  const allowBelow8=stationFog||fogNow||strongPrecip||(Number.isFinite(rhNow)&&rhNow>90);
+
   const stationDrizzleVisibilityGuard=
-    stationNoPrecip &&
-    Number.isFinite(Number(data.current?.precipitation)) &&
-    Number(data.current.precipitation)>=0 &&
-    Number(data.current.precipitation)<0.2 &&
-    Number.isFinite(Number(data.current?.cloud_cover)) &&
-    Number(data.current.cloud_cover)<=70;
-  if(data.current&&stationDrizzleVisibilityGuard&&Number.isFinite(Number(data.current.visibility))){
-    data.current.visibility=Math.max(Number(data.current.visibility),10000);
+    !stationVisibilityAvailable &&
+    moderateHumidityNoRain;
+  if(data.current&&!stationVisibilityAvailable&&Number.isFinite(Number(data.current.visibility))){
+    const currentVisibility=Number(data.current.visibility);
+    const floorKm=allowBelow8?0:moderateHumidityNoRain?10:8;
+    data.current.visibility=Math.max(currentVisibility,floorKm*1000);
   }
   data.__stationVisibilityGuard={
     stationNoPrecip,
     stationFog,
     forcedCurrentVisibility:stationDrizzleVisibilityGuard,
-    stationVisibilityAvailable:Number.isFinite(Number(imgwData?.visibility??imgwData?.widocznosc??imgwData?.visibility_m))
+    stationVisibilityAvailable
   };
 }
 
