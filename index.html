@@ -478,10 +478,23 @@ function advice(city,cur,hourly,ci=0){
 }
 
 // POPRAWIONY indeks dyskomfortu
+function consensusCloudCover(records){
+  const vals=(records||[]).map(r=>Number(r.data?.current?.cloud_cover))
+    .filter(v=>Number.isFinite(v)&&v>=0&&v<=100).sort((a,b)=>a-b);
+  if(!vals.length)return null;
+  const m=Math.floor(vals.length/2);
+  return vals.length%2?vals[m]:(vals[m-1]+vals[m])/2;
+}
+
 function discomfortIndex(temp,hum){
   let hi;
-  if(temp<27){
-    // Uproszczona formuła dla niskich temperatur
+  if(temp<=20){
+    // Standard apparent temperature (BOM/Steadman): wiatr i wilgotność obniżają odczuwalną.
+    const rh=clamp(Number(hum),0,100);
+    const e=6.105*Math.exp(17.27*temp/(237.7+temp))*rh/100;
+    const windKmh=Number.isFinite(Number(S.X?.wind))?Math.max(0,Number(S.X.wind)):0;
+    hi=temp+0.33*e-0.70*(windKmh/3.6)-4.00;
+  } else if(temp<27){
     hi=temp-(0.55-0.0055*hum)*(temp-14.5);
   } else {
     // Steadman dla wysokich temperatur
@@ -1547,7 +1560,8 @@ function computeCtx(){
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
   // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
-  const cloud=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
+  const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
+  const cloud=Number.isFinite(modelConsensus)?modelConsensus:toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
   const code=current.weather_code??0;
   const precip=+(current.precipitation??current.rain??0);
   const pop=g(hourly.precipitation_probability)??0;
@@ -2944,9 +2958,12 @@ async function loadWCore(lat,lng,name,isRef){
       .filter(Number.isFinite).filter(v=>v>=0&&v<=100);
     const raw=Number(data?.current?.cloud_cover);
     if(Number.isFinite(raw)){
+      const consensus=consensusCloudCover(cloudCompare);
+      const mainCloud=Number.isFinite(consensus)?consensus:raw;
+      data.current.cloud_cover=mainCloud;
       S.cloudSource={
-        type:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"model-ensemble":"open-meteo-current",
-        value:raw,
+        type:Number.isFinite(consensus)?"model-consensus":"open-meteo-current",
+        value:mainCloud,
         models:modelClouds,
         consensus:offlineEnsemble?.__auraEnsemble||null
       };
@@ -3110,13 +3127,11 @@ async function loadWCore(lat,lng,name,isRef){
           const rh=Number(data.current.relative_humidity_2m);
           const windMs=Math.max(0,Number(data.current.wind_speed_10m||0)/3.6);
           if(Number.isFinite(rh)){
-            let newFeels=t;
-            if(t<=10&&windMs>1.3){
-              newFeels=13.12+0.6215*t-11.37*Math.pow(windMs*3.6,0.16)
-                +0.3965*t*Math.pow(windMs*3.6,0.16);
-            }else{
-              newFeels=discomfortIndex(t,rh).value;
-            }
+            const previousWind=S.X?.wind;
+            S.X=S.X||{};
+            S.X.wind=windMs*3.6;
+            const newFeels=discomfortIndex(t,rh).value;
+            if(Number.isFinite(previousWind))S.X.wind=previousWind;
             data.current.apparent_temperature=Number.isFinite(newFeels)?Math.round(newFeels*10)/10:t;
           }else{
             data.current.apparent_temperature=t;
