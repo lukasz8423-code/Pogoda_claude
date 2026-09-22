@@ -1106,6 +1106,24 @@ async function findNearestIMGW(lat,lng){
   if(!meteoAll)meteoAll=await fetchIMGWMeteoAll();
   const fetchedAt=Date.now();
 
+  // CANONICAL IMGW SOURCE POLICY:
+  // Snapshot jest tylko transportem/cache'em danych IMGW. Nie wolno traktować
+  // starego snapshotu jako "online". Jeżeli jego fetchedAt jest starszy niż
+  // 30 min, odrzucamy go i próbujemy bezpośredniego feedu IMGW METEO.
+  const snapshotFetchedAt=Number(S.imgwDiag?.snapshotFetchedAt)||0;
+  const snapshotAgeMinutes=snapshotFetchedAt>0 ? (fetchedAt-snapshotFetchedAt)/60000 : Infinity;
+  const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=30;
+  if(meteoAll && !snapshotFresh){
+    console.warn("[IMGW] Stary snapshot — wymuszam świeży feed IMGW METEO",{
+      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Number(snapshotAgeMinutes.toFixed(1)):null
+    });
+    meteoAll=null;
+    S.imgwDiag={...(S.imgwDiag||{}),snapshotValid:false,snapshotStale:true,snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.round(snapshotAgeMinutes):null};
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+    const live=await fetchIMGWMeteoAll();
+    if(Array.isArray(live))meteoAll=live;
+  }
+
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
   // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
   // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
@@ -1127,7 +1145,9 @@ async function findNearestIMGW(lat,lng){
       ...(S.imgwDiag||{}),
       stale_fields:imgwValidation.stale_fields,
       staleWarnings:imgwValidation.warnings,
-      fieldFreshnessTtlMinutes:30
+      fieldFreshnessTtlMinutes:30,
+      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null,
+      snapshotFresh
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
 
@@ -1184,13 +1204,16 @@ async function findNearestIMGW(lat,lng){
     const windAgeMinutes=fieldAge(windObservedAt);
     const windDirAgeMinutes=fieldAge(windDirObservedAt);
     const groundAgeMinutes=fieldAge(groundObservedAt);
-    const TEMP_MAX_AGE_MIN=120;
-    const HUMIDITY_MAX_AGE_MIN=120;
-    const WIND_MAX_AGE_MIN=120;
-    const tempFresh=ageMinutes!=null&&ageMinutes<=TEMP_MAX_AGE_MIN;
-    const humidityFresh=humidityAgeMinutes!=null&&humidityAgeMinutes<=HUMIDITY_MAX_AGE_MIN;
-    const windFresh=windAgeMinutes!=null&&windAgeMinutes<=WIND_MAX_AGE_MIN;
-    const windDirFresh=windDirAgeMinutes!=null&&windDirAgeMinutes<=WIND_MAX_AGE_MIN;
+    // Jeden kanoniczny TTL dla obserwacji Głodowa. Nie może istnieć drugi
+    // limit 120 min, który pozwala użyć zamrożonego pola po walidacji 30 min.
+    const IMGW_CANONICAL_MAX_AGE_MIN=30;
+    const TEMP_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
+    const HUMIDITY_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
+    const WIND_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
+    const tempFresh=ageMinutes!=null&&ageMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
+    const humidityFresh=humidityAgeMinutes!=null&&humidityAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
+    const windFresh=windAgeMinutes!=null&&windAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
+    const windDirFresh=windDirAgeMinutes!=null&&windDirAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
 
     // Opad jest już odfiltrowany przez centralny walidator.
     const rain10Raw=parseFloat(String(glodowo.opad_10min??"").replace(",","."));
