@@ -3550,6 +3550,9 @@ function syncDailyExtremes(data){
   const di=data.daily.time.findIndex(d=>String(d).slice(0,10)===today);
   if(di<0)return;
 
+  // Daily Tmin/Tmax są częścią tego samego snapshotu co current/hourly.
+  // Nie zachowujemy już surowych ekstremów Open-Meteo, bo mogą pochodzić
+  // z innego stanu niż finalnie skorygowane godziny.
   const vals=[];
   const curT=Number(data.current?.temperature_2m);
   if(Number.isFinite(curT))vals.push(curT);
@@ -3561,23 +3564,15 @@ function syncDailyExtremes(data){
   }
   if(!vals.length)return;
 
-  const observedMax=Math.max(...vals);
-  const observedMin=Math.min(...vals);
-  const oldMax=Number(data.daily.temperature_2m_max?.[di]);
-  const oldMin=Number(data.daily.temperature_2m_min?.[di]);
+  data.daily.temperature_2m_max[di]=+Math.max(...vals).toFixed(1);
+  data.daily.temperature_2m_min[di]=+Math.min(...vals).toFixed(1);
 
-  if(Number.isFinite(observedMax)){
-    data.daily.temperature_2m_max[di]=Number.isFinite(oldMax)
-      ?Math.max(oldMax,observedMax):observedMax;
-  }
-  if(Number.isFinite(observedMin)){
-    data.daily.temperature_2m_min[di]=Number.isFinite(oldMin)
-      ?Math.min(oldMin,observedMin):observedMin;
-  }
-
-  // Zachowujemy dziesiętne, ale nie wprowadzamy sztucznego zaokrąglenia do 0.5°C.
-  data.daily.temperature_2m_max[di]=+Number(data.daily.temperature_2m_max[di]).toFixed(1);
-  data.daily.temperature_2m_min[di]=+Number(data.daily.temperature_2m_min[di]).toFixed(1);
+  data.daily.__auraDailyExtremes={
+    date:today,
+    min:data.daily.temperature_2m_min[di],
+    max:data.daily.temperature_2m_max[di],
+    source:"final canonical hourly/current"
+  };
 }
 
 // Widoczność z modelu jest sanityzowana godzinowo. Niska wartość może być
@@ -4288,6 +4283,10 @@ async function loadWCore(lat,lng,name,isRef,token){
   correctHourlyPrecipitation(data.hourly,imgwData);
   const canonicalFusion=applyCanonicalWeatherFusion(data,imgwData);
   S.canonicalWeatherFusion=canonicalFusion;
+
+  // Dopiero po ostatniej fuzji godzinowej synchronizujemy Tmin/Tmax.
+  // Dzięki temu karta dzienna i wykres godzinowy czytają identyczny stan.
+  syncDailyExtremes(data);
 
   S.pipelineDiag=S.pipelineDiag||{};
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
