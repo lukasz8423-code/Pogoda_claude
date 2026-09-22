@@ -2,7 +2,7 @@ name: Aktualizuj snapshot IMGW METEO
 
 on:
   schedule:
-    - cron: "7-59/10 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
 
 permissions:
