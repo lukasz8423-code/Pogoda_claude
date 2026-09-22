@@ -2146,6 +2146,9 @@ function buildCanonicalPrecipitation(data,nowcast){
   return {
     current:Number.isFinite(current)?Math.max(0,current):0,
     nextEvent:next?{...next,startsAt:next.t}:null,
+    source:futureMinutely.length?"minutely_15":"hourly",
+    slots:futureMinutely.slice(0,17),
+    future:futureMinutely.slice(0,17),
     minutely:futureMinutely.slice(0,17),
     events:events.slice(0,32),
     committedAt:Date.now()
@@ -2454,8 +2457,9 @@ function nowcastHTML(X){
     const stateRain=X.timeline.source==="minutely_15"
       ?activeNow
       :(activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05));
-    const firstRainTime=X.firstRainTime||null;
-    const firstRain=firstRainTime?{t:firstRainTime}:null;
+    const canonicalNext= S.canonicalWeather?.precipitation?.nextEvent||null;
+    const firstRainTime=canonicalNext?.startsAt||X.firstRainTime||null;
+    const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null}:null;
     const rainUntil=activeNow?rainUntilTime(X):null;
     const endLabel=rainUntil?hhmm(rainUntil):null;
     const startTime=!activeNow&&firstRainTime?hhmm(firstRainTime):null;
@@ -2847,12 +2851,14 @@ function wLayers(X){
 }
 function wRain(X){
   let next="";
-  const activeMm=currentTimelineMm(X);
+  const p=S.canonicalWeather?.precipitation||null;
+  const activeMm=Number.isFinite(Number(p?.current))?Number(p.current):currentTimelineMm(X);
   const active=activeMm!==null&&activeMm>0.05;
+  const nextEvent=p?.nextEvent||null;
   if(active){
     next="Pada teraz.";
-  }else if(X?.firstRainTime){
-    next="Najbliższy opad ok. "+hhmm(X.firstRainTime)+".";
+  }else if(nextEvent?.startsAt){
+    next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";;
   }
   return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
