@@ -1118,30 +1118,31 @@ async function findNearestIMGW(lat,lng){
     }
   }catch(e){console.warn("[IMGW] snapshot niedostępny:",e?.message||e);}
   const all=await fetchIMGWAll();
-  if(!meteoAll)meteoAll=await fetchIMGWMeteoAll();
   const fetchedAt=Date.now();
 
-  // CANONICAL IMGW SOURCE POLICY:
-  // Snapshot jest tylko transportem/cache'em danych IMGW. Nie wolno traktować
-  // starego snapshotu jako "online". Jeżeli jego fetchedAt jest starszy niż
-  // 30 min, odrzucamy go i próbujemy bezpośredniego feedu IMGW METEO.
+  // KANONICZNE ŹRÓDŁO IMGW METEO:
+  // próbujemy live zawsze, gdy snapshot jest pusty, nie zawiera Głodowa
+  // albo jest starszy niż 30 min. Wcześniej świeży technicznie snapshot
+  // blokował próbę live, nawet gdy jego zawartość była bezużyteczna.
   const snapshotFetchedAt=Number(S.imgwDiag?.snapshotFetchedAt)||0;
   const snapshotAgeMinutes=snapshotFetchedAt>0 ? (fetchedAt-snapshotFetchedAt)/60000 : Infinity;
   const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=30;
-  if(meteoAll && !snapshotFresh){
-    // Snapshot może mieć stary czas pobrania, ale zawierać świeże obserwacje
-    // stacji. Nie wolno odrzucać całej paczki wyłącznie po fetchedAt.
-    // O świeżości IMGW decydują indywidualne pola *_data niżej.
-    // Bezpośredni endpoint IMGW jest tylko próbą odświeżenia transportu;
-    // nie zastępujemy poprawnego snapshotu wynikiem CORS/timeout.
-    S.imgwDiag={...(S.imgwDiag||{}),snapshotValid:false,snapshotStale:true,
-      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.round(snapshotAgeMinutes):null,
-      snapshotRetained:true};
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
+  const snapshotHasGlodowo=Array.isArray(meteoAll)&&meteoAll.some(s=>{
+    const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
+    return code==="252190030"||name==="głodowo"||name==="glodowo";
+  });
+
+  if(!meteoAll||!snapshotHasGlodowo||!snapshotFresh){
     const live=await fetchIMGWMeteoAll();
     if(Array.isArray(live)){
       meteoAll=live;
-      S.imgwDiag={...(S.imgwDiag||{}),snapshotRetained:false,snapshotValid:true};
+      S.imgwDiag={...(S.imgwDiag||{}),snapshotRetained:false,snapshotValid:true,
+        liveRefreshUsed:true};
+      window.__AURA_IMGW_DIAG=S.imgwDiag;
+    }else if(meteoAll){
+      S.imgwDiag={...(S.imgwDiag||{}),snapshotStale:!snapshotFresh,
+        snapshotHasGlodowo, snapshotRetained:true};
       window.__AURA_IMGW_DIAG=S.imgwDiag;
     }
   }
@@ -1313,7 +1314,7 @@ async function findNearestIMGW(lat,lng){
     const usableWindDir=Number.isFinite(parseFloat(glodowo.wiatr_kierunek))&&windDirFresh;
     const anyUsable=usableTemp||usableHumidity||usableWind||usableWindDir;
 
-    if(dist<=30 && anyUsable){
+    if(dist<=30){
       const normalized={
         ...glodowo,
         id_stacji:"252190030",
@@ -1362,11 +1363,11 @@ async function findNearestIMGW(lat,lng){
         windDirFresh:usableWindDir,
         sourceType:"IMGW_METEO"
       };
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"użyto Głodowa",used:true,found:true};
+      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:anyUsable?"użyto Głodowa":"Głodowo znalezione — brak świeżych pól",used:anyUsable,found:true};
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      const rejectReason=dist>30?"za daleko":!anyUsable?"brak świeżych danych użytecznych":"nieznany";
+      const rejectReason=dist>30?"za daleko":"nieznany";
       if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields:__tempFields,candidateTemps:__candidateTemps,keys:__allFields,rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
