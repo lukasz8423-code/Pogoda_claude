@@ -1046,6 +1046,7 @@ async function fetchIMGWMeteoAll(){
       temperature:station?.temperatura_powietrza??station?.temperatura??null,
       timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
       ageMinutes:null,
+      liveFetchedAt:Date.now(),
       snapshotFetchedAt:S.imgwDiag?.snapshotFetchedAt??null,
       error:null
     };
@@ -1190,6 +1191,7 @@ async function findNearestIMGW(lat,lng){
       snapshotValid:true,
       liveRefreshUsed:true,
       liveSource:"IMGW METEO",
+      liveFetchedAt:Number(S.imgwDiag?.liveFetchedAt)||fetchedAt,
       snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
@@ -1201,6 +1203,7 @@ async function findNearestIMGW(lat,lng){
       snapshotRetained:true,
       liveRefreshUsed:false,
       liveSource:"snapshot-fallback",
+      liveFetchedAt:null,
       snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
@@ -3460,12 +3463,18 @@ function softUpdate(){
 function imgwDiagHTML(){
   const d=S.imgwDiag;
   if(!d)return "";
-  const tone=d.used?"ok":(d.status==="pobieranie"?"warn":"bad");
+  const tone=d.used?"ok":(d.status==="pobieranie"||d.status==="pobieranie-live"?"warn":"bad");
+  const source=d.liveSource==="IMGW METEO"?"IMGW LIVE":(d.liveSource==="snapshot-fallback"?"IMGW — awaryjny snapshot":"IMGW");
+  const measurementTs=parseImgwMeteoTimestamp(d.timestamp);
+  const measurementAge=measurementTs!=null?Math.max(0,Math.round((Date.now()-measurementTs)/60000)):null;
+  const fetchedTs=d.liveSource==="IMGW METEO"?Number(d.liveFetchedAt):Number(d.snapshotFetchedAt);
   const details=[
-    d.count!=null?"Feed METEO: "+d.count+" stacji":null,
-    d.station?"Głodowo: "+(d.found?"znaleziona":"brak"):null,
+    "Źródło: "+source,
+    d.station?"Stacja: "+(d.found?"Głodowo":"brak"):null,
     d.temperature!=null?"T: "+d.temperature+"°C":null,
-    d.ageMinutes!=null?"pomiar: "+d.ageMinutes+" min temu":null,
+    d.timestamp?"Pomiar: "+String(d.timestamp)+(measurementAge!=null?" · "+measurementAge+" min temu":""):null,
+    Number.isFinite(fetchedTs)&&fetchedTs>0?"Pobrano: "+new Date(fetchedTs).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null,
+    d.snapshotAgeMinutes!=null&&d.liveSource==="snapshot-fallback"?"Snapshot ma: "+d.snapshotAgeMinutes+" min":null,
     d.dist!=null?"odległość: "+d.dist+" km":null,
     d.reason?"powód: "+d.reason:null,
     d.error?"błąd: "+d.error:null
