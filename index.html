@@ -978,13 +978,11 @@ async function fetchIMGWAll(){
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
-  // Jeśli findNearestIMGW ma już poprawny snapshot same-origin, nie wolno
-  // resetować diagnostyki ani zastępować go niepotrzebnym requestem CORS.
-  // GitHub Pages dostarcza świeży snapshot IMGW jako właściwe źródło produkcyjne.
-  if(S.imgwDiag?.sourceAvailable===true && S.imgwDiag?.snapshotValid===true){
-    return null;
-  }
-  S.imgwDiag={...(S.imgwDiag||{}),status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null}; window.__AURA_IMGW_DIAG=S.imgwDiag;
+  // KANONICZNE ŹRÓDŁO LIVE: najpierw próbujemy bezpośredniego feedu IMGW METEO.
+  // Snapshot GitHub Pages jest dopiero awaryjnym transportem/cache'em.
+  // Dzięki temu świeży feed IMGW nie może zostać zablokowany przez poprawny
+  // technicznie, ale stary snapshot.
+  S.imgwDiag={...(S.imgwDiag||{}),status:"pobieranie-live",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null}; window.__AURA_IMGW_DIAG=S.imgwDiag;
   // GitHub Pages nie uruchamia serwera Node, więc przeglądarka nie może
   // polegać na bezpośrednim CORS do IMGW. Pages dostaje świeży snapshot
   // IMGW z GitHub Actions i ten sam-origin plik jest źródłem dla Aury.
