@@ -2198,9 +2198,26 @@ function computeCtx(){
     return near&&fresh&&Number.isFinite(mm)&&mm<=0&&drizzleCode&&modelMm>=0&&modelMm<0.2;
   })();
   // Jeden kanoniczny stan "Teraz" dla nagłówka, banera i pierwszego kafelka.
-  let currentStateCode=Number.isFinite(timelineNowMm)&&timelineNowMm>0.05
-    ?61
-    :Number.isFinite(hourlyNowCode)?hourlyNowCode:rawCurrentCode;
+  // Świeży pomiar IMGW opadu jest nadrzędnym dowodem dla stanu TERAZ.
+  // Nie wolno pozwolić, aby surowy hourly.weather_code=61 ponownie oznaczył
+  // bieżący stan jako deszcz, gdy stacja raportuje 0 mm.
+  const stationNowMm=stationFreshPrecipMm(S.imgwData);
+  const stationNowValid=stationNowMm!==null;
+  let currentStateCode;
+  if(stationNowValid){
+    if(stationNowMm>0.05){
+      currentStateCode=61;
+    }else{
+      const c=Number(cloud);
+      currentStateCode=Number.isFinite(c)
+        ?(c<=20?0:c<=70?2:3)
+        :2;
+    }
+  }else if(Number.isFinite(timelineNowMm)&&timelineNowMm>0.05){
+    currentStateCode=61;
+  }else{
+    currentStateCode=Number.isFinite(hourlyNowCode)?hourlyNowCode:rawCurrentCode;
+  }
   if(stationDrizzleGuard){
     const c=Number(cloud);
     currentStateCode=Number.isFinite(c)
