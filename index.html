@@ -642,21 +642,31 @@ function fuseCloudCover(records,context={}){
   const visibility=Number(context.visibilityMeters);
   const clearAir=Number.isFinite(visibility)&&visibility>=12000;
   const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
-  // Przy suchej, bardzo dobrej widzialności modelowe 70–100% zachmurzenia
-  // jest traktowane jako konflikt z obserwacją lokalną. Nie pozwalamy, aby
-  // jeden model utrzymywał "Duże zachmurzenie", gdy powietrze jest wyraźnie przejrzyste.
-  if(clearAir && !precipitationConfirmed && !modelRainCode){
-    const clearCap=veryClearAir?35:40;
-    if(value>clearCap){
-      value=clearCap;
-      reason+=" + hard clear-sky cap";
-    }
+  const modelSkyCode=Number(context.modelCode);
+  // Widzialność jest obserwacją pomocniczą, a kod pogody daje dodatkową
+  // informację jakościową. Przy bezchmurnym kodzie 0/1 nie pozwalamy, aby
+  // modelowe 70–100% zachmurzenia przebiło lokalny sygnał czystego nieba.
+  let clearCap=veryClearAir?35:40;
+  if(modelSkyCode===0||modelSkyCode===1)clearCap=Math.min(clearCap,20);
+  else if(modelSkyCode===2)clearCap=Math.min(clearCap,45);
+  else if(modelSkyCode===3)clearCap=Math.min(clearCap,70);
+
+  if(clearAir && !precipitationConfirmed && !modelRainCode && value>clearCap){
+    value=clearCap;
+    reason+=" + hard clear-sky cap";
   }
 
   if(prior!=null&&priorAge!=null&&!recentRainConflict){
     const maxStep=priorAge<=20?15:priorAge<=45?25:35;
     value=clamp(Math.max(prior-maxStep,Math.min(prior+maxStep,value)),0,100);
     if(Math.abs(value-raw)>0.5)reason+=" + temporal continuity";
+  }
+
+  // Ciągłość czasowa nie może ponownie podnieść zachmurzenia ponad
+  // zweryfikowany limit czystego powietrza.
+  if(clearAir && !precipitationConfirmed && !modelRainCode && value>clearCap){
+    value=clearCap;
+    reason+=" + final clear-sky cap";
   }
 
   value=Math.round(clamp(value,0,100)*10)/10;
