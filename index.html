@@ -2928,6 +2928,9 @@ function modelsHTML(){
 
 function stationHTML(){
   const im=S.imgwData;if(!im)return"";
+  const cim=S.canonicalWeather?.imgw||{};
+  const fields=cim.fields||{};
+  const fieldTime=(value)=>{const ts=parseImgwMeteoTimestamp(value);return Number.isFinite(ts)?hhmm(ts):"brak";};
   const rows=[
     ["Temperatura",`${im.temperatura}°C`,!isNaN(parseFloat(im.temperatura))],
     ["Wilgotność",`${im.wilgotnosc_wzgledna}%`,!isNaN(parseFloat(im.wilgotnosc_wzgledna))],
@@ -2938,10 +2941,20 @@ function stationHTML(){
     ["Opad 10 min",`${Number.isFinite(parseFloat(im.opad_10min))?parseFloat(im.opad_10min):0} mm`,true],
   ].filter(r=>r[2]);
   const stale=im.isFresh===false;
+  const timeRows=[
+    ["Temperatura",fields.temperature||im.temperatura_data],
+    ["Wilgotność",fields.humidity||im.wilgotnosc_wzgledna_data],
+    ["Wiatr",fields.wind||im.predkosc_wiatru_data],
+    ["Kierunek",fields.windDirection||im.kierunek_wiatru_data],
+    ["Opad 10 min",fields.precipitation10min||im.opad_10min_data]
+  ];
+  const timeRowsHtml=timeRows.map(([label,value])=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span>${label}</span><b class="tn">${fieldTime(value)}</b></div>`).join("");
   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
-    ${im.observedAt!=null?`<div class="note">Najnowszy wykorzystany pomiar IMGW z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Aura pobrała dane o ${hhmm(im.fetchedAt)}.</div>`:""}
-    <div class="note">${stale?"Pomiar jest starszy niż 3 godziny, więc nie nadpisuje prognozy. ":im.dist>80?"Stacja jest poza zasięgiem fuzji 45 km, więc jej pomiar jest tylko informacyjny. ":"Świeży pomiar jest łączony z modelem dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe. "}Stacje IMGW raportują co godzinę.</div></section>`;
+    <div class="note" style="margin-top:12px">Czasy poszczególnych pomiarów IMGW</div>
+    <div class="note" style="margin-top:4px">${timeRowsHtml}</div>
+    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Najnowszy z powyższych pomiarów: ${im.latestObservedAt!=null?hhmm(im.latestObservedAt):"brak"}${im.latestAgeMinutes!=null?`, ${fmtAge(im.latestAgeMinutes)}`:""}.</div>`:""}
+    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":im.dist>80?"Stacja jest poza zasięgiem fuzji 45 km, więc jej pomiar jest tylko informacyjny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe."}</div></section>`;
 }
 
 function assistantHTML(X){
