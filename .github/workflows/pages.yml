@@ -1,4 +1,5 @@
 name: Deploy Aura to GitHub Pages
+# IMGW deploy trigger: 2026-09-22
 
 on:
   push:
