@@ -3524,6 +3524,20 @@ function applyForecastBridge(data,fusion,modelData){
       target.wind_speed_10m[targetIdx]=+(step===0&&Number.isFinite(data.current.wind_speed_10m)
         ?data.current.wind_speed_10m:corrected).toFixed(1);
     }
+
+    // Odczuwalna godzinowa musi być liczona z tej samej temperatury,
+    // wilgotności i wiatru, które właśnie zostały skorygowane powyżej.
+    // Nie zostawiamy surowego apparent_temperature z Open-Meteo,
+    // bo wtedy kafelki godzinowe mogą pokazywać inną odczuwalną niż T/RH/wiatr.
+    if(Array.isArray(target.apparent_temperature)){
+      const finalT=Number(target.temperature_2m?.[targetIdx]);
+      const finalH=Number(target.relative_humidity_2m?.[targetIdx]);
+      const finalW=Number(target.wind_speed_10m?.[targetIdx]);
+      if(Number.isFinite(finalT)&&Number.isFinite(finalH)&&Number.isFinite(finalW)){
+        const feels=discomfortIndex(finalT,finalH,finalW).value;
+        if(Number.isFinite(feels))target.apparent_temperature[targetIdx]=feels;
+      }
+    }
   }
 }
 
