@@ -65,7 +65,7 @@
       "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
     }
   ],
-  "generatedAt": "2026-09-22T13:07:53.971786+00:00",
+  "generatedAt": "2026-09-22T13:11:30.441794+00:00",
   "status": "NO_VALID_SAMPLES",
   "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used."
 }
