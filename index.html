@@ -4591,6 +4591,13 @@ async function loadWCore(lat,lng,name,isRef,token){
           data.current.snowfall=0;
         }
       }
+      if(Number.isFinite(Number(cloudFusion.weatherCode))){
+        data.current.weather_code=Number(cloudFusion.weatherCode);
+        const ciNow=currentHourIndex(data,new Date());
+        if(Array.isArray(data.hourly?.weather_code)&&ciNow>=0&&ciNow<data.hourly.weather_code.length){
+          data.hourly.weather_code[ciNow]=Number(cloudFusion.weatherCode);
+        }
+      }
       S.cloudSource={
         type:"weather-fusion",
         value:mainCloud,
