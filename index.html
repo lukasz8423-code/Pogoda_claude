@@ -3362,6 +3362,38 @@ function runLiveDataQualityGuard(){
   S.liveHealth={capturedAt:Date.now(),status:alerts.some(a=>a.severity==="critical"||a.severity==="error")?"ERROR":alerts.length?"WARN":"OK",alerts};
   return S.liveHealth;
 }
+function diagnosticAgeMinutes(ts){
+  const t=Date.parse(String(ts||""));
+  return Number.isFinite(t)?Math.max(0,(Date.now()-t)/60000):null;
+}
+function diagnosticAgeStatus(age,maxFresh=30,maxUsable=180){
+  if(!Number.isFinite(age))return {status:"BRAK CZASU",icon:"⚫"};
+  if(age<=maxFresh)return {status:"ŚWIEŻE",icon:"🟢"};
+  if(age<=maxUsable)return {status:"STARE, UŻYWALNE",icon:"🟡"};
+  return {status:"PRZETERMINOWANE",icon:"🔴"};
+}
+function buildIMGWDiagnosticDetails(){
+  const d=S.imgwData||{},obs=d.observedAt||d.latestObservedAt||null,age=Number.isFinite(Number(d.ageMinutes))?Number(d.ageMinutes):diagnosticAgeMinutes(obs);
+  const fields=[
+    ["Temperatura",d.temperatura_powietrza??d.temperatura,d.temperatura_powietrza_data??d.temperatura_data,d.tempFresh],
+    ["Wilgotność",d.wilgotnosc_wzgledna,d.wilgotnosc_wzgledna_data,d.humidityFresh],
+    ["Wiatr",d.wiatr_srednia_predkosc,d.wiatr_srednia_predkosc_data,d.windFresh],
+    ["Kierunek wiatru",d.wiatr_kierunek,d.wiatr_kierunek_data,d.windDirFresh],
+    ["Poryw",d.wiatr_predkosc_maksymalna,d.wiatr_predkosc_maksymalna_data,d.porywWiatruFresh],
+    ["Opad 10 min",d.opad_10min,d.opad_10min_data,d.opad10minFresh]
+  ];
+  return {snapshotFetchedAt:S.imgwDiag?.snapshotFetchedAt??null,snapshotFetchedAtISO:Number.isFinite(Number(S.imgwDiag?.snapshotFetchedAt))?new Date(Number(S.imgwDiag.snapshotFetchedAt)).toISOString():null,snapshotAgeMinutes:diagnosticAgeMinutes(S.imgwDiag?.snapshotFetchedAt),stationObservedAt:obs,stationAgeMinutes:age,stationStatus:diagnosticAgeStatus(age),fields:fields.map(([name,value,timestamp,fresh])=>{const a=diagnosticAgeMinutes(timestamp);return{name,value:value??null,timestamp:timestamp||null,ageMinutes:a,status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status};})};
+}
+function buildModelNetworkDiagnostics(){
+  const net=Array.isArray(S.netDiag)?S.netDiag:[],models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
+  return ["ICON-EU","ECMWF","GFS"].map(name=>{
+    const needle=name.toLowerCase().replace("-",""),model=models.find(m=>String(m?.model||m?.name||"").toLowerCase().replace("-","").includes(needle));
+    const rows=net.filter(x=>/open-meteo\.com/.test(String(x.endpoint||""))),row=rows[rows.length-1]||null,currentTime=model?.data?.current?.time||null,age=diagnosticAgeMinutes(currentTime);
+    let status="BRAK ODPOWIEDZI";
+    if(row?.error)status=/timeout/i.test(row.error)?"TIMEOUT":"BŁĄD SIECI"; else if(row&&!row.ok)status="HTTP "+row.status; else if(model?.data&&Number.isFinite(age)&&age>180)status="STARE DANE"; else if(model?.data)status="OK";
+    return{model:name,request:{endpoint:row?.endpoint||null,httpStatus:row?.status??null,ok:row?.ok??false,durationMs:row?.durationMs??null,error:row?.error??null},data:{currentTime,ageMinutes:age,hasData:!!model?.data},status};
+  });
+}
 function pipelineInspectorHTML(){
   const d=S.pipelineDiag||{}, img=S.imgwData||{}, cur=S.data?.current||{}, net=Array.isArray(S.netDiag)?S.netDiag:[];
   const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]};
@@ -3380,8 +3412,11 @@ function pipelineInspectorHTML(){
   ];
   const fieldRows=fields.map(f=>"<tr><td><b>"+f[0]+"</b></td><td>"+fmt(f[1])+"</td><td>"+esc(f[2]||"—")+"</td><td>"+(f[3]===true?"<span style=\"color:var(--ok)\">FRESH</span>":f[3]===false?"<span style=\"color:var(--warn)\">STALE</span>":"—")+"</td></tr>").join("");
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
+  const imgwDetails=buildIMGWDiagnosticDetails(), modelStatuses=buildModelNetworkDiagnostics();
   return "<h3>🔬 Pełna diagnostyka Aury</h3><div class=\"sd\">Połączenia → stacje → modele → fuzja → stan końcowy. Każdy wpis pokazuje faktyczny wynik zapytania.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych problemów jakości danych.</div>")+
   "<div class=\"card\" style=\"margin-top:10px\"><div class=\"ch\">📡 Połączenia</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Endpoint</th><th>Metoda</th><th>HTTP</th><th>Status</th><th>Czas</th><th>Błąd</th></tr></thead><tbody>"+(endpointRows||"<tr><td colspan=6>Brak wykonanych zapytań.</td></tr>")+"</tbody></table></div></div>"+
+  "<div class=\"card\"><div class=\"ch\">🕐 IMGW — timestamp i wiek danych</div><div class=\"raw\" style=\"max-height:260px\">"+esc(JSON.stringify(imgwDetails,null,2))+"</div></div>"+
+  "<div class=\"card\"><div class=\"ch\">🧠 Open-Meteo — status modeli</div><div class=\"raw\" style=\"max-height:320px\">"+esc(JSON.stringify(modelStatuses,null,2))+"</div></div>"+
   "<div class=\"card\"><div class=\"ch\">📡 IMGW Głodowo</div><div class=\"note\"><b>"+esc(img.stacja||"Głodowo")+"</b> · "+fmt(img.dist)+" km · ostatni użyty pomiar: "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+age(img.ageMinutes)+" · feed: "+esc(S.imgwStatus||"—")+"</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:620px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Czas</th><th>Świeżość</th></tr></thead><tbody>"+fieldRows+"</tbody></table></div><div class=\"note\">Feed: "+fmt(S.imgwDiag?.count||S.imgwDiag?.stationCount)+" stacji · znaleziono Głodowo: "+(S.imgwDiag?.found?"TAK":"NIE")+" · snapshot: "+(S.imgwDiag?.snapshotFresh?"FRESH":"STALE/BRAK")+"</div></div>"+
   "<div class=\"card\"><div class=\"ch\">🛰️ Najbliższe stacje IMGW METEO</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Stacja</th><th>Kod</th><th>Odległość</th><th>T</th><th>Czas T</th><th>RH</th><th>Czas opadu</th></tr></thead><tbody>"+(stations||"<tr><td colspan=7>Brak listy stacji.</td></tr>")+"</tbody></table></div></div>"+
   "<div class=\"card\"><div class=\"ch\">🌦️ Stan końcowy Aury</div><div class=\"note\">Temperatura: <b>"+fmt(cur.temperature_2m)+"°C</b> · odczuwalna: <b>"+fmt(cur.apparent_temperature)+"°C</b> · RH: <b>"+fmt(cur.relative_humidity_2m)+"%</b> · wiatr: <b>"+fmt(cur.wind_speed_10m)+" km/h</b> · chmury: <b>"+fmt(cur.cloud_cover)+"%</b> · opad: <b>"+fmt(cur.precipitation)+" mm</b></div><div class=\"note\">Źródło chmur: "+esc(S.cloudSource?.model||S.cloudSource?.source||"—")+" · tryb: "+esc(S.sourceMode||"—")+" · fuzja: "+esc(d.bridgeSource||"—")+"</div></div>"+
@@ -3421,6 +3456,8 @@ function pipelineDiagnosticsText(){
     generatedAt:new Date().toISOString(),
     status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
     network:S.netDiag||[],
+    imgwDataAge:buildIMGWDiagnosticDetails(),
+    openMeteoModelStatus:buildModelNetworkDiagnostics(),
     miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},
     aura,
     stacja_IMGW:S.imgwData||null,
