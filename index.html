@@ -3934,10 +3934,16 @@ async function loadWCore(lat,lng,name,isRef,token){
     // że wcześniejszy request snapshotu ustawił flagę diagnostyczną.
     // findNearestIMGW zwraca best.sourceType=IMGW_METEO tylko wtedy,
     // gdy Głodowo ma co najmniej jeden świeży użyteczny parametr.
+    const imgwBestStation=imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||null)
+      :null;
+    // ONLINE oznacza, że findNearestIMGW faktycznie zwróciło lokalną stację
+    // METEO z użytecznym pomiarem. Nie uzależniamy statusu od dodatkowej
+    // flagi isFresh, bo świeżość pól jest liczona osobno dla każdego parametru.
     const imgwUsableStation=!!(
-      imgwResult.status==="fulfilled" &&
-      imgwResult.value?.best?.sourceType==="IMGW_METEO" &&
-      imgwResult.value?.best?.isFresh===true
+      imgwBestStation &&
+      imgwBestStation.sourceType==="IMGW_METEO" &&
+      imgwBestStation.isFresh!==false
     );
     const imgwFeedOffline=!imgwUsableStation;
     const imgwOffline=imgwFeedOffline;
