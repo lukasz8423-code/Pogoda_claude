@@ -1158,16 +1158,18 @@ async function findNearestIMGW(lat,lng){
       if(meteoAll)S.imgwDiag={...(S.imgwDiag||{}),status:"snapshot-same-origin",sourceAvailable:true,snapshotValid:true,count:meteoAll.length,snapshotFetchedAt:Number(payload?.fetchedAt)||null,error:null};
     }
   }catch(e){console.warn("[IMGW] snapshot niedostępny:",e?.message||e);}
-  const all=await fetchIMGWAll();
+  // Nie odpytywać SYNOP jako warunku dla Głodowa — Głodowo jest w feedzie METEO.
+  // Jedynym kanonicznym pomiarem lokalnym jest bezpośredni feed /meteo/.
   const fetchedAt=Date.now();
 
   // KANONICZNE ŹRÓDŁO IMGW METEO:
-  // próbujemy live zawsze, gdy snapshot jest pusty, nie zawiera Głodowa
-  // albo jest starszy niż 30 min. Wcześniej świeży technicznie snapshot
-  // blokował próbę live, nawet gdy jego zawartość była bezużyteczna.
+  // ZAWSZE próbujemy świeżego feedu IMGW przed użyciem snapshotu.
+  // Snapshot jest wyłącznie awaryjnym cache'em na wypadek braku połączenia
+  // z IMGW. Nie wolno pozwolić, aby "świeży" technicznie snapshot blokował
+  // świeższy pomiar ze stacji.
   const snapshotFetchedAt=Number(S.imgwDiag?.snapshotFetchedAt)||0;
   const snapshotAgeMinutes=snapshotFetchedAt>0 ? (fetchedAt-snapshotFetchedAt)/60000 : Infinity;
-  const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=30;
+  const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=90;
   const snapshotHasGlodowo=Array.isArray(meteoAll)&&meteoAll.some(s=>{
     const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
     const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase()
@@ -1178,20 +1180,31 @@ async function findNearestIMGW(lat,lng){
     return code==="252190030"||name==="glodowo"||name.includes("glodowo")||coordinateMatch;
   });
 
-  if(!meteoAll||!snapshotHasGlodowo||!snapshotFresh){
-    const live=await fetchIMGWMeteoAll();
-    if(Array.isArray(live)){
-      meteoAll=live;
-      S.imgwDiag={...(S.imgwDiag||{}),snapshotRetained:false,snapshotValid:true,
-        liveRefreshUsed:true};
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-    }else if(meteoAll){
-      S.imgwDiag={...(S.imgwDiag||{}),snapshotStale:!snapshotFresh,
-        snapshotHasGlodowo, snapshotRetained:true};
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-    }
+  // Live jest pierwsze. Jeżeli IMGW odpowie, jego rekord zastępuje snapshot
+  // niezależnie od wieku snapshotu.
+  const live=await fetchIMGWMeteoAll();
+  if(Array.isArray(live)){
+    meteoAll=live;
+    S.imgwDiag={...(S.imgwDiag||{}),
+      snapshotRetained:false,
+      snapshotValid:true,
+      liveRefreshUsed:true,
+      liveSource:"IMGW METEO",
+      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+  }else if(meteoAll){
+    // Brak live: używamy ostatniego snapshotu, ale jawnie oznaczamy go jako fallback.
+    S.imgwDiag={...(S.imgwDiag||{}),
+      snapshotStale:!snapshotFresh,
+      snapshotHasGlodowo,
+      snapshotRetained:true,
+      liveRefreshUsed:false,
+      liveSource:"snapshot-fallback",
+      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
   }
-
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
   // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
   // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
@@ -1239,15 +1252,17 @@ async function findNearestIMGW(lat,lng){
     // żeby diagnostyka rozróżniała "parser odczytał dane" od "pole odrzucone jako stare".
     const rawGlodowoBeforeValidation={...glodowo};
     // WAŻNE: świeżość oceniamy osobno dla każdego pomiaru, nie dla całej paczki.
-    // Limit 30 min jest kanonicznym TTL dla pól mających własny timestamp.
-    const imgwValidation=validateImgwStationFields(glodowo,fetchedAt,30);
+    // Głodowo raportuje cyklicznie około godzinowo. 120 min to maksymalny
+    // techniczny TTL awaryjny; wiek pomiaru nadal jest zachowany i raportowany.
+    // Nigdy nie udajemy, że starszy pomiar jest bieżący.
+    const imgwValidation=validateImgwStationFields(glodowo,fetchedAt,120);
     Object.assign(glodowo,imgwValidation.data);
 
     S.imgwDiag={
       ...(S.imgwDiag||{}),
       stale_fields:imgwValidation.stale_fields,
       staleWarnings:imgwValidation.warnings,
-      fieldFreshnessTtlMinutes:30,
+      fieldFreshnessTtlMinutes:120,
       snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null,
       snapshotFresh
     };
@@ -1285,7 +1300,7 @@ async function findNearestIMGW(lat,lng){
       return Math.round(age);
     };
 
-    const IMGW_FIELD_MAX_AGE_MIN=30;
+    const IMGW_FIELD_MAX_AGE_MIN=120;
 
     const validateFieldFreshness=(value,ts,maxAge=IMGW_FIELD_MAX_AGE_MIN)=>{
       const numeric=Number(value);
@@ -1308,7 +1323,7 @@ async function findNearestIMGW(lat,lng){
     const groundAgeMinutes=fieldAge(groundObservedAt);
     // Jeden kanoniczny TTL dla obserwacji Głodowa. Nie może istnieć drugi
     // limit 120 min, który pozwala użyć zamrożonego pola po walidacji 30 min.
-    const IMGW_CANONICAL_MAX_AGE_MIN=30;
+    const IMGW_CANONICAL_MAX_AGE_MIN=120;
     const TEMP_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
     const HUMIDITY_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
     const WIND_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
