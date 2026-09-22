@@ -2120,6 +2120,38 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // To jest estymacja wizualna, a nie zamiennik surowego cloud_cover.
 // Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
 // ═══════════════════════════════════════════════
+function buildCanonicalPrecipitation(data,nowcast){
+  const hourly=data?.hourly||{};
+  const now=Date.now();
+  const minutely=Array.isArray(nowcast)?nowcast.map(x=>({
+    t:x?.t,
+    mm:Number(x?.mm),
+    pop:Number(x?.pop),
+    code:Number(x?.code),
+    source:"minutely_15"
+  })).filter(x=>Number.isFinite(Date.parse(String(x.t)))&&Number.isFinite(x.mm)&&x.mm>0.05):[];
+  const futureMinutely=minutely.filter(x=>Date.parse(String(x.t))>=now);
+  const hourlyEvents=[];
+  if(Array.isArray(hourly.time)){
+    for(let i=0;i<hourly.time.length;i++){
+      const t=Date.parse(String(hourly.time[i]));
+      const mm=Number(hourly.precipitation?.[i]);
+      if(!Number.isFinite(t)||t<now||!Number.isFinite(mm)||mm<=0.05)continue;
+      hourlyEvents.push({t:hourly.time[i],mm, pop:Number(hourly.precipitation_probability?.[i]), code:Number(hourly.weather_code?.[i]), source:"hourly"});
+    }
+  }
+  const events=[...futureMinutely,...hourlyEvents].sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)));
+  const next=events[0]||null;
+  const current=Number(data?.current?.precipitation);
+  return {
+    current:Number.isFinite(current)?Math.max(0,current):0,
+    nextEvent:next?{...next,startsAt:next.t}:null,
+    minutely:futureMinutely.slice(0,17),
+    events:events.slice(0,32),
+    committedAt:Date.now()
+  };
+}
+
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
   const canonical=S.canonicalWeather||{current,hourly,daily};
@@ -2143,15 +2175,12 @@ function computeCtx(){
   const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
   const opti=optiCloudFromModels(S.modelCompareRaw||[]);
   const cloud=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
-  const precipTimeline=unifiedPrecipitationTimeline();
+  const precipTimeline=canonical.precipitation||unifiedPrecipitationTimeline();
   const hourlyNowCode=getHourlyCode(hourly,ci);
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
-  const timelineNowMm=Number(timelineCurrent?.mm);
-  // Jedna kanoniczna godzina pierwszego przyszłego opadu.
-  // Jeśli mamy oś 15-minutową, tylko ona wyznacza firstRainTime.
-  const firstRainTime=precipTimeline?.source==="minutely_15"
-    ?((precipTimeline.future||[]).find(x=>Number(x?.mm)>0.05)?.t||null)
-    :null;
+  const timelineNowMm=Number(timelineCurrent?.mm??precipTimeline?.current);
+  // Jedno źródło prawdy dla najbliższego opadu: event wyznaczony po finalnej fuzji.
+  const firstRainTime=precipTimeline?.nextEvent?.startsAt||null;
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   // Ghost-drizzle guard: kod 51 + śladowy modelowy opad nie może oznaczać
   // "Mżawka", jeśli świeży pomiar IMGW nie potwierdza opadu.
@@ -4241,7 +4270,7 @@ async function loadWCore(lat,lng,name,isRef,token){
     hourly:data.hourly,
     daily:data.daily,
     precipitation:{
-      current:Number.isFinite(Number(data.current?.precipitation))?Number(data.current.precipitation):0,
+      ...buildCanonicalPrecipitation(data,fusionNowcast),
       currentRain:Number.isFinite(Number(data.current?.rain))?Number(data.current.rain):0
     },
     imgw:{
