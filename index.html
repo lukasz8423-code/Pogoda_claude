@@ -1129,14 +1129,21 @@ async function findNearestIMGW(lat,lng){
   const snapshotAgeMinutes=snapshotFetchedAt>0 ? (fetchedAt-snapshotFetchedAt)/60000 : Infinity;
   const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=30;
   if(meteoAll && !snapshotFresh){
-    console.warn("[IMGW] Stary snapshot — wymuszam świeży feed IMGW METEO",{
-      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Number(snapshotAgeMinutes.toFixed(1)):null
-    });
-    meteoAll=null;
-    S.imgwDiag={...(S.imgwDiag||{}),snapshotValid:false,snapshotStale:true,snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.round(snapshotAgeMinutes):null};
+    // Snapshot może mieć stary czas pobrania, ale zawierać świeże obserwacje
+    // stacji. Nie wolno odrzucać całej paczki wyłącznie po fetchedAt.
+    // O świeżości IMGW decydują indywidualne pola *_data niżej.
+    // Bezpośredni endpoint IMGW jest tylko próbą odświeżenia transportu;
+    // nie zastępujemy poprawnego snapshotu wynikiem CORS/timeout.
+    S.imgwDiag={...(S.imgwDiag||{}),snapshotValid:false,snapshotStale:true,
+      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.round(snapshotAgeMinutes):null,
+      snapshotRetained:true};
     window.__AURA_IMGW_DIAG=S.imgwDiag;
     const live=await fetchIMGWMeteoAll();
-    if(Array.isArray(live))meteoAll=live;
+    if(Array.isArray(live)){
+      meteoAll=live;
+      S.imgwDiag={...(S.imgwDiag||{}),snapshotRetained:false,snapshotValid:true};
+      window.__AURA_IMGW_DIAG=S.imgwDiag;
+    }
   }
 
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
