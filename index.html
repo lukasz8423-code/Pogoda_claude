@@ -3290,8 +3290,8 @@ function pipelineInspectorHTML(){
     ["Wilgotność",img.wilgotnosc_wzgledna,img.wilgotnosc_wzgledna_data,img.humidityFresh],
     ["Wiatr",img.wiatr_srednia_predkosc,img.wiatr_srednia_predkosc_data,img.windFresh],
     ["Kierunek",img.wiatr_kierunek,img.wiatr_kierunek_data,img.windDirFresh],
-    ["Poryw",img.wiatr_predkosc_maksymalna,img.wiatr_predkosc_maksymalna_data,img.gustFresh],
-    ["Opad 10 min",img.opad_10min,img.opad_10min_data,img.rain10Fresh]
+    ["Poryw",img.wiatr_predkosc_maksymalna,img.wiatr_predkosc_maksymalna_data,img.porywWiatruFresh],
+    ["Opad 10 min",img.opad_10min,img.opad_10min_data,img.opad10minFresh]
   ];
   const fieldRows=fields.map(f=>"<tr><td><b>"+f[0]+"</b></td><td>"+fmt(f[1])+"</td><td>"+esc(f[2]||"—")+"</td><td>"+(f[3]===true?"<span style=\"color:var(--ok)\">FRESH</span>":f[3]===false?"<span style=\"color:var(--warn)\">STALE</span>":"—")+"</td></tr>").join("");
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
