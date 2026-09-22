@@ -1547,7 +1547,7 @@ function ensembleArray(records,path,indexer){
   const vals=records.map(indexer).filter(Number.isFinite);
   return ensembleFinite(vals);
 }
-function buildOfflineEnsemble(modelResults){
+function buildOfflineEnsemble(modelResults,ensembleMode="IMGW_OFFLINE"){
   const records=modelResults.filter(r=>OFFLINE_ENSEMBLE_MODELS.includes(r.model)&&r.data);
   if(!records.length)return null;
   const longestHourly=records.reduce((a,r)=>(r.data?.hourly?.time?.length||0)>(a.data?.hourly?.time?.length||0)?r:a,records[0]);
@@ -1605,7 +1605,7 @@ function buildOfflineEnsemble(modelResults){
   const cloudNow=ensembleFinite(records.map(r=>Number(r.data?.current?.cloud_cover)));
   base.__auraEnsemble={
     active:true,
-    mode:"IMGW_OFFLINE",
+    mode:ensembleMode,
     models:records.map(r=>r.model),
     modelCount:records.length,
     cloudCoverConsensus:cloudNow,
@@ -4303,7 +4303,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
       :null;
     const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
-    const offlineEnsemble=ensembleRequired?buildOfflineEnsemble(cloudCompare):null;
+    const offlineEnsemble=ensembleRequired?buildOfflineEnsemble(cloudCompare,imgwStale?"IMGW_ONLINE_STARE":"IMGW_OFFLINE"):null;
     if(ensembleRequired&&offlineEnsemble){
       data=offlineEnsemble;
       // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
