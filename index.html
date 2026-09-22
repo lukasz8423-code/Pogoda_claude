@@ -3179,8 +3179,10 @@ function runLiveDataQualityGuard(){
     if(drop>=4&&precip>=1.5&&Number.isFinite(lag)&&Math.abs(lag)>1.5)
       add("ERROR_FRONT_LAG","error","Front: spadek >=4°C/h + opad >=1.5 mm, ale Aura Final pozostaje >1.5°C od modelu.",r.step);
   }
-  if(d.imgwForecastAvailable===false)
-    add("WARN_MISSING_IMGW_FORECAST","warn","Brak godzinowego feedu IMGW Hybrid; prognoza używa modelu i obserwacji stacji.",null);
+  // IMGW Hybrid nie jest źródłem punktowej prognozy w tej wersji Aury.
+  // Nie zgłaszamy tego jako błąd źródła IMGW — bieżące obserwacje METEO
+  // z Głodowa są niezależnym, prawidłowym źródłem danych.
+  // Celowo brak tutaj WARN_MISSING_IMGW_FORECAST.
   if(d.ghostPrecipitation)
     add("WARN_GHOST_PRECIPITATION","warn","Wykryto brak opadu w realnym pomiarze stacyjnym - zmniejsz wagę opadu z modelu dla bieżącej godziny.",0);
   if(d.ghostVisibilityDrop)
@@ -4019,6 +4021,9 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
+      // Jedno źródło prawdy dla całego UI: diagnostyka, fuzja, status i kafelki
+      // muszą dostać dokładnie tę samą stację, którą zwrócił findNearestIMGW().
+      S.imgwData=imgwData||null;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
