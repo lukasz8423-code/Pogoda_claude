@@ -96,6 +96,11 @@ svg{display:block}
 .chip svg{width:13px;height:13px}
 .chip.ok{color:var(--ok)}.chip.warn{color:var(--warn)}.chip.link{color:var(--ink)}
 button.chip:active{background:var(--glass2)}
+.imgw-status-chip{color:var(--ink2)}
+.imgw-status-chip .chip-online{color:var(--ok);font-weight:600}
+.imgw-status-chip .chip-stale{color:var(--warn);font-weight:500}
+.imgw-status-chip .chip-ensemble{color:var(--rain);font-weight:600}
+.imgw-status-chip .chip-sep{color:var(--ink3)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s ease infinite}
 .sunline{margin:14px 2px 18px}
 .sunline svg{width:100%;height:auto;overflow:visible}
@@ -2590,7 +2595,7 @@ function heroHTML(X){
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
   else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
-  else if(S.imgwStatus==="ONLINE_STALE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Online — Głodowo, pomiar nieaktualny; Active Ensemble</span>`);
+  else if(S.imgwStatus==="ONLINE_STALE")chips.push(`<span class="chip imgw-status-chip">${mini("sat")}<span class="chip-online">IMGW Online</span><span class="chip-sep"> — </span><span class="chip-stale">Głodowo, pomiar nieaktualny</span><span class="chip-sep">; </span><span class="chip-ensemble">Active Ensemble</span></span>`);
   else if(S.imgwStatus==="ONLINE")chips.push(`<span class="chip ok">${mini("sat")}IMGW Online — Głodowo</span>`);
   else if(S.imgwData){
     const im=S.imgwData,stale=im.isFresh===false;
