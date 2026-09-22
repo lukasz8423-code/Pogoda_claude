@@ -1023,7 +1023,10 @@ async function fetchIMGWMeteoAll(){
     const station=list.find(s=>{
       const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
       const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
-      return code==="252190030"||name==="głodowo"||name==="glodowo";
+      const slat=Number(s?.lat),slon=Number(s?.lon??s?.lng);
+      const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
+        &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
+      return code==="252190030"||name==="głodowo"||name==="glodowo"||coordinateMatch;
     });
     S.imgwDiag={
       ...S.imgwDiag,
@@ -1139,8 +1142,12 @@ async function findNearestIMGW(lat,lng){
   const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=30;
   const snapshotHasGlodowo=Array.isArray(meteoAll)&&meteoAll.some(s=>{
     const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
-    return code==="252190030"||name==="głodowo"||name==="glodowo";
+    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    const slat=Number(s?.lat),slon=Number(s?.lon??s?.lng);
+    const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
+      &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
+    return code==="252190030"||name==="glodowo"||name.includes("glodowo")||coordinateMatch;
   });
 
   if(!meteoAll||!snapshotHasGlodowo||!snapshotFresh){
@@ -1161,12 +1168,24 @@ async function findNearestIMGW(lat,lng){
   // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
   // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
   const usableTimestamp=(value,ts,fresh)=>Number.isFinite(value)&&fresh&&Number.isFinite(ts)?ts:null;
+  // Głodowo identyfikujemy trzema niezależnymi sygnałami:
+  // 1) kod IMGW, 2) nazwa, 3) współrzędne znanej stacji.
+  // Dzięki temu zmiana nazwy/pola identyfikatora w feedzie nie może
+  // wyłączyć lokalnej stacji i przełączyć całej Aury na ensemble.
+  const isGlodowoStation=s=>{
+    const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    const slat=Number(s?.lat), slon=Number(s?.lon??s?.lng);
+    const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
+      &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
+    return code==="252190030"
+      || name==="glodowo"
+      || name.includes("glodowo")
+      || coordinateMatch;
+  };
   const glodowo=Array.isArray(meteoAll)
-    ? meteoAll.find(s=>{
-        const code=String(s.kod_stacji??s.id_stacji??"").trim();
-        const name=String(s.nazwa_stacji??s.stacja??"").trim().toLowerCase();
-        return code==="252190030" || name==="głodowo" || name==="glodowo";
-      })
+    ? meteoAll.find(isGlodowoStation)
     : null;
   if(Array.isArray(meteoAll)){
     const stationRows=meteoAll.map(st=>({
