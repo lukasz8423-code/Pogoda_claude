@@ -50,13 +50,13 @@
       "lat": 52.85023603603604,
       "lon": 19.152117340406765,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
     },
     {
       "lat": 52.85023603603604,
       "lon": 19.21174,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
     },
     {
       "lat": 52.85023603603604,
@@ -65,7 +65,7 @@
       "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     }
   ],
-  "generatedAt": "2026-09-22T15:04:34.131217+00:00",
+  "generatedAt": "2026-09-22T18:51:15.560287+00:00",
   "status": "NO_VALID_SAMPLES",
   "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used."
 }
