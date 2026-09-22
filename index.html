@@ -3987,14 +3987,17 @@ async function loadWCore(lat,lng,name,isRef,token){
     // ONLINE oznacza, że findNearestIMGW faktycznie zwróciło lokalną stację
     // METEO z użytecznym pomiarem. Nie uzależniamy statusu od dodatkowej
     // flagi isFresh, bo świeżość pól jest liczona osobno dla każdego parametru.
-    const imgwUsableStation=!!(
+    // Transport IMGW i świeżość pomiaru to dwie różne rzeczy.
+    // Głodowo jest znalezione i feed METEO działa, ale pomiar może być za stary
+    // do fuzji "TERAZ". Nie pokazujemy wtedy fałszywego "IMGW Offline".
+    const imgwStationFound=!!(
       imgwBestStation &&
-      imgwBestStation.sourceType==="IMGW_METEO" &&
-      imgwBestStation.isFresh!==false
+      imgwBestStation.sourceType==="IMGW_METEO"
     );
-    const imgwFeedOffline=!imgwUsableStation;
-    const imgwOffline=imgwFeedOffline;
-    S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
+    const imgwUsableStation=!!(imgwStationFound && imgwBestStation.isFresh!==false);
+    const imgwFeedOffline=!imgwStationFound;
+    const imgwOffline=!imgwStationFound;
+    S.imgwStatus=imgwFeedOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
     // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
     // ICON-EU, a jeśli go nie ma — ECMWF IFS.
