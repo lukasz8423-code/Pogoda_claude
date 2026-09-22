@@ -3928,10 +3928,16 @@ async function loadWCore(lat,lng,name,isRef,token){
     // IMGW status musi opierać się na faktycznej dostępności źródła,
     // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
     // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
-    const imgwFeedOffline=
-      imgwResult.status!=="fulfilled" ||
-      !imgwResult.value ||
-      S.imgwDiag?.sourceAvailable!==true;
+    // ONLINE oznacza faktycznie użyte świeże dane IMGW, a nie sam fakt,
+    // że wcześniejszy request snapshotu ustawił flagę diagnostyczną.
+    // findNearestIMGW zwraca best.sourceType=IMGW_METEO tylko wtedy,
+    // gdy Głodowo ma co najmniej jeden świeży użyteczny parametr.
+    const imgwUsableStation=!!(
+      imgwResult.status==="fulfilled" &&
+      imgwResult.value?.best?.sourceType==="IMGW_METEO" &&
+      imgwResult.value?.best?.isFresh===true
+    );
+    const imgwFeedOffline=!imgwUsableStation;
     const imgwOffline=imgwFeedOffline;
     S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
