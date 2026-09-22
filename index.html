@@ -828,8 +828,25 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
 
 
 async function apiWeather(lat,lng,forceFresh=false){
-  // best_match = automatyczny wybór najlepszego modelu dla lokalizacji przez Open-Meteo; to nie jest fuzja satelitarna.
-  return apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
+  // GŁÓWNY FETCH MA ZAWSZE MIEĆ BEZPIECZNY FALLBACK.
+  // Awaria konkretnego modelu nie może wywalić całego ładowania Aury.
+  try{
+    return await apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
+  }catch(primaryError){
+    console.warn("[AURA WEATHER] aktywny model niedostępny:",activeModel.id,primaryError?.message||primaryError);
+    // best_match jest niezależnym wyborem modelu po stronie Open-Meteo.
+    // Używamy go tylko jako transportowego fallbacku, bez udawania IMGW.
+    try{
+      const fallback=await apiWeatherModel(lat,lng,"best_match",10,true);
+      if(fallback?.current&&fallback?.hourly&&fallback?.daily){
+        console.warn("[AURA WEATHER] fallback best_match OK");
+        return fallback;
+      }
+    }catch(fallbackError){
+      console.warn("[AURA WEATHER] fallback best_match także niedostępny:",fallbackError?.message||fallbackError);
+    }
+    throw primaryError;
+  }
 }
 
 async function apiSatelliteCloudMask(lat,lng){
