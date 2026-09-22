@@ -4661,15 +4661,10 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
 
-  if(!isDemo){
-    Promise.all([apiWeatherApiSnapshot(lat,lng),apiGeminiAnalysisSnapshot(lat,lng)]).then(([wa,ga])=>{
-      if(sameLocationSnapshot(lat,lng)){
-        S.weatherapi=wa;
-        S.geminiAnalysis=ga;
-        softUpdate();
-      }
-    }).catch(()=>{});
-  }
+  // Opcjonalne snapshoty WeatherAPI/Gemini zostały wyłączone z runtime.
+  // Nie są źródłami kanonicznymi Aury i ich brak nie może generować błędów 404.
+  S.weatherapi=null;
+  S.geminiAnalysis=null;
 
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
