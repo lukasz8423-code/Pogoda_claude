@@ -2627,20 +2627,21 @@ function computeCtx(){
   // bieżący stan jako deszcz, gdy stacja raportuje 0 mm.
   const stationNowMm=stationFreshPrecipMm(S.imgwData);
   const stationNowValid=stationNowMm!==null;
+  // Bez świeżego pomiaru IMGW sam model/minutely nie może oznaczać
+  // "pada teraz". Do stanu TERAZ dopuszczamy tylko niezależne potwierdzenie
+  // z obserwacji stacyjnej albo z przeszłego/bieżącego slotu nowcastu.
+  const fusionRainConfirmed=S.cloudSource?.fusion?.precipitationConfirmed===true;
+  const rainNowConfirmed=stationNowValid
+    ?stationNowMm>0.05
+    :fusionRainConfirmed;
   let currentStateCode;
-  if(stationNowValid){
-    if(stationNowMm>0.05){
-      currentStateCode=61;
-    }else{
-      const c=Number(cloud);
-      currentStateCode=Number.isFinite(c)
-        ?(c<=20?0:c<=70?2:3)
-        :2;
-    }
-  }else if(Number.isFinite(timelineNowMm)&&timelineNowMm>0.05){
+  if(rainNowConfirmed){
     currentStateCode=61;
   }else{
-    currentStateCode=Number.isFinite(hourlyNowCode)?hourlyNowCode:rawCurrentCode;
+    const c=Number(cloud);
+    currentStateCode=Number.isFinite(c)
+      ?(c<=20?0:c<=70?2:3)
+      :2;
   }
   if(stationDrizzleGuard){
     const c=Number(cloud);
@@ -2672,7 +2673,9 @@ function computeCtx(){
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
-    currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
+    currentState:{code:currentStateCode,pop:Number(pop)||0,mm:rainNowConfirmed
+      ?(stationNowValid?Math.max(0,Number(stationNowMm)||0):Math.max(0,Number(precip)||0))
+      :0},
     timeline:precipTimeline,
     firstRainTime,
     // Piętra chmur pokazujemy jako udział widocznego nieba: żadne piętro nie może przekroczyć total cloud_cover.
@@ -2758,28 +2761,21 @@ function isPrecipCode(code){
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
-  // Gdy istnieje minutely_15, pierwszy slot jest źródłem prawdy dla T0.
-  const timelineMm=currentTimelineMm(X);
-  if(timelineMm!==null)return timelineMm;
-
-  // Fallback tylko wtedy, gdy nie ma osi 15-minutowej.
+  // "Teraz" nie może być wyciągane z przyszłego minutely_15.
+  // Używamy wyłącznie potwierdzonego stanu kanonicznego.
   const stationPrecip=stationFreshPrecipMm(S.imgwData);
-  if(stationPrecip!==null)return stationPrecip;
-  if(isSnowCode(X?.code))return 0;
+  if(stationPrecip!==null)return Math.max(0,stationPrecip);
+  const confirmed=S.cloudSource?.fusion?.precipitationConfirmed===true;
+  if(!confirmed)return 0;
   const mm=Number(X?.precip);
-  return Number.isFinite(mm)&&mm>0?mm:0;
+  return Number.isFinite(mm)&&mm>0.05?mm:0;
 }
 function isRainingNow(X){
-  // Pierwszy slot 15-minutowy jest źródłem prawdy dla "pada teraz".
-  const timelineMm=currentTimelineMm(X);
-  if(timelineMm!==null)return timelineMm>0.05;
-
-  // Fallback tylko bez danych minutely_15.
   const station=S.imgwData||{};
-  if(stationFreshPrecipMm(station)!==null){
-    return Number(stationFreshPrecipMm(station))>0.05;
-  }
-  return isRainCode(X.code)||Number(X?.precip)>0.05;
+  const stationMm=stationFreshPrecipMm(station);
+  if(stationMm!==null)return stationMm>0.05;
+  return S.cloudSource?.fusion?.precipitationConfirmed===true &&
+    Number(X?.precip)>0.05;
 }
 
 function heroHTML(X){
@@ -2896,11 +2892,11 @@ function nowcastHTML(X){
   if(X?.timeline){
     const future=X?.timeline?.future||[];
     const firstMm=currentTimelineMm(X);
-    const activeNow=(Number.isFinite(stateMm)&&stateMm>0.05)||(Number.isFinite(firstMm)&&firstMm>0.05);
-    // Gdy mamy oś 15-minutową, to ona jest jedynym źródłem prawdy dla alertu opadowego.
-    const stateRain=activeNow
-      ||isRainCode(stateCode)
-      ||(Number.isFinite(statePrecip)&&statePrecip>0.05);
+    const activeNow=Number.isFinite(stateMm)&&stateMm>0.05;
+    // Dla TERAZ liczy się wyłącznie potwierdzony stan kanoniczny.
+    // Przyszłe sloty minutely służą do prognozy, nie do stwierdzenia,
+    // że deszcz już pada.
+    const stateRain=activeNow||isRainCode(stateCode);
     const canonicalNext= S.canonicalWeather?.precipitation?.nextEvent||null;
     const firstRainTime=canonicalNext?.startsAt||X.firstRainTime||null;
     const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null,classification:canonicalNext?.classification||null}:null;
