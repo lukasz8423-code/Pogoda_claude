@@ -1792,6 +1792,80 @@ function correctMinutelyPrecipitation(slots, imgwData){
   });
 }
 
+function enforceForecastPrecipitationConsensus(data,modelRecords,nowcast=[]){
+  if(!data?.hourly?.time||!Array.isArray(modelRecords))return null;
+  const h=data.hourly;
+  const ci=currentHourIndex(data,new Date());
+  let correctedCount=0;
+  const decisions=[];
+
+  const minutelyConfirmsAt=(time)=>{
+    const target=Date.parse(String(time));
+    if(!Number.isFinite(target)||!Array.isArray(nowcast))return false;
+    const nearby=nowcast.filter(x=>{
+      const t=Date.parse(String(x?.t));
+      return Number.isFinite(t)&&Math.abs(t-target)<=30*60000&&Number(x?.mm)>0.05;
+    });
+    return nearby.length>=2;
+  };
+
+  for(let i=Math.max(ci+1,0);i<h.time.length;i++){
+    const time=h.time[i];
+    const raw=Number(h.precipitation?.[i]);
+    if(!Number.isFinite(raw)||raw<=0||raw>0.4)continue;
+
+    let support=0;
+    const supportingModels=[];
+    for(const rec of modelRecords){
+      const mh=rec?.data?.hourly;
+      const mi=findHourIndexByTime(mh?.time,time);
+      const mm=mi>=0?Number(mh?.precipitation?.[mi]):NaN;
+      if(Number.isFinite(mm)&&mm>0.05){
+        support++;
+        supportingModels.push(rec.model||rec.name||"model");
+      }
+    }
+
+    const minutelyConfirmed=minutelyConfirmsAt(time);
+    const accepted=support>=2||minutelyConfirmed;
+
+    decisions.push({
+      time,
+      rawMm:raw,
+      modelSupport:support,
+      supportingModels,
+      minutelyConfirmed,
+      accepted
+    });
+
+    if(!accepted){
+      if(Array.isArray(h.precipitation))h.precipitation[i]=0;
+      if(Array.isArray(h.rain))h.rain[i]=0;
+      if(Array.isArray(h.showers))h.showers[i]=0;
+      if(Array.isArray(h.snowfall))h.snowfall[i]=0;
+      if(Array.isArray(h.precipitation_probability)){
+        const pop=Number(h.precipitation_probability[i]);
+        if(Number.isFinite(pop))h.precipitation_probability[i]=Math.min(pop,15);
+      }
+      if(Array.isArray(h.weather_code)&&isRainCode(Number(h.weather_code[i]))){
+        const cloud=Number(h.cloud_cover?.[i]);
+        h.weather_code[i]=Number.isFinite(cloud)
+          ?(cloud<=20?0:cloud<=70?2:3)
+          :0;
+      }
+      correctedCount++;
+    }
+  }
+
+  h.__auraForecastPrecipitationConsensus={
+    applied:correctedCount>0,
+    correctedCount,
+    policy:"micro-opad <=0.4 mm/h wymaga potwierdzenia przez >=2 modele albo minutely",
+    decisions:decisions.slice(0,24)
+  };
+  return h.__auraForecastPrecipitationConsensus;
+}
+
 function correctHourlyPrecipitation(hourlyData,imgwData){
   // WAŻNE: mutujemy TEN SAM obiekt hourly, który pochodzi z Open-Meteo.
   // Nie tworzymy kopii, żeby żaden renderer nie mógł przypadkiem dostać surowej tablicy.
@@ -4433,6 +4507,12 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
   // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
+  // Przyszły mikro-opad z jednego modelu nie może samodzielnie tworzyć deszczu w UI.
+  const forecastPrecipitationConsensus=enforceForecastPrecipitationConsensus(
+    data,
+    cloudCompare,
+    fusionNowcast
+  );
   correctHourlyPrecipitation(data.hourly,imgwData);
   const canonicalFusion=applyCanonicalWeatherFusion(data,imgwData);
   S.canonicalWeatherFusion=canonicalFusion;
@@ -4445,6 +4525,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
   S.pipelineDiag.hourlyPrecipitationCorrection=
     data.hourly?.__auraHourlyPrecipitationCorrection||null;
+  S.pipelineDiag.forecastPrecipitationConsensus=forecastPrecipitationConsensus||data.hourly?.__auraForecastPrecipitationConsensus||null;
 
   // CANONICAL WEATHER STATE: jeden stan prezentacyjny po wszystkich mutacjach.
   S.canonicalWeather={
