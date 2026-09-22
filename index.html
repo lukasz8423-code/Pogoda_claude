@@ -3409,12 +3409,48 @@ function buildIMGWDiagnosticDetails(){
 }
 function buildModelNetworkDiagnostics(){
   const net=Array.isArray(S.netDiag)?S.netDiag:[],models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
-  return ["ICON-EU","ECMWF","GFS"].map(name=>{
-    const needle=name.toLowerCase().replace("-",""),model=models.find(m=>String(m?.model||m?.name||"").toLowerCase().replace("-","").includes(needle));
-    const rows=net.filter(x=>/open-meteo\.com/.test(String(x.endpoint||""))),row=rows[rows.length-1]||null,currentTime=model?.data?.current?.time||null,age=diagnosticAgeMinutes(currentTime);
+  const defs=[
+    {name:"ICON-EU",id:"icon_eu"},
+    {name:"ECMWF",id:"ecmwf_ifs025"},
+    {name:"GFS",id:"gfs_seamless"}
+  ];
+  return defs.map(({name,id})=>{
+    const model=models.find(m=>{
+      const mid=String(m?.model||m?.name||"").toLowerCase().replace(/[^a-z0-9_]/g,"");
+      return mid===id.replace(/[^a-z0-9_]/g,"")||
+        (id==="icon_eu"&&mid.includes("icon_eu"))||
+        (id==="ecmwf_ifs025"&&mid.includes("ecmwf_ifs025"))||
+        (id==="gfs_seamless"&&mid.includes("gfs_seamless"));
+    });
+    // Każdy model musi być powiązany wyłącznie z własnym requestem
+    // forecast. Nigdy nie używamy ostatniego globalnego requestu Open-Meteo,
+    // bo po nim może wystąpić Air Quality, minutely albo inny endpoint.
+    const rows=net.filter(x=>{
+      const endpoint=String(x?.endpoint||"");
+      return /api\.open-meteo\.com\/v1\/forecast(?:\?|$)/i.test(endpoint)&&
+        new RegExp("(?:[?&])models="+id+"(?:&|$)","i").test(endpoint);
+    });
+    const row=rows[rows.length-1]||null;
+    const currentTime=model?.data?.current?.time||null;
+    const age=diagnosticAgeMinutes(currentTime);
     let status="BRAK ODPOWIEDZI";
-    if(row?.error)status=/timeout/i.test(row.error)?"TIMEOUT":"BŁĄD SIECI"; else if(row&&!row.ok)status="HTTP "+row.status; else if(model?.data&&Number.isFinite(age)&&age>180)status="STARE DANE"; else if(model?.data)status="OK";
-    return{model:name,request:{endpoint:row?.endpoint||null,httpStatus:row?.status??null,ok:row?.ok??false,durationMs:row?.durationMs??null,error:row?.error??null},data:{currentTime,ageMinutes:age,hasData:!!model?.data},status};
+    if(row?.error)status=/timeout/i.test(row.error)?"TIMEOUT":"BŁĄD SIECI";
+    else if(row&&!row.ok)status="HTTP "+row.status;
+    else if(model?.data&&Number.isFinite(age)&&age>180)status="STARE DANE";
+    else if(model?.data)status="OK";
+    return{
+      model:name,
+      modelId:id,
+      request:{
+        endpoint:row?.endpoint||null,
+        httpStatus:row?.status??null,
+        ok:row?.ok??false,
+        durationMs:row?.durationMs??null,
+        error:row?.error??null
+      },
+      data:{currentTime,ageMinutes:age,hasData:!!model?.data},
+      status
+    };
   });
 }
 function pipelineInspectorHTML(){
