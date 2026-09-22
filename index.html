@@ -2351,6 +2351,57 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // To jest estymacja wizualna, a nie zamiennik surowego cloud_cover.
 // Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
 // ═══════════════════════════════════════════════
+function classifyPrecipitationSeries(slots){
+  const xs=(Array.isArray(slots)?slots:[])
+    .map(x=>({...x,ts:Date.parse(String(x?.t)),mm:Number(x?.mm)}))
+    .filter(x=>Number.isFinite(x.ts)&&Number.isFinite(x.mm)&&x.ts>=Date.now())
+    .sort((a,b)=>a.ts-b.ts);
+  if(!xs.length)return {type:"none",label:"Brak opadu",durationMin:0,intermittent:false,totalMm:0,peakMmH:0};
+
+  const wet=xs.filter(x=>x.mm>0.05);
+  if(!wet.length)return {type:"none",label:"Brak opadu",durationMin:0,intermittent:false,totalMm:0,peakMmH:0};
+
+  const first=wet[0], last=wet[wet.length-1];
+  const durationMin=Math.max(15,Math.round((last.ts-first.ts)/60000)+15);
+  const gaps=[];
+  for(let i=1;i<wet.length;i++)gaps.push(Math.round((wet[i].ts-wet[i-1].ts)/60000));
+  const intermittent=gaps.some(g=>g>=30);
+  const totalMm=wet.reduce((s,x)=>s+x.mm,0);
+  const peakMmH=Math.max(...wet.map(x=>x.mm*4));
+
+  const code=Number(first.code);
+  let type="rain",label="Deszcz";
+  if(isStormCode(code)||wet.some(x=>isStormCode(x.code))){
+    type="storm";label="Burza z opadem";
+  }else if(isSnowCode(code)||wet.some(x=>isSnowCode(x.code))){
+    const t=Number(S.data?.current?.temperature_2m);
+    if(Number.isFinite(t)&&t<=1){
+      type="snow";label="Śnieg";
+    }else{
+      type="sleet";label="Deszcz ze śniegiem";
+    }
+  }else if(peakMmH<0.4){
+    type="drizzle";label="Mżawka / pojedyncze krople";
+  }else if(peakMmH<2.5){
+    type=intermittent?"showers_intermittent":"rain_light";
+    label=intermittent?"Przelotny słaby deszcz":"Słaby deszcz";
+  }else if(peakMmH<7.6){
+    type=intermittent?"showers_intermittent":"rain_moderate";
+    label=intermittent?"Przelotny deszcz":"Umiarkowany deszcz";
+  }else{
+    type=intermittent?"showers_heavy":"rain_heavy";
+    label=intermittent?"Przelotne silne opady":"Silny deszcz";
+  }
+
+  if(intermittent&&!/Burza|Śnieg|ze śniegiem/.test(label)&&type!=="drizzle"){
+    label=label.replace(/^Słaby deszcz$/,"Przelotny słaby deszcz")
+      .replace(/^Umiarkowany deszcz$/,"Przelotny deszcz")
+      .replace(/^Silny deszcz$/,"Przelotne silne opady");
+  }
+
+  return {type,label,durationMin,intermittent,totalMm:+totalMm.toFixed(2),peakMmH:+peakMmH.toFixed(2)};
+}
+
 function buildCanonicalPrecipitation(data,nowcast){
   const hourly=data?.hourly||{};
   const now=Date.now();
@@ -2454,10 +2505,12 @@ function buildCanonicalPrecipitation(data,nowcast){
 
   const next=events[0]||null;
   const current=Number(data?.current?.precipitation);
+  const classification=classifyPrecipitationSeries(futureMinutely);
 
   return {
     current:Number.isFinite(current)?Math.max(0,current):0,
-    nextEvent:next,
+    classification,
+    nextEvent:next?{...next,classification}:null,
     source:next?.source||(
       futureMinutely.length?"minutely_15":"hourly"
     ),
@@ -2809,8 +2862,9 @@ function nowcastHTML(X){
       ||(Number.isFinite(statePrecip)&&statePrecip>0.05);
     const canonicalNext= S.canonicalWeather?.precipitation?.nextEvent||null;
     const firstRainTime=canonicalNext?.startsAt||X.firstRainTime||null;
-    const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null}:null;
+    const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null,classification:canonicalNext?.classification||null}:null;
     const rainUntil=activeNow?rainUntilTime(X):null;
+    const precipClass=canonicalNext?.classification||S.canonicalWeather?.precipitation?.classification||null;
     const endLabel=rainUntil?hhmm(rainUntil):null;
     const startTime=!activeNow&&firstRainTime?hhmm(firstRainTime):null;
 
@@ -2821,7 +2875,8 @@ function nowcastHTML(X){
     }else if(stateRain){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
     }else if(firstRain){
-      sum=endLabel?"Opady zaczną się około "+startTime+" i potrwają do około "+endLabel+".":"Opady zaczną się około "+startTime+".";
+      const classLabel=precipClass?.label&&precipClass.type!=="none"?precipClass.label:"Opady";
+      sum=endLabel?classLabel+" około "+startTime+" i mogą potrwać do około "+endLabel+".":classLabel+" około "+startTime+".";
     }else{
       // Oś 15-minutowa nie pokazuje opadu — nie pobieramy zastępczej godziny z modelu.
       sum="Brak opadów w najbliższych godzinach";
