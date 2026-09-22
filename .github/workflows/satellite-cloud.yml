@@ -1,8 +1,6 @@
 name: Update satellite cloud mask
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
