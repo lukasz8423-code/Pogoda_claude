@@ -3571,7 +3571,7 @@ function pipelineDiagnosticsText(){
   };
   return JSON.stringify({
     generatedAt:new Date().toISOString(),
-    status:S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"?"IMGW online → Głodowo brak świeżych pól → Active Ensemble":S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
+    status:S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"?"IMGW online → Głodowo brak świeżych pól → Active Ensemble":S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
     network:S.netDiag||[],
     imgwDataAge:buildIMGWDiagnosticDetails(),
     openMeteoModelStatus:buildModelNetworkDiagnostics(),
@@ -4305,7 +4305,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         data.current=data.current||{};
         data.current.cloud_cover=rawCloudCover;
       }
-      S.sourceMode=imgwStale?"IMGW_ONLINE_STALE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE";
+      S.sourceMode=imgwStale?"IMGW_ONLINE_STARE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE";
       S.ensemble=offlineEnsemble.__auraEnsemble;
     }else{
       S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
@@ -4565,7 +4565,7 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   // IMGW Offline musi pozostawić diagnostykę żywą nawet wtedy, gdy nie ma
   // żadnej obserwacji stacyjnej do fuzji.
-  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"||S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"){
+  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"||S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"){
     const ci=currentHourIndex(data,new Date());
     const rows=[];
     for(let step=0;step<=3;step++){
@@ -4606,7 +4606,7 @@ async function loadWCore(lat,lng,name,isRef,token){
       status:(S.imgwDiag?.found===true
         ?"IMGW online → Głodowo brak świeżych pól → Active Ensemble"
         :"IMGW Offline → Active Ensemble"),
-      sourceMode:S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"?"IMGW_ONLINE_STALE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE",
+      sourceMode:S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"?"IMGW_ONLINE_STARE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE",
       imgwStatus:S.imgwDiag?.found===true?"ONLINE_STALE":"OFFLINE",
       activeEnsemble:modelNames,
       ensembleCloudConsensus:Number.isFinite(Number(S.ensemble?.cloudCoverConsensus))?S.ensemble.cloudCoverConsensus:null,
