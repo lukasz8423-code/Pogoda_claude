@@ -3901,6 +3901,8 @@ async function loadWCore(lat,lng,name,isRef,token){
   document.title="Aura – "+city;
 
   let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
+  // Nowcast jest częścią kanonicznego stanu i musi być dostępny poza try.
+  let fusionNowcast=[];
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
     const [weatherResult,imgwResult,cloudResult,satelliteResult,minutelyResult]=await Promise.allSettled([
@@ -3914,12 +3916,12 @@ async function loadWCore(lat,lng,name,isRef,token){
     // Nie wolno jej dalej przetwarzać ani renderować.
     if(token!==LOAD_SEQ)return;
     const rawNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
-  const fusionNowcast=correctMinutelyPrecipitation(
-    rawNowcast,
-    imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
-      :null
-  );
+    fusionNowcast=correctMinutelyPrecipitation(
+      rawNowcast,
+      imgwResult.status==="fulfilled"
+        ?(imgwResult.value?.best||imgwResult.value||{})
+        :null
+    );
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
