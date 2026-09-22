@@ -2433,7 +2433,12 @@ function computeCtx(){
   const stationNowMmForCtx=stationFreshPrecipMm(S.imgwData);
   const timelineNowMm=stationNowMmForCtx!==null?stationNowMmForCtx:timelineNowMmRaw;
   // Jedno źródło prawdy dla najbliższego opadu: event wyznaczony po finalnej fuzji.
-  const firstRainTime=precipTimeline?.nextEvent?.startsAt||null;
+  // Termin opadu jest ważny tylko wtedy, gdy faktycznie leży w przyszłości.
+  // Stary event z cache nie może po zmianie godziny nadal wyświetlać "opad o 12:00".
+  const candidateRainTime=precipTimeline?.nextEvent?.startsAt||null;
+  const candidateRainTs=candidateRainTime?Date.parse(String(candidateRainTime)):NaN;
+  const firstRainTime=Number.isFinite(candidateRainTs)&&candidateRainTs>Date.now()
+    ?candidateRainTime:null;
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   // Ghost-drizzle guard: kod 51 + śladowy modelowy opad nie może oznaczać
   // "Mżawka", jeśli świeży pomiar IMGW nie potwierdza opadu.
@@ -2519,7 +2524,8 @@ function getAlerts(X){
   if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
   if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
   else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
-  if(!isRainingNow(X)&&X.code<51&&X.firstRainTime){
+  const futureRainTs=X.firstRainTime?Date.parse(String(X.firstRainTime)):NaN;
+  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(futureRainTs)&&futureRainTs>Date.now()){
     A.push({c:"info",t:`Prognoza opadów około ${hhmm(X.firstRainTime)}. Weź parasol.`});
   }
   if(X.T<=0)A.push({c:"info",t:"Temperatura poniżej zera, możliwe oblodzenie."});
