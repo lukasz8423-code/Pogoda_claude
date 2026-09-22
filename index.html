@@ -3571,7 +3571,7 @@ function pipelineDiagnosticsText(){
   };
   return JSON.stringify({
     generatedAt:new Date().toISOString(),
-    status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
+    status:S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"?"IMGW online → Głodowo brak świeżych pól → Active Ensemble":S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
     network:S.netDiag||[],
     imgwDataAge:buildIMGWDiagnosticDetails(),
     openMeteoModelStatus:buildModelNetworkDiagnostics(),
@@ -4280,26 +4280,32 @@ async function loadWCore(lat,lng,name,isRef,token){
       imgwBestStation.sourceType==="IMGW_METEO"
     );
     const imgwUsableStation=!!(imgwStationFound && imgwBestStation.isFresh!==false);
-    const imgwFeedOffline=!imgwStationFound;
-    const imgwOffline=!imgwStationFound;
-    S.imgwStatus=imgwFeedOffline?"OFFLINE":"ONLINE";
+    const imgwTransportAvailable=!!(
+      imgwStationFound ||
+      S.imgwDiag?.found===true
+    );
+    const imgwFeedOffline=!imgwTransportAvailable;
+    const imgwOffline=imgwFeedOffline;
+    const imgwStale=imgwTransportAvailable&&!imgwUsableStation;
+    const ensembleRequired=imgwOffline||imgwStale;
+    S.imgwStatus=imgwFeedOffline?"OFFLINE":imgwStale?"ONLINE_STALE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
     // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
     // ICON-EU, a jeśli go nie ma — ECMWF IFS.
-    const rawCloudSource=imgwOffline
+    const rawCloudSource=ensembleRequired
       ?(cloudCompare.find(r=>r.model==="icon_eu"&&Number.isFinite(Number(r.data?.current?.cloud_cover)))
         ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
       :null;
     const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
-    const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
-    if(imgwOffline&&offlineEnsemble){
+    const offlineEnsemble=ensembleRequired?buildOfflineEnsemble(cloudCompare):null;
+    if(ensembleRequired&&offlineEnsemble){
       data=offlineEnsemble;
       // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
       if(Number.isFinite(rawCloudCover)){
         data.current=data.current||{};
         data.current.cloud_cover=rawCloudCover;
       }
-      S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
+      S.sourceMode=imgwStale?"IMGW_ONLINE_STALE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE";
       S.ensemble=offlineEnsemble.__auraEnsemble;
     }else{
       S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
@@ -4559,7 +4565,7 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   // IMGW Offline musi pozostawić diagnostykę żywą nawet wtedy, gdy nie ma
   // żadnej obserwacji stacyjnej do fuzji.
-  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
+  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"||S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"){
     const ci=currentHourIndex(data,new Date());
     const rows=[];
     for(let step=0;step<=3;step++){
@@ -4584,12 +4590,14 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     const activeEnsembleModels=S.ensemble?.models||[];
     const modelNames=activeEnsembleModels.map(m=>m==="icon_eu"?"ICON-EU":m==="ecmwf_ifs025"?"ECMWF IFS":m==="gfs_seamless"?"GFS":m);
+    const imgwDiagDetails=buildIMGWDiagnosticDetails();
     S.pipelineDiag={
       capturedAt:Date.now(),
       uiCurrentHour:ci,
       fusionCurrentHour:ci,
       station:S.imgwDiag?.found===true?"Głodowo — pomiar nieświeży":"IMGW niedostępne",
-      stationAgeMinutes:Number.isFinite(Number(S.imgwDiag?.ageMinutes))?Number(S.imgwDiag.ageMinutes):null,
+      stationAgeMinutes:Number.isFinite(Number(imgwDiagDetails?.stationAgeMinutes))
+        ?Number(imgwDiagDetails.stationAgeMinutes):null,
       stationDistanceKm:Number.isFinite(Number(S.imgwDiag?.dist))?Number(S.imgwDiag.dist):null,
       imgwForecastAvailable:false,
       imgwForecastNote:(S.imgwDiag?.found===true
@@ -4598,7 +4606,7 @@ async function loadWCore(lat,lng,name,isRef,token){
       status:(S.imgwDiag?.found===true
         ?"IMGW online → Głodowo brak świeżych pól → Active Ensemble"
         :"IMGW Offline → Active Ensemble"),
-      sourceMode:"IMGW_OFFLINE_ENSEMBLE",
+      sourceMode:S.sourceMode==="IMGW_ONLINE_STALE_ENSEMBLE"?"IMGW_ONLINE_STALE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE",
       imgwStatus:S.imgwDiag?.found===true?"ONLINE_STALE":"OFFLINE",
       activeEnsemble:modelNames,
       ensembleCloudConsensus:Number.isFinite(Number(S.ensemble?.cloudCoverConsensus))?S.ensemble.cloudCoverConsensus:null,
@@ -4690,6 +4698,35 @@ async function loadWCore(lat,lng,name,isRef,token){
   syncDailyExtremes(data);
 
   S.pipelineDiag=S.pipelineDiag||{};
+  // Pipeline musi pokazywać dokładnie ten sam, już skorygowany opad,
+  // który trafił do kanonicznego stanu i UI. T0 bierze wartość z current,
+  // kolejne sloty z poprawionej tablicy hourly.
+  if(Array.isArray(S.pipelineDiag.rows)&&Array.isArray(data?.hourly?.time)){
+    const ci=currentHourIndex(data,new Date());
+    S.pipelineDiag.rows=S.pipelineDiag.rows.map((row,step)=>{
+      const idx=ci+step;
+      if(idx<0||idx>=data.hourly.time.length)return row;
+      const precip=step===0
+        ?Number(data.current?.precipitation)
+        :Number(data.hourly.precipitation?.[idx]);
+      const temp=Number(data.hourly.temperature_2m?.[idx]);
+      return {
+        ...row,
+        time:data.hourly.time[idx],
+        openMeteo:Number.isFinite(temp)?temp:row.openMeteo,
+        auraFinal:Number.isFinite(temp)?temp:row.auraFinal,
+        precipitation:Number.isFinite(precip)?Math.max(0,precip):0,
+        precipitationModelWeight:1
+      };
+    });
+    const first=S.pipelineDiag.rows[0];
+    if(first){
+      first.auraFinal=Number.isFinite(Number(data.current?.temperature_2m))
+        ?Number(data.current.temperature_2m):first.auraFinal;
+      first.precipitation=Number.isFinite(Number(data.current?.precipitation))
+        ?Math.max(0,Number(data.current.precipitation)):first.precipitation;
+    }
+  }
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
   S.pipelineDiag.hourlyPrecipitationCorrection=
     data.hourly?.__auraHourlyPrecipitationCorrection||null;
