@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   update:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,8 +48,12 @@ jobs:
               except Exception:
                   old_data=None
 
-          if old_data == new_data:
-              print("IMGW METEO: dane stacji nie zmieniły się — brak commita.")
+          old_station=None
+          if isinstance(old_data,list):
+              old_station=next((x for x in old_data if str(x.get("kod_stacji","")).strip()=="252190030"),None)
+
+          if old_data == new_data and old_station == station:
+              print("IMGW METEO: snapshot bez zmian — brak commita.")
           else:
               out={
                   "fetchedAt":int(time.time()*1000),
