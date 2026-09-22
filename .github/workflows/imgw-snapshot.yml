@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 -sS \
-            "https://danepubliczne.imgw.pl/api/data/meteo/" -o /tmp/imgw.json
+            "https://danepubliczne.imgw.pl/api/data/meteo/?_=${RANDOM}" -o /tmp/imgw.json
 
           python - <<'PY'
           import json, pathlib, time
