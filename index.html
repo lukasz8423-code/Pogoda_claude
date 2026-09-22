@@ -2354,55 +2354,130 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 function buildCanonicalPrecipitation(data,nowcast){
   const hourly=data?.hourly||{};
   const now=Date.now();
-  const minutely=Array.isArray(nowcast)?nowcast.map(x=>({
-    t:x?.t,
-    mm:Number(x?.mm),
-    pop:Number(x?.pop),
-    code:Number(x?.code),
-    source:"minutely_15"
-  })).filter(x=>Number.isFinite(Date.parse(String(x.t)))&&Number.isFinite(x.mm)&&x.mm>0.05):[];
+
+  // KANONICZNA INTERPRETACJA OPADU:
+  // - 15-min nowcast jest nadrzędny w najbliższych 2 h,
+  // - pojedyncza kropla / ślad nie tworzy zdarzenia "deszcz",
+  // - najbliższe 45 min wymagają potwierdzenia co najmniej 2 slotami
+  //   minutely_15,
+  // - godzinowy mikroopad <=0.4 mm/h nie tworzy nextEvent sam z siebie,
+  // - wartości POP pozostają osobną informacją i nie są utożsamiane z opadem.
+  const MINUTE_TRACE=0.05;
+  const EVENT_MM=0.15;
+  const HOURLY_EVENT_MM=0.4;
+  const NEAR_MS=45*60*1000;
+
+  const minutely=Array.isArray(nowcast)
+    ?nowcast.map(x=>({
+      t:x?.t,
+      mm:Number(x?.mm),
+      pop:Number(x?.pop),
+      code:Number(x?.code),
+      source:"minutely_15"
+    }))
+      .filter(x=>Number.isFinite(Date.parse(String(x.t)))&&Number.isFinite(x.mm)&&x.mm>=0)
+      .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)))
+    :[];
+
   const futureMinutely=minutely.filter(x=>Date.parse(String(x.t))>=now);
+  const nearMinutely=futureMinutely.filter(x=>{
+    const t=Date.parse(String(x.t));
+    return t<=now+NEAR_MS&&x.mm>MINUTE_TRACE;
+  });
+
+  // Zdarzenie minutely musi mieć realny sygnał w co najmniej dwóch slotach
+  // albo jeden slot o wyraźniejszym natężeniu. To odcina pojedyncze krople.
+  let minutelyEvent=null;
+  for(let i=0;i<futureMinutely.length;i++){
+    const first=futureMinutely[i];
+    const firstTs=Date.parse(String(first.t));
+    if(firstTs<now)continue;
+
+    const window=futureMinutely.filter(x=>{
+      const t=Date.parse(String(x.t));
+      return t>=firstTs&&t<=firstTs+45*60*1000&&x.mm>MINUTE_TRACE;
+    });
+    const total=window.reduce((s,x)=>s+x.mm,0);
+    const peak=window.reduce((m,x)=>Math.max(m,x.mm),0);
+
+    if(peak>=EVENT_MM||(window.length>=2&&total>=EVENT_MM)){
+      minutelyEvent={
+        ...first,
+        mm:+Math.max(peak,total).toFixed(2),
+        startsAt:first.t,
+        kind:"rain",
+        confidence:window.length>=2?"minutely_confirmed":"minutely_strong",
+        supportingSlots:window.length
+      };
+      break;
+    }
+  }
+
   const hourlyEvents=[];
   if(Array.isArray(hourly.time)){
     for(let i=0;i<hourly.time.length;i++){
       const t=Date.parse(String(hourly.time[i]));
       const mm=Number(hourly.precipitation?.[i]);
+      const pop=Number(hourly.precipitation_probability?.[i]);
+      const code=Number(hourly.weather_code?.[i]);
       if(!Number.isFinite(t)||t<now||!Number.isFinite(mm)||mm<=0.05)continue;
-      hourlyEvents.push({t:hourly.time[i],mm, pop:Number(hourly.precipitation_probability?.[i]), code:Number(hourly.weather_code?.[i]), source:"hourly"});
+
+      const near=t<=now+NEAR_MS;
+      const nearConfirmed=near&&nearMinutely.length>=2;
+
+      // Najbliższe 45 min: sam hourly nie wystarcza.
+      if(near&&!nearConfirmed)continue;
+
+      // Po 45 min mikroopad <=0.4 mm/h pozostaje informacją prognostyczną,
+      // ale nie staje się automatycznie zdarzeniem deszczowym.
+      if(!near&&mm<=HOURLY_EVENT_MM)continue;
+
+      hourlyEvents.push({
+        t:hourly.time[i],
+        mm,
+        pop:Number.isFinite(pop)?pop:null,
+        code:Number.isFinite(code)?code:null,
+        source:"hourly",
+        startsAt:hourly.time[i],
+        kind:"rain",
+        confidence:nearConfirmed?"minutely+hourly":"hourly_consensus"
+      });
     }
   }
-  // Najbliższy termin opadu wymaga potwierdzenia nowcastem.
-  // Nie wolno wyświetlać alertu "Weź parasol" tylko dlatego, że jeden/dwa
-  // modele widzą śladowe 0.1–0.4 mm/h dokładnie za kilka minut.
-  // Dla zdarzeń w ciągu najbliższych 45 min pierwszeństwo ma minutely_15.
-  const nearCutoff=now+45*60*1000;
-  const nearMinutely=futureMinutely.filter(x=>{
-    const t=Date.parse(String(x.t));
-    return t<=nearCutoff && Number(x.mm)>0.05;
-  });
-  const events=[...futureMinutely,...hourlyEvents]
-    .filter(e=>{
-      const t=Date.parse(String(e.t));
-      if(t>nearCutoff)return true;
-      // Godzinowy mikro-opad w najbliższych 45 min jest ignorowany,
-      // jeśli minutely nie potwierdza opadu w tym samym oknie.
-      return nearMinutely.length>0;
-    })
+
+  // Wspólna oś zdarzeń. Minutely ma pierwszeństwo tylko wtedy, gdy samo
+  // spełnia warunek realnego zdarzenia. Nie pozwalamy, aby 0.2–0.3 mm/h
+  // z hourly utworzyło fałszywy "deszcz o 13:00".
+  const events=[...(minutelyEvent?[minutelyEvent]:[]),...hourlyEvents]
+    .filter(e=>Date.parse(String(e.t))>now)
     .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)));
+
   const next=events[0]||null;
   const current=Number(data?.current?.precipitation);
+
   return {
     current:Number.isFinite(current)?Math.max(0,current):0,
-    nextEvent:next?{...next,startsAt:next.t}:null,
-    source:futureMinutely.length?"minutely_15":"hourly",
+    nextEvent:next,
+    source:next?.source||(
+      futureMinutely.length?"minutely_15":"hourly"
+    ),
+    // Renderery 15-min dostają pełną oś, ale nie mogą traktować śladu
+    // jako automatycznego zdarzenia deszczowego.
     slots:futureMinutely.slice(0,17),
     future:futureMinutely.slice(0,17),
     minutely:futureMinutely.slice(0,17),
     events:events.slice(0,32),
+    diagnostics:{
+      nearWindowMinutes:45,
+      traceThresholdMm:MINUTE_TRACE,
+      eventThresholdMm:EVENT_MM,
+      hourlyEventThresholdMm:HOURLY_EVENT_MM,
+      nearMinutelySlots:nearMinutely.length,
+      minutelyEvent:!!minutelyEvent
+    },
     committedAt:Date.now()
   };
 }
-
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
   const canonical=S.canonicalWeather||{current,hourly,daily};
