@@ -4126,11 +4126,10 @@ async function loadWCore(lat,lng,name,isRef,token){
           const rh=Number(data.current.relative_humidity_2m);
           const windMs=Math.max(0,Number(data.current.wind_speed_10m||0)/3.6);
           if(Number.isFinite(rh)){
-            const previousWind=S.X?.wind;
-            S.X=S.X||{};
-            S.X.wind=windMs*3.6;
-            const newFeels=discomfortIndex(t,rh).value;
-            if(Number.isFinite(previousWind))S.X.wind=previousWind;
+            // Odczuwalna musi używać tego samego, finalnego wiatru.
+            // Wcześniej próbowaliśmy przekazywać wiatr przez S.X.wind,
+            // ale discomfortIndex() przyjmuje go jako trzeci argument.
+            const newFeels=discomfortIndex(t,rh,windMs*3.6).value;
             data.current.apparent_temperature=Number.isFinite(newFeels)?Math.round(newFeels*10)/10:t;
           }else{
             data.current.apparent_temperature=t;
