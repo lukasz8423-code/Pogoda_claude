@@ -370,21 +370,25 @@ function buildNowcast(hourly,ci,precipitationModelWeight=1){
   const points=[];
   const end=Math.min(ci+4,hourly.time.length);
   const w=clamp(Number(precipitationModelWeight),0,1);
+  const stationNowMm=stationFreshPrecipMm(S.imgwData);
+  const stationNowValid=stationNowMm!==null;
   for(let idx=ci;idx<end;idx++){
     const code=Number(hourly.weather_code?.[idx]);
     const rawPop=Number(hourly.precipitation_probability?.[idx]??0);
     const rawPrecip=Number(hourly.precipitation?.[idx]??0);
-    // Ghost Rain Guard może obniżyć wpływ modelu wyłącznie dla bieżącej godziny.
     const modelFactor=idx===ci?w:1;
     const precip=Math.max(0,rawPrecip*modelFactor);
     const pop=Math.max(0,rawPop*modelFactor);
-    const rain=isRainCode(code)&&((precip>=0.1)||rawPrecip===0);
+    const isCurrent=idx===ci;
+    const effectivePrecip=isCurrent&&stationNowValid?stationNowMm:precip;
+    const effectiveCode=isCurrent&&stationNowValid?(stationNowMm>0.05?61:0):code;
+    const rain=isRainCode(effectiveCode)&&((effectivePrecip>=0.1)||rawPrecip===0);
     points.push({
       h:idx-ci,
       time:hourly.time?.[idx],
       pop,
-      precip,
-      code:Number.isFinite(code)?code:0,
+      precip:effectivePrecip,
+      code:Number.isFinite(effectiveCode)?effectiveCode:0,
       rain
     });
   }
@@ -1083,7 +1087,17 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=30){
 
 // Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
 async function findNearestIMGW(lat,lng){
-  const [all,meteoAll]=await Promise.all([fetchIMGWAll(),fetchIMGWMeteoAll()]);
+  let meteoAll=null;
+  try{
+    const r=await fetch("./imgw-meteo.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
+    if(r.ok){
+      const payload=await r.json();
+      meteoAll=Array.isArray(payload)?payload:(Array.isArray(payload?.data)?payload.data:null);
+      if(meteoAll)S.imgwDiag={...(S.imgwDiag||{}),status:"snapshot-same-origin",count:meteoAll.length,snapshotFetchedAt:Number(payload?.fetchedAt)||null,error:null};
+    }
+  }catch(e){console.warn("[IMGW] snapshot niedostępny:",e?.message||e);}
+  const all=await fetchIMGWAll();
+  if(!meteoAll)meteoAll=await fetchIMGWMeteoAll();
   const fetchedAt=Date.now();
 
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
@@ -2181,7 +2195,9 @@ function computeCtx(){
   const precipTimeline=canonical.precipitation||unifiedPrecipitationTimeline();
   const hourlyNowCode=getHourlyCode(hourly,ci);
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
-  const timelineNowMm=Number(timelineCurrent?.mm??precipTimeline?.current);
+  const timelineNowMmRaw=Number(timelineCurrent?.mm??precipTimeline?.current);
+  const stationNowMmForCtx=stationFreshPrecipMm(S.imgwData);
+  const timelineNowMm=stationNowMmForCtx!==null?stationNowMmForCtx:timelineNowMmRaw;
   // Jedno źródło prawdy dla najbliższego opadu: event wyznaczony po finalnej fuzji.
   const firstRainTime=precipTimeline?.nextEvent?.startsAt||null;
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
@@ -2460,7 +2476,8 @@ function currentTimelineMm(X){
 }
 function nowcastHTML(X){
   const stateCode=X.currentState?.code??X.code;
-  const stateMm=Number(X.currentState?.mm);
+  const stationNowMm=stationFreshPrecipMm(S.imgwData);
+  const stateMm=stationNowMm!==null?stationNowMm:Number(X.currentState?.mm);
   const statePop=Number(X.currentState?.pop);
   const statePrecip=Number(X.precip);
   const snow=isSnowCode(stateCode);
@@ -2471,9 +2488,9 @@ function nowcastHTML(X){
     const firstMm=currentTimelineMm(X);
     const activeNow=(Number.isFinite(stateMm)&&stateMm>0.05)||(Number.isFinite(firstMm)&&firstMm>0.05);
     // Gdy mamy oś 15-minutową, to ona jest jedynym źródłem prawdy dla alertu opadowego.
-    const stateRain=X.timeline.source==="minutely_15"
-      ?activeNow
-      :(activeNow||isRainCode(stateCode)||(Number.isFinite(statePrecip)&&statePrecip>0.05));
+    const stateRain=activeNow
+      ||isRainCode(stateCode)
+      ||(Number.isFinite(statePrecip)&&statePrecip>0.05);
     const canonicalNext= S.canonicalWeather?.precipitation?.nextEvent||null;
     const firstRainTime=canonicalNext?.startsAt||X.firstRainTime||null;
     const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null}:null;
