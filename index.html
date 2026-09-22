@@ -1063,7 +1063,7 @@ function parseImgwMeteoTimestamp(value){
 // Centralna walidacja świeżości pól IMGW METEO.
 // Każde pole pomiarowe jest sprawdzane względem własnego pola `${field}_data`.
 // Stary pomiar jest zerowany tylko dla tego pola — reszta stacji pozostaje użyteczna.
-function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=30){
+function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=180){
   const safeData={...station};
   const stale_fields=[];
   const warnings=[];
