@@ -2371,7 +2371,24 @@ function buildCanonicalPrecipitation(data,nowcast){
       hourlyEvents.push({t:hourly.time[i],mm, pop:Number(hourly.precipitation_probability?.[i]), code:Number(hourly.weather_code?.[i]), source:"hourly"});
     }
   }
-  const events=[...futureMinutely,...hourlyEvents].sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)));
+  // Najbliższy termin opadu wymaga potwierdzenia nowcastem.
+  // Nie wolno wyświetlać alertu "Weź parasol" tylko dlatego, że jeden/dwa
+  // modele widzą śladowe 0.1–0.4 mm/h dokładnie za kilka minut.
+  // Dla zdarzeń w ciągu najbliższych 45 min pierwszeństwo ma minutely_15.
+  const nearCutoff=now+45*60*1000;
+  const nearMinutely=futureMinutely.filter(x=>{
+    const t=Date.parse(String(x.t));
+    return t<=nearCutoff && Number(x.mm)>0.05;
+  });
+  const events=[...futureMinutely,...hourlyEvents]
+    .filter(e=>{
+      const t=Date.parse(String(e.t));
+      if(t>nearCutoff)return true;
+      // Godzinowy mikro-opad w najbliższych 45 min jest ignorowany,
+      // jeśli minutely nie potwierdza opadu w tym samym oknie.
+      return nearMinutely.length>0;
+    })
+    .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)));
   const next=events[0]||null;
   const current=Number(data?.current?.precipitation);
   return {
