@@ -576,13 +576,21 @@ function fuseCloudCover(records,context={}){
     ((Number.isFinite(modelRain)&&modelRain>0)||modelRainCode);
 
   const nowcast=Array.isArray(context.nowcast)?context.nowcast:[];
-  const nowcastRainSlots=nowcast.filter(x=>Number.isFinite(Number(x?.mm))&&Number(x.mm)>0.05);
+  // T0 może być potwierdzony wyłącznie obserwacją bieżącego/przeszłego
+  // slotu minutely. Przyszła prognoza 15-min NIE jest dowodem, że teraz pada.
+  // To było źródłem fałszywego "deszcz teraz", gdy przyszłe sloty miały opad.
+  const nowMs=Date.now();
+  const observedNowcast=nowcast.filter(x=>{
+    const t=Date.parse(String(x?.t));
+    return Number.isFinite(t)&&t<=nowMs+2*60000&&Number(x?.mm)>0.05;
+  });
   let nowcastConfirmedRain=false;
-  for(let i=0;i<nowcast.length-1;i++){
-    const a=Number(nowcast[i]?.mm),b=Number(nowcast[i+1]?.mm);
-    if(Number.isFinite(a)&&Number.isFinite(b)&&a>0.05&&b>0.05){nowcastConfirmedRain=true;break;}
+  if(observedNowcast.length>=1){
+    const latestObserved=observedNowcast.reduce((a,b)=>
+      Date.parse(String(a.t))>Date.parse(String(b.t))?a:b
+    );
+    nowcastConfirmedRain=Number(latestObserved?.mm)>0.05;
   }
-  if(nowcastRainSlots.length>=3)nowcastConfirmedRain=true;
 
   const stationConfirmsRain=Number.isFinite(Number(context.stationPrecipMm))&&Number(context.stationPrecipMm)>0;
   const precipitationConfirmed=stationConfirmsRain||nowcastConfirmedRain;
@@ -591,6 +599,14 @@ function fuseCloudCover(records,context={}){
   if(precipitation>0&&precipitation<=0.4&&!precipitationConfirmed){
     precipitation=0;
     precipitationCorrected=true;
+  }
+
+  // Jeżeli T0 nie ma niezależnego potwierdzenia opadu, kod deszczu z modelu
+  // nie może pozostać jako stan prezentacyjny "teraz".
+  if(precipitationCorrected&&isRainCode(Number(context.modelCode))){
+    const c=Number.isFinite(Number(raw))?Number(raw):0;
+    // Kod jest przeliczany później po finalnym cloud_cover; tutaj tylko
+    // zapamiętujemy brak potwierdzonego opadu.
   }
 
   const satellite=context.satellite||null;
@@ -676,6 +692,12 @@ function fuseCloudCover(records,context={}){
 
   value=Math.round(clamp(value,0,100)*10)/10;
   precipitation=Math.round(Math.max(0,precipitation)*100)/100;
+
+  // T0 bez potwierdzonego opadu: nie pokazujemy deszczowego kodu tylko dlatego,
+  // że jeden model podał WMO 51/53/61/80. Stan opisowy musi być spójny z T0.
+  const finalWeatherCode = precipitationCorrected && isRainCode(Number(context.modelCode))
+    ? (value<=10 ? 0 : value<=40 ? 2 : 3)
+    : Number(context.modelCode);
   try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),value}));}catch{}
 
   return {
@@ -683,6 +705,7 @@ function fuseCloudCover(records,context={}){
     prior,priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
     recentRainConflict,clearAir,precipitation,precipitationCorrected,
     precipitationConfirmed,nowcastConfirmedRain,cloudDampeningFactor,
+    weatherCode:finalWeatherCode,
     windKmh:Number.isFinite(wind)?wind:null,
     satelliteUsed:satelliteUsable,
     satelliteCloud:satelliteUsable?satCloud:null,
