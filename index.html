@@ -1041,7 +1041,7 @@ async function fetchIMGWMeteoAll(){
       temperature:station?.temperatura_powietrza??station?.temperatura??null,
       timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
       ageMinutes:null,
-      snapshotFetchedAt:null,
+      snapshotFetchedAt:S.imgwDiag?.snapshotFetchedAt??null,
       error:null
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
@@ -3396,16 +3396,52 @@ function diagnosticAgeStatus(age,maxFresh=30,maxUsable=180){
   return {status:"PRZETERMINOWANE",icon:"🔴"};
 }
 function buildIMGWDiagnosticDetails(){
-  const d=S.imgwData||{},obs=d.observedAt||d.latestObservedAt||null,age=Number.isFinite(Number(d.ageMinutes))?Number(d.ageMinutes):diagnosticAgeMinutes(obs);
+  // Diagnostyka ma pokazywać również kandydata Głodowo odrzuconego przez TTL.
+  // Nie wolno tracić surowego rekordu tylko dlatego, że jego pola są stare.
+  const diag=S.imgwDiag||{};
+  const d=S.imgwData||diag.rawStation||diag.rawGlodowo||{};
+  const raw=diag.rawGlodowo||null;
+  const obs=d.observedAt||d.latestObservedAt||d.temperatura_powietrza_data||d.temperatura_data||null;
+  const age=Number.isFinite(Number(d.ageMinutes))
+    ?Number(d.ageMinutes)
+    :diagnosticAgeMinutes(obs);
   const fields=[
-    ["Temperatura",d.temperatura_powietrza??d.temperatura,d.temperatura_powietrza_data??d.temperatura_data,d.tempFresh],
-    ["Wilgotność",d.wilgotnosc_wzgledna,d.wilgotnosc_wzgledna_data,d.humidityFresh],
-    ["Wiatr",d.wiatr_srednia_predkosc,d.wiatr_srednia_predkosc_data,d.windFresh],
-    ["Kierunek wiatru",d.wiatr_kierunek,d.wiatr_kierunek_data,d.windDirFresh],
-    ["Poryw",d.wiatr_predkosc_maksymalna,d.wiatr_predkosc_maksymalna_data,d.porywWiatruFresh],
-    ["Opad 10 min",d.opad_10min,d.opad_10min_data,d.opad10minFresh]
+    ["Temperatura",d.temperatura_powietrza??d.temperatura??raw?.temperature, d.temperatura_powietrza_data??d.temperatura_data??raw?.temperatureAt,d.tempFresh],
+    ["Wilgotność",d.wilgotnosc_wzgledna??raw?.humidity,d.wilgotnosc_wzgledna_data??raw?.humidityAt,d.humidityFresh],
+    ["Wiatr",d.wiatr_srednia_predkosc??d.predkosc_wiatru??raw?.wind,d.wiatr_srednia_predkosc_data??d.predkosc_wiatru_data??raw?.windAt,d.windFresh],
+    ["Kierunek wiatru",d.wiatr_kierunek??d.kierunek_wiatru,d.wiatr_kierunek_data??d.kierunek_wiatru_data,d.windDirFresh],
+    ["Poryw",d.wiatr_predkosc_maksymalna??d.poryw_wiatru,d.wiatr_predkosc_maksymalna_data??d.poryw_wiatru_data,d.porywWiatruFresh],
+    ["Opad 10 min",d.opad_10min??raw?.rain10,d.opad_10min_data??raw?.rain10At,d.opad10minFresh]
   ];
-  return {snapshotFetchedAt:S.imgwDiag?.snapshotFetchedAt??null,snapshotFetchedAtISO:Number.isFinite(Number(S.imgwDiag?.snapshotFetchedAt))?new Date(Number(S.imgwDiag.snapshotFetchedAt)).toISOString():null,snapshotAgeMinutes:diagnosticAgeMinutes(S.imgwDiag?.snapshotFetchedAt),stationObservedAt:obs,stationAgeMinutes:age,stationStatus:diagnosticAgeStatus(age),fields:fields.map(([name,value,timestamp,fresh])=>{const a=diagnosticAgeMinutes(timestamp);return{name,value:value??null,timestamp:timestamp||null,ageMinutes:a,status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status};})};
+  const rawAge=diag.rawGlodowo?.temperatureAt
+    ?diagnosticAgeMinutes(diag.rawGlodowo.temperatureAt)
+    :null;
+  return {
+    snapshotFetchedAt:diag.snapshotFetchedAt??null,
+    snapshotFetchedAtISO:Number.isFinite(Number(diag.snapshotFetchedAt))?new Date(Number(diag.snapshotFetchedAt)).toISOString():null,
+    snapshotAgeMinutes:diagnosticAgeMinutes(diag.snapshotFetchedAt),
+    stationFound:diag.found===true||!!raw,
+    stationUsed:S.imgwData?.sourceType==="IMGW_METEO"&&S.imgwData?.isFresh===true,
+    selectionStatus:diag.status??null,
+    selectionReason:diag.reason??(S.imgwData?.isFresh===false?"Głodowo znaleziona, ale brak świeżych pól ≤30 min":null),
+    stationCode:diag.stationCode??raw?.code??d.kod_stacji??d.id_stacji??null,
+    stationName:diag.station??raw?.name??d.nazwa_stacji??d.stacja??null,
+    rawGlodowo:raw?{
+      code:raw.code??null,name:raw.name??null,lat:raw.lat??null,lng:raw.lng??null,
+      temperature:raw.temperature??null,temperatureAt:raw.temperatureAt??null,
+      temperatureAgeMinutes:rawAge,
+      humidity:raw.humidity??null,humidityAt:raw.humidityAt??null,
+      wind:raw.wind??null,windAt:raw.windAt??null,
+      rain10:raw.rain10??null,rain10At:raw.rain10At??null
+    }:null,
+    stationObservedAt:obs,
+    stationAgeMinutes:age,
+    stationStatus:diagnosticAgeStatus(age),
+    fields:fields.map(([name,value,timestamp,fresh])=>{
+      const a=diagnosticAgeMinutes(timestamp);
+      return{name,value:value??null,timestamp:timestamp||null,ageMinutes:a,status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status};
+    })
+  };
 }
 function buildModelNetworkDiagnostics(){
   const net=Array.isArray(S.netDiag)?S.netDiag:[],models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
