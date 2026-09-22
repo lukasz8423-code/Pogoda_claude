@@ -864,10 +864,14 @@ async function apiSatelliteCloudMask(lat,lng){
     const r=await auraFetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
     if(!r.ok)return null;
     const d=await r.json();
-    const slat=Number(d.lat),slng=Number(d.lon);
+    const slat=Number(d.lat),slng=Number(d.lon),cf=Number(d.cloudFraction);
+    const validStatus=String(d.status||"").toUpperCase()==="OK";
+    const validSamples=Number(d.sampleCount)>0&&Number(d.cloudPixels)>=0&&Number(d.clearPixels)>=0;
+    if(!validStatus||!validSamples||!Number.isFinite(cf)||cf<0||cf>100)return null;
     if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
     const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
-    return {...d,distanceKm:+distanceKm.toFixed(2)};
+    if(distanceKm>30)return null;
+    return {...d,distanceKm:+distanceKm.toFixed(2),validForFusion:true};
   }catch{return null;}
 }
 function sameLocationSnapshot(lat,lng){
