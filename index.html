@@ -2196,7 +2196,17 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null,netDiag:[]};
 
-function auraFetch(input,init={}){\n  const started=performance.now();\n  const url=typeof input==="string"?input:(input?.url||String(input));\n  const endpoint=String(url).replace(/([?&](?:ts|_aura_ts|timestamp)=)[^&]*/gi,"$1<ts>");\n  const rec={id:Math.random().toString(36).slice(2,8),startedAt:Date.now(),endpoint,method:String(init?.method||"GET").toUpperCase(),status:null,ok:false,durationMs:null,error:null};\n  S.netDiag=Array.isArray(S.netDiag)?S.netDiag:[ ];\n  S.netDiag.push(rec);\n  if(S.netDiag.length>80)S.netDiag.splice(0,S.netDiag.length-80);\n  const mark=(patch)=>Object.assign(rec,patch,{durationMs:Math.round(performance.now()-started)});\n  return window.fetch(input,init).then(res=>{mark({status:res.status,ok:res.ok});return res;},err=>{mark({status:null,ok:false,error:String(err?.message||err)});throw err;});\n}
+function auraFetch(input,init={}){
+  const started=performance.now();
+  const url=typeof input==="string"?input:(input?.url||String(input));
+  const endpoint=String(url).replace(/([?&](?:ts|_aura_ts|timestamp)=)[^&]*/gi,"$1<ts>");
+  const rec={id:Math.random().toString(36).slice(2,8),startedAt:Date.now(),endpoint,method:String(init?.method||"GET").toUpperCase(),status:null,ok:false,durationMs:null,error:null};
+  S.netDiag=Array.isArray(S.netDiag)?S.netDiag:[];
+  S.netDiag.push(rec);
+  if(S.netDiag.length>80)S.netDiag.splice(0,S.netDiag.length-80);
+  const mark=(patch)=>Object.assign(rec,patch,{durationMs:Math.round(performance.now()-started)});
+  return window.fetch(input,init).then(res=>{mark({status:res.status,ok:res.ok});return res;},err=>{mark({status:null,ok:false,error:String(err?.message||err)});throw err;});
+}
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
