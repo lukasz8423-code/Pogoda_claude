@@ -1,6 +1,8 @@
 name: Update satellite cloud mask
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
@@ -10,6 +12,7 @@ permissions:
 
 jobs:
   satellite-cloud:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
