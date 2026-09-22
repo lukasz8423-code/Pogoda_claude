@@ -3601,26 +3601,49 @@ function diagnosticAgeStatus(age,maxFresh=30,maxUsable=180){
   return {status:"PRZETERMINOWANE",icon:"🔴"};
 }
 function buildIMGWDiagnosticDetails(){
-  // Diagnostyka ma pokazywać również kandydata Głodowo odrzuconego przez TTL.
-  // Nie wolno tracić surowego rekordu tylko dlatego, że jego pola są stare.
+  // Diagnostyka stacji musi opierać się na NAJNOWSZYM faktycznym pomiarze,
+  // a nie automatycznie na temperaturze. Każde pole zachowuje własny timestamp.
   const diag=S.imgwDiag||{};
   const d=S.imgwData||diag.rawStation||diag.rawGlodowo||{};
   const raw=diag.rawGlodowo||null;
-  const obs=d.observedAt||d.latestObservedAt||d.temperatura_powietrza_data||d.temperatura_data||null;
-  const age=Number.isFinite(Number(d.ageMinutes))
-    ?Number(d.ageMinutes)
-    :diagnosticAgeMinutes(obs);
   const fields=[
-    ["Temperatura",d.temperatura_powietrza??d.temperatura??raw?.temperature, d.temperatura_powietrza_data??d.temperatura_data??raw?.temperatureAt,d.tempFresh],
+    ["Temperatura",d.temperatura_powietrza??d.temperatura??raw?.temperature,d.temperatura_powietrza_data??d.temperatura_data??raw?.temperatureAt,d.tempFresh],
     ["Wilgotność",d.wilgotnosc_wzgledna??raw?.humidity,d.wilgotnosc_wzgledna_data??raw?.humidityAt,d.humidityFresh],
     ["Wiatr",d.wiatr_srednia_predkosc??d.predkosc_wiatru??raw?.wind,d.wiatr_srednia_predkosc_data??d.predkosc_wiatru_data??raw?.windAt,d.windFresh],
     ["Kierunek wiatru",d.wiatr_kierunek??d.kierunek_wiatru,d.wiatr_kierunek_data??d.kierunek_wiatru_data,d.windDirFresh],
     ["Poryw",d.wiatr_predkosc_maksymalna??d.poryw_wiatru,d.wiatr_predkosc_maksymalna_data??d.poryw_wiatru_data,d.porywWiatruFresh],
     ["Opad 10 min",d.opad_10min??raw?.rain10,d.opad_10min_data??raw?.rain10At,d.opad10minFresh]
   ];
-  const rawAge=diag.rawGlodowo?.temperatureAt
-    ?diagnosticAgeMinutes(diag.rawGlodowo.temperatureAt)
+
+  // Bierzemy najnowszy rzeczywisty timestamp spośród wszystkich pól,
+  // niezależnie od tego, czy dane pole jest już poza TTL. Dzięki temu raport
+  // nie pokaże np. temperatury 12:10 jako wieku całej stacji, gdy wilgotność,
+  // wiatr i opad mają pomiar 13:00.
+  const parsedFields=fields.map(([name,value,timestamp,fresh])=>({
+    name,value,timestamp,
+    observedAt:parseImgwMeteoTimestamp(timestamp),
+    fresh
+  })).filter(x=>Number.isFinite(x.observedAt));
+  const latest=parsedFields.length
+    ?parsedFields.reduce((a,b)=>b.observedAt>a.observedAt?b:a)
     :null;
+  const obs=latest?.timestamp||d.latestObservedAt||d.observedAt||null;
+  const age=latest
+    ?diagnosticAgeMinutes(latest.timestamp)
+    :diagnosticAgeMinutes(d.latestObservedAt||d.observedAt||null);
+
+  const rawFields=raw?[
+    ["temperature",raw.temperatureAt],
+    ["humidity",raw.humidityAt],
+    ["wind",raw.windAt],
+    ["rain10",raw.rain10At]
+  ].map(([key,timestamp])=>({key,timestamp,observedAt:parseImgwMeteoTimestamp(timestamp)}))
+   .filter(x=>Number.isFinite(x.observedAt)):[];
+  const rawLatest=rawFields.length
+    ?rawFields.reduce((a,b)=>b.observedAt>a.observedAt?b:a)
+    :null;
+  const rawAge=rawLatest?diagnosticAgeMinutes(rawLatest.timestamp):null;
+
   return {
     snapshotFetchedAt:diag.snapshotFetchedAt??null,
     snapshotFetchedAtISO:Number.isFinite(Number(diag.snapshotFetchedAt))?new Date(Number(diag.snapshotFetchedAt)).toISOString():null,
@@ -3628,20 +3651,28 @@ function buildIMGWDiagnosticDetails(){
     stationFound:diag.found===true||!!raw,
     stationUsed:S.imgwData?.sourceType==="IMGW_METEO"&&S.imgwData?.isFresh===true,
     selectionStatus:diag.status??null,
-    selectionReason:diag.reason??(S.imgwData?.isFresh===false?"Głodowo znaleziona, ale brak świeżych pól ≤30 min":null),
+    selectionReason:diag.reason??(S.imgwData?.isFresh===false?"Głodowo znaleziona, ale brak świeżych pól ≤120 min":null),
     stationCode:diag.stationCode??raw?.code??d.kod_stacji??d.id_stacji??null,
     stationName:diag.station??raw?.name??d.nazwa_stacji??d.stacja??null,
     rawGlodowo:raw?{
       code:raw.code??null,name:raw.name??null,lat:raw.lat??null,lng:raw.lng??null,
       temperature:raw.temperature??null,temperatureAt:raw.temperatureAt??null,
-      temperatureAgeMinutes:rawAge,
+      temperatureAgeMinutes:raw.temperatureAt?diagnosticAgeMinutes(raw.temperatureAt):null,
       humidity:raw.humidity??null,humidityAt:raw.humidityAt??null,
+      humidityAgeMinutes:raw.humidityAt?diagnosticAgeMinutes(raw.humidityAt):null,
       wind:raw.wind??null,windAt:raw.windAt??null,
-      rain10:raw.rain10??null,rain10At:raw.rain10At??null
+      windAgeMinutes:raw.windAt?diagnosticAgeMinutes(raw.windAt):null,
+      rain10:raw.rain10??null,rain10At:raw.rain10At??null,
+      rain10AgeMinutes:raw.rain10At?diagnosticAgeMinutes(raw.rain10At):null,
+      latestObservedAt:rawLatest?.timestamp||null,
+      latestAgeMinutes:rawAge
     }:null,
     stationObservedAt:obs,
     stationAgeMinutes:age,
     stationStatus:diagnosticAgeStatus(age),
+    latestObservedAt:obs,
+    latestAgeMinutes:age,
+    latestField:latest?.name||null,
     fields:fields.map(([name,value,timestamp,fresh])=>{
       const a=diagnosticAgeMinutes(timestamp);
       return{name,value:value??null,timestamp:timestamp||null,ageMinutes:a,status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status};
