@@ -2122,6 +2122,7 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // ═══════════════════════════════════════════════
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
+  const canonical=S.canonicalWeather||{current,hourly,daily};
   const now=new Date();
   // Ten sam kanoniczny indeks co w fuzji i historii prognozy.
   const ci=currentHourIndex(data,now);
@@ -2129,10 +2130,11 @@ function computeCtx(){
   const sun=sunInfo(daily,now);
   const isDay=current.is_day!=null?current.is_day===1:sun.day;
   // Pomiar ze stacji (jeśli zastosowano) siedzi w current — bierzemy go w pierwszej kolejności
-  const T=current.temperature_2m??g(hourly.temperature_2m)??15;
-  const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
-  const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
-  const feels=discomfortIndex(T,hum,wind).value??T;
+  const T=canonical.current?.temperature_2m??current.temperature_2m??g(hourly.temperature_2m)??15;
+  const hum=Math.round(canonical.current?.relative_humidity_2m??current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
+  const wind=Math.round(canonical.current?.wind_speed_10m??current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
+  const canonicalFeels=Number(canonical.current?.apparent_temperature);
+  const feels=Number.isFinite(canonicalFeels)?canonicalFeels:(discomfortIndex(T,hum,wind).value??T);
   const stationGust=stationFreshGustKmH(S.imgwData);
   const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
@@ -4230,6 +4232,34 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
   S.pipelineDiag.hourlyPrecipitationCorrection=
     data.hourly?.__auraHourlyPrecipitationCorrection||null;
+
+  // CANONICAL WEATHER STATE: jeden stan prezentacyjny po wszystkich mutacjach.
+  S.canonicalWeather={
+    version:1,
+    committedAt:Date.now(),
+    current:data.current,
+    hourly:data.hourly,
+    daily:data.daily,
+    precipitation:{
+      current:Number.isFinite(Number(data.current?.precipitation))?Number(data.current.precipitation):0,
+      currentRain:Number.isFinite(Number(data.current?.rain))?Number(data.current.rain):0
+    },
+    imgw:{
+      station:imgwData?.stacja||imgwData?.name||null,
+      fetchedAt:imgwData?.fetchedAt??null,
+      observedAt:imgwData?.observedAt??null,
+      latestObservedAt:imgwData?.latestObservedAt??null,
+      latestAgeMinutes:imgwData?.latestAgeMinutes??imgwData?.ageMinutes??null,
+      fields:{
+        temperature:imgwData?.temperatura_data??null,
+        humidity:imgwData?.wilgotnosc_wzgledna_data??null,
+        wind:imgwData?.predkosc_wiatru_data??null,
+        windDirection:imgwData?.kierunek_wiatru_data??null,
+        precipitation10min:imgwData?.opad_10min_data??null
+      }
+    }
+  };
+  S.fusionLockedHourly=S.canonicalWeather.hourly;
 
   // GRANICA ATOMOWEGO COMMITU:
   // po tej chwili wynik fuzji jest własnością bieżącej generacji.
