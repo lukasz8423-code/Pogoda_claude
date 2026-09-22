@@ -1093,7 +1093,7 @@ async function findNearestIMGW(lat,lng){
     if(r.ok){
       const payload=await r.json();
       meteoAll=Array.isArray(payload)?payload:(Array.isArray(payload?.data)?payload.data:null);
-      if(meteoAll)S.imgwDiag={...(S.imgwDiag||{}),status:"snapshot-same-origin",count:meteoAll.length,snapshotFetchedAt:Number(payload?.fetchedAt)||null,error:null};
+      if(meteoAll)S.imgwDiag={...(S.imgwDiag||{}),status:"snapshot-same-origin",sourceAvailable:true,snapshotValid:true,count:meteoAll.length,snapshotFetchedAt:Number(payload?.fetchedAt)||null,error:null};
     }
   }catch(e){console.warn("[IMGW] snapshot niedostępny:",e?.message||e);}
   const all=await fetchIMGWAll();
@@ -3925,8 +3925,7 @@ async function loadWCore(lat,lng,name,isRef,token){
     const imgwFeedOffline=
       imgwResult.status!=="fulfilled" ||
       !imgwResult.value ||
-      S.imgwDiag?.status==="niedostępne" ||
-      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
+      S.imgwDiag?.sourceAvailable!==true;
     const imgwOffline=imgwFeedOffline;
     S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
