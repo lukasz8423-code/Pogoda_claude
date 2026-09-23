@@ -454,12 +454,14 @@ function locativeCity(city){
 function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   const currentState = currentStateOrX?.currentState || (currentStateOrX?.code != null ? currentStateOrX : null);
   const code = currentState?.code ?? cur?.weather_code ?? 0;
-  const t=Math.round(cur?.temperature_2m??15);
-  const place=locativeCity(city);
-  const isStorm=isStormCode(code);
-  const isSnow=isSnowCode(code);
-  const isRain=isRainCode(code);
-  const isMist=code>=45&&code<=48;
+  const t = Math.round(cur?.temperature_2m ?? 15);
+  const place = locativeCity(city);
+  const isStorm = isStormCode(code);
+  const isSnow = isSnowCode(code);
+  const isRain = isRainCode(code);
+  const isMist = code >= 45 && code <= 48;
+  const wind = Number(currentStateOrX?.wind ?? cur?.wind_speed_10m ?? 10);
+  const isWindy = wind >= 28;
 
   // Rule Engine: aktywność jest walidowana względem bieżącej i najbliższych godzin.
   const nextHours=Array.from({length:3},(_,i)=>hourly?.time?.[ci+i]?({
@@ -476,17 +478,92 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
 
   const safeActivity=(outdoorText,indoorText)=>blockedOutdoor?indoorText:outdoorText;
 
-  if(isStorm)return{a:`Burza w ${place} (${t}°C)! Zostań w domu, odłącz urządzenia elektryczne.`,cl:"Kurtka przeciwdeszczowa pod ręką",ac:"Zostań w domu"};
-  if(isSnow&&t<=3)return{a:`Śnieg w ${place} przy ${t}°C.`,cl:"Ciepła kurtka, czapka i wodoodporne buty",ac:safeActivity("Krótki spacer, jeśli opad osłabnie","Coś pod dachem — opad może się utrzymać")};
-  if(isRain)return{a:`Deszcz w ${place} (${t}°C). Parasol się przyda.`,cl:"Kurtka przeciwdeszczowa i nieprzemakalne buty",ac:"Kawa i kanapa"};
-  if(isMist)return{a:`Mgła w ${place} (${t}°C). Jedź ostrożnie.`,cl:"Kurtka i sweter",ac:"Ostrożna jazda, włącz światła"};
-  if(t>=32)return{a:`Upał w ${place} – aż ${t}°C! Unikaj słońca między 11–15.`,cl:"Przewiewne ubranie, nakrycie głowy",ac:safeActivity("Spacer rano lub wieczorem","Lepiej zaplanować aktywność pod dachem")};
-  if(t>=27)return{a:`Gorąco w ${place}, ${t}°C. Pij dużo wody.`,cl:"Lekkie ubranie, nakrycie głowy",ac:safeActivity("Spacer rano lub wieczorem","Aktywność pod dachem — najbliższe godziny są deszczowe")};
-  if(t>=22)return{a:`Przyjemne ${t}°C w ${place}.`,cl:"T-shirt lub lekka koszula",ac:safeActivity("Rower, spacer, taras","Najbliższe godziny mają podwyższone ryzyko opadu")};
-  if(t>=17)return{a:`Przyjemne ${t}°C w ${place}.`,cl:"Bluza lub cienka kurtka",ac:safeActivity("Spacer, rower, zakupy","Lepiej zaplanować coś pod dachem — możliwy opad")};
-  if(t>=12)return{a:`Chłodnawo w ${place} (${t}°C). Weź kurtkę.`,cl:"Kurtka i bluza",ac:safeActivity("Szybki spacer lub zakupy","Szybkie zakupy albo aktywność pod dachem")};
-  if(t>=5)return{a:`Zimno w ${place} (${t}°C). Ubierz się ciepło.`,cl:"Kurtka, sweter, długie spodnie",ac:safeActivity("Krótki spacer","Herbata i coś pod dachem")};
-  return{a:`Mróz w ${place} (${t}°C)!`,cl:"Ciepła kurtka, szal i czapka",ac:safeActivity("Krótki spacer, jeśli warunki są spokojne","Dom i coś ciepłego do picia")};
+  if(isStorm){
+    return {
+      a:`Burza w ${place} (${t}°C)! Na niebie gra orkiestra piorunów, a natura demonstruje pełnię swoich możliwości. Zdecydowanie nie zgrywaj bohatera na otwartym terenie.`,
+      cl:"Wygodny domowy dres, ciepłe skarpety i kapcie. Jeśli musisz pilnie wyjść: solidna kurtka przeciwdeszczowa z kapturem (parasol w burzy to zły pomysł!).",
+      ac:"Zostań bezpiecznie pod dachem, odłącz wrażliwy sprzęt z gniazdek, zaparz herbatę i obserwuj spektakl za oknem.",
+      tip:"Przynajmniej nie trzeba dzisiaj podlewać kwiatów na balkonie ani w ogrodzie."
+    };
+  }
+  if(isSnow&&t<=3){
+    return {
+      a:`Śnieg w ${place} przy ${t}°C! Krajobraz powoli bieleje jak na pocztówce, a powietrze szczypie w nos. Pięknie to wygląda – dopóki nie trzeba odśnieżać auta skrobaczką z marketu.`,
+      cl:"Zimowa kurtka, czapka naciągnięta na uszy, ciepły szalik i buty z solidnym bieżnikiem (lód lubi zaskakiwać na zakrętach).",
+      ac:safeActivity("Krótki, orzeźwiający spacer po skrzypiącym śniegu lub lepienie bałwana z dziećmi.","Zaszycie się w cieple pod kocem z kubkiem gorącego kakao lub herbaty z imbirem."),
+      tip:"Drogowcy zapewne tradycyjnie są zaskoczeni, więc na drogach zachowaj stoicki spokój i potrójny odstęp."
+    };
+  }
+  if(isRain){
+    return {
+      a:`Deszcz w ${place} (${t}°C). Niebo serwuje darmowe mycie chodników i okolicznej zieleni. Za oknem szaro, mokro i melancholijnie.`,
+      cl:"Nieprzemakalna kurtka z kapturem, wodoodporne buty i zaufany parasol – taki ze solidnym stelażem, który nie składa się w drugą stronę na wietrze.",
+      ac:"Kawa, kanapa, dobra książka, ulubiony serial lub nadrabianie domowych zaległości. Jeśli musisz wyjść – omijaj kałuże udające płytkie!",
+      tip:"Oficjalne, meteorologiczne usprawiedliwienie, by zamówić jedzenie z dostawą i spędzić dzień bez wyrzutów sumienia."
+    };
+  }
+  if(isMist){
+    return {
+      a:`Gęsta mgła w ${place} (${t}°C). Świat wygląda jak wyjęty z angielskiego kryminału lub filmu noir. Tajemniczo, wilgotno i z ograniczoną widocznością.`,
+      cl:"Cieplejsza kurtka, sweter i koniecznie elementy odblaskowe – we mgle lepiej być widocznym z daleka niż niemą niespodzianką na drodze.",
+      ac:"Jeśli prowadzisz samochód: noga z gazu i włącz światła przeciwmgłowe. Na piechotę: klimatyczny spacer po parku niczym Sherlock Holmes.",
+      tip:"Idealny dzień na udawanie kogoś tajemniczego w prochowcu i szukanie zaginionej porannej energii."
+    };
+  }
+  if(t>=32){
+    return {
+      a:`Afrykański upał w ${place} – aż ${t}°C w cieniu! Asfalt powoli mięknie, a w powietrzu unosi się żar. Organizm przechodzi w tryb awaryjnego chłodzenia.`,
+      cl:"Cienkie, przewiewne ubrania z lnu lub jasnej bawełny. Obowiązkowo nakrycie głowy i okulary przeciwsłoneczne z filtrem UV. Skarpetki do sandałów tylko dla odważnych koneserów stylu.",
+      ac:safeActivity("Wyjście na zewnątrz tylko wczesnym rankiem lub po 19:00. Szukaj cienia, wody i klimatyzowanych pomieszczeń.","Aktywność w chłodnym pomieszczeniu, z dala od słońca. Pij wodę litrami!"),
+      tip:"Pamiętaj: bezczynne leżenie plackiem na kanapie przy tej temperaturze jest w pełni uzasadnione biologicznie."
+    };
+  }
+  if(t>=27){
+    return {
+      a:`Prawdziwe gorąco w ${place} (${t}°C). Słońce świeci na całego, a każda zacieniona ławka jest na wagę złota. Pora zwolnić tempo i łapać letni klimat.`,
+      cl:"Lekki T-shirt, szorty lub zwiewna sukienka, okulary przeciwsłoneczne. Wierzchnie okrycia chowamy głęboko do szafy.",
+      ac:safeActivity("Wypad na lody, relaks nad wodą lub wieczorny spacer po zachodzie słońca.","Zostań pod dachem w najgorętszych godzinach – zbliżające się godziny mogą przynieść letnie burze."),
+      tip:"Nawadniaj się regularnie – kawa się liczy, ale woda z cytryną uratuje Ci dzisiaj dzień."
+    };
+  }
+  if(t>=22){
+    return {
+      a:`Cudowne, wymarzone ${t}°C w ${place}! Złota strefa komfortu: ani za gorąco, ani za chłodno. Prawdziwy prezent od aury, grzech zmarnować taki dzień w czterech ścianach.`,
+      cl:"Koszulka z krótkim rękawem, lekkie spodnie lub spódnica. Dla ostrożnych lekka koszula na wieczorny powrót.",
+      ac:safeActivity("Rower, rolki, spacer po parku, kawa na tarasie lub obiad na świeżym powietrzu. Fotosynteza sama się nie zrobi!","Lekki spacer w oknie pogodowym – miej oko na niebo przed ewentualną mżawką."),
+      tip:"Pogoda tak dobra, że nawet statystyczny polski narzekacz nie znajdzie dzisiaj sensownego powodu do marudzenia."
+    };
+  }
+  if(t>=17){
+    return {
+      a:`Bardzo przyjemne ${t}°C w ${place}. Powietrze jest łagodne, rześkie i idealne do życia. Ani kropla potu, ani grama dreszczy – perfekcyjna aura na codzienne sprawy.`,
+      cl:"Klasyka gatunku: wygodny T-shirt plus rozpinana bluza lub cienka kurtka przejściowa. Długie spodnie i ulubione sneakersy sprawdzą się bezbłędnie.",
+      ac:safeActivity("Dłuższy spacer, zakupy na piechotę, jogging lub rekreacyjna przejażdżka rowerowa. Idealny dzień na załatwianie spraw na mieście.","Szybkie zakupy lub kawa na zewnątrz w przerwie między chmurami."),
+      tip:"Najlepsza temperatura do pracy i myślenia – mózg nie przegrzewa się ani nie zamarza!"
+    };
+  }
+  if(t>=12){
+    return {
+      a:`Chłodnawo w ${place} (${t}°C). Powietrze jest rześkie i pobudzające – idealne, żeby nie zasnąć na stojąco, ale bez dodatkowej warstwy organizm szybko zażąda powrotu pod ciepły koc. Warto wziąć coś ze stójką lub kapturem!`,
+      cl:"Niezawodna taktyka „na cebulkę”: bluza z kapturem lub sweter, a na wierzch kurtka przejściowa (wiatrówka lub bomberka). Długie spodnie to podstawa. Jeśli w południe wyjrzy słońce, zawsze możesz rozpiąć kurtkę i udawać, że wcale nie zmarzłeś.",
+      ac:safeActivity("Szybki, energiczny spacer po parku (kroki same się nie zrobią!), runda po zakupy albo załatwianie spraw w dynamicznym tempie. Powietrze świetnie wietrzy głowę!","Szybkie zakupy lub sprawy na mieście, a potem powrót do ciepłego wnętrza i gorąca herbata z imbirem."),
+      tip:"14°C to ten magiczny stan w roku, kiedy połowa ludzi chodzi w puchówkach, a druga wciąż w krótkich spodenkach i udaje, że trwa lato."
+    };
+  }
+  if(t>=5){
+    return {
+      a:`Zimno w ${place} (${t}°C). Termometr nie pozostawia złudzeń – chłód panuje na zewnątrz, a wiatr chętnie przetestuje szczelność Twojego kołnierza. Zdecydowanie czas na cieplejszy kaliber ubrań.`,
+      cl:"Cieplejsza kurtka jesienno-zimowa, gruby sweter lub polar pod spód. Szalik pod szyję będzie bardzo rozsądną decyzją, a cienkie rękawiczki w kieszeni uratują dłonie przy sprawdzaniu telefonu.",
+      ac:safeActivity("Krótki, rześki spacer po tlen, a potem szybki odwrót do bazy. Genialny klimat na gorącą zupę, gotowanie lub nadrabianie zaległości filmowych.","Domowe pielesze, gorący napój i coś ciepłego na obiad. Wyjścia ogranicz do niezbędnego minimum."),
+      tip:"Wyjście z ciepłego łóżka w ten chłód wymaga heroizmu, ale powrót i zdjęcie butów przy kaloryferze to czysta euforia."
+    };
+  }
+  return {
+    a:`Mróz w ${place} (${t}°C)! Zima nie żartuje – powietrze szczypie w policzki, a oddech zamienia się w kłęby pary. Bez odpowiedniego pancerza termicznego nie podchodź do drzwi wyjściowych.`,
+    cl:"Gruba kurtka puchowa, czapka głęboko naciągnięta na uszy, szal i rękawiczki. Buty z grubą podeszwą, bo chłód od ziemi ciągnie szybciej niż opłaty z konta bankowego.",
+    ac:safeActivity("Tylko konieczne wyjścia i szybki powrót. Jeśli spacer, to krótki i w marszowym tempie.","Ciepłe wnętrze, koc, rozgrzewająca herbata z miodem i cytryną lub gorący rosół."),
+    tip:"Czapka może i zepsuje fryzurę, ale odmrożone uszy wyglądają jeszcze mniej fotogenicznie!"
+  };
 }
 
 // POPRAWIONY indeks dyskomfortu
@@ -3037,8 +3114,13 @@ function stationHTML(){
 
 function assistantHTML(X){
   const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0,X);
-  return`<section class="card"><div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div><div class="say">${esc(adv.a)}</div>
-    <div class="arow"><div><small>Ubiór</small>${esc(adv.cl)}</div></div><div class="arow"><div><small>Pomysł na dzień</small>${esc(adv.ac)}</div></div></section>`;
+  return`<section class="card">
+    <div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div>
+    <div class="say" style="font-size:16px;line-height:1.5">${esc(adv.a)}</div>
+    <div class="arow"><div><small style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Ubiór</small><div style="line-height:1.45">${esc(adv.cl)}</div></div></div>
+    <div class="arow"><div><small style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Pomysł na dzień</small><div style="line-height:1.45">${esc(adv.ac)}</div></div></div>
+    ${adv.tip?`<div class="arow" style="background:rgba(255,255,255,.03);border-radius:12px;padding:10px 12px;margin-top:6px;border-top:none"><div><small style="color:var(--ink2);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">💡 Z przymrużeniem oka</small><div style="line-height:1.45;font-style:italic;color:var(--ink2)">${esc(adv.tip)}</div></div></div>`:""}
+  </section>`;
 }
 
 // ── radar: prawdziwa mapa RainViewer (Leaflet ładowany na żądanie)
