@@ -6179,45 +6179,8 @@ document.addEventListener("visibilitychange",()=>{
   // po odtworzeniu z cache od razu odświeżamy w tle
   if(S.phase==="weather"&&S.lat!=null)loadW(S.lat,S.lng,S.city,true);
 
-  // Automatyczne wykrywanie nowego wdrożenia na GitHub Pages i wymuszenie świeżej wersji
-  (async function checkBuildUpdate(){
-    try{
-      const r=await fetch("./build-version.json?ts="+Date.now(),{cache:"no-store"});
-      if(!r.ok)return;
-      const v=await r.json();
-      const metaBuild=document.querySelector('meta[name="aura-build"]')?.content;
-      const buildKey = v.buildId || v.commit || "";
-      const lastReload = sessionStorage.getItem("aura_last_reload_build");
-      
-      if (lastReload === buildKey) return;
-
-      if(metaBuild && buildKey && metaBuild !== buildKey && !window.location.search.includes("b=")){
-        sessionStorage.setItem("aura_last_reload_build", buildKey);
-        try{
-          if('caches' in window){
-            const keys=await caches.keys();
-            await Promise.all(keys.map(k=>caches.delete(k)));
-          }
-        }catch{}
-        const url=new URL(window.location.href);
-        url.searchParams.set("b",v.commit?v.commit.slice(0,7):Date.now());
-        window.location.replace(url.toString());
-      }
-    }catch{}
-  })();
-
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(reg => {
-      reg.onupdatefound = () => {
-        const installingWorker = reg.installing;
-        if (!installingWorker) return;
-        installingWorker.onstatechange = () => {
-          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            window.location.reload();
-          }
-        };
-      };
-    }).catch(err => console.error('SW Registration Error:', err));
+    navigator.serviceWorker.register('./sw.js').catch(err => console.error('SW Registration Error:', err));
   }
 })();
 
