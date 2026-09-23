@@ -131,7 +131,90 @@ svg{display:block}
 .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:0 2px}
 .hero-temp{font-size:112px;font-weight:300;line-height:.95;letter-spacing:-5px;margin-left:-4px}
 .hero-temp sup{font-size:44px;font-weight:300;letter-spacing:0;vertical-align:top;position:relative;top:10px;margin-left:2px;color:var(--ink2)}
-.hero-ico{padding-bottom:10px;filter:drop-shadow(0 10px 22px rgba(0,0,0,.28))}
+.hero-ico{padding-bottom:10px;filter:drop-shadow(0 10px 22px rgba(0,0,0,.28));overflow:visible}
+
+/* Subtle weather icon animations exclusively for HERO */
+@keyframes heroSunRays {
+  0%, 100% { opacity: 0.85; transform: rotate(0deg); }
+  50% { opacity: 1; transform: rotate(18deg); }
+}
+@keyframes heroSunCore {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px rgba(255,200,87,.35)); }
+  50% { transform: scale(1.03); filter: drop-shadow(0 0 10px rgba(255,200,87,.65)); }
+}
+@keyframes heroMoonGlow {
+  0%, 100% { opacity: 0.88; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.025); filter: drop-shadow(0 0 8px rgba(213,220,240,.45)); }
+}
+@keyframes heroCloudFloat {
+  0%, 100% { transform: translate(10px, 12px) scale(.62); }
+  50% { transform: translate(12px, 11px) scale(.62); }
+}
+@keyframes heroCloudFrontFloat {
+  0%, 100% { transform: translate(3px, 4px) scale(.9); }
+  50% { transform: translate(5px, 3.5px) scale(.9); }
+}
+@keyframes heroCloudyBack {
+  0%, 100% { transform: translate(-4px, -6px) scale(.8); }
+  50% { transform: translate(-2px, -7px) scale(.8); }
+}
+@keyframes heroCloudyFront {
+  0%, 100% { transform: translate(2px, 2px); }
+  50% { transform: translate(0px, 1px); }
+}
+@keyframes heroRainDrop {
+  0% { transform: translateY(-2px); opacity: 0.25; }
+  50% { opacity: 1; }
+  100% { transform: translateY(3.5px); opacity: 0.15; }
+}
+@keyframes heroSnowFlakes {
+  0% { transform: translateY(-2px) translateX(0); opacity: 0.35; }
+  50% { transform: translateY(1.5px) translateX(1px); opacity: 1; }
+  100% { transform: translateY(3.5px) translateX(-1px); opacity: 0.25; }
+}
+@keyframes heroLightningFlash {
+  0%, 88%, 93%, 100% { opacity: 0.75; transform: scale(1); filter: none; }
+  90%, 92% { opacity: 1; transform: scale(1.06); filter: drop-shadow(0 0 12px #FFC857) brightness(1.3); }
+}
+@keyframes heroFogDrift {
+  0%, 100% { transform: translateX(-1.5px); opacity: 0.65; }
+  50% { transform: translateX(1.5px); opacity: 0.95; }
+}
+
+.hero-ico .wico-sun .ico-sun-rays { transform-origin: 24px 24px; animation: heroSunRays 8s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-sun .ico-sun-core { transform-origin: 24px 24px; animation: heroSunCore 4s ease-in-out infinite; will-change: transform, filter; }
+.hero-ico .wico-moon .ico-moon-group { transform-origin: 22px 22px; animation: heroMoonGlow 5s ease-in-out infinite; will-change: transform, filter; }
+.hero-ico .wico-pcloudy .ico-cld-float { animation: heroCloudFloat 6s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-mcloudy .ico-cld-front { animation: heroCloudFrontFloat 6s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-cloudy .ico-cld-back { animation: heroCloudyBack 7s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-cloudy .ico-cld-front { animation: heroCloudyFront 7s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-rain .ico-rain-drops path,
+.hero-ico .wico-drizzle .ico-rain-drops path { animation: heroRainDrop 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; will-change: transform, opacity; }
+.hero-ico .wico-rain .ico-cld-front,
+.hero-ico .wico-drizzle .ico-cld-front { animation: heroCloudyFront 6s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-snow .ico-snow-flakes circle { animation: heroSnowFlakes 2.4s ease-in-out infinite; will-change: transform, opacity; }
+.hero-ico .wico-snow .ico-snow-flakes circle:nth-child(2) { animation-delay: 0.8s; }
+.hero-ico .wico-snow .ico-snow-flakes circle:nth-child(3) { animation-delay: 1.6s; }
+.hero-ico .wico-storm .ico-lightning { transform-origin: 27px 32px; animation: heroLightningFlash 4.5s ease-in-out infinite; will-change: transform, filter, opacity; }
+.hero-ico .wico-storm .ico-cld-front { animation: heroCloudyFront 4.5s ease-in-out infinite; will-change: transform; }
+.hero-ico .wico-fog .ico-fog-lines { animation: heroFogDrift 4.5s ease-in-out infinite; will-change: transform, opacity; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-ico .ico-sun-rays,
+  .hero-ico .ico-sun-core,
+  .hero-ico .ico-moon-group,
+  .hero-ico .ico-cld-float,
+  .hero-ico .ico-cld-front,
+  .hero-ico .ico-cld-back,
+  .hero-ico .ico-rain-drops path,
+  .hero-ico .ico-snow-flakes circle,
+  .hero-ico .ico-lightning,
+  .hero-ico .ico-fog-lines {
+    animation: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
 .cond{font-size:22px;font-weight:500;margin:6px 2px 2px}
 .subline{color:var(--ink2);font-size:14px;margin:0 2px 2px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .subline b{color:var(--ink);font-weight:600}
@@ -2321,31 +2404,48 @@ function getBeaufort(kmh){
 // ═══════════════════════════════════════════════
 function cloudShape(dark){
   const f=dark?"url(#gCloudD)":"url(#gCloud)";
-  return`<g fill="${f}"><circle cx="16" cy="28" r="8"/><circle cx="26" cy="23" r="10"/><circle cx="36" cy="29" r="7"/><rect x="16" y="28" width="20" height="8"/></g>`;
+  return`<g fill="${f}" class="ico-cld-base"><circle cx="16" cy="28" r="8"/><circle cx="26" cy="23" r="10"/><circle cx="36" cy="29" r="7"/><rect x="16" y="28" width="20" height="8"/></g>`;
 }
 function sunShape(cx,cy,r){
   let rays="";
   for(let i=0;i<8;i++){const a=i*Math.PI/4;rays+=`M${(cx+Math.cos(a)*(r+3.2)).toFixed(1)} ${(cy+Math.sin(a)*(r+3.2)).toFixed(1)}L${(cx+Math.cos(a)*(r+6.4)).toFixed(1)} ${(cy+Math.sin(a)*(r+6.4)).toFixed(1)}`;}
-  return`<path d="${rays}" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#gSun)"/>`;
+  return`<g class="ico-sun-group"><path class="ico-sun-rays" d="${rays}" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/><circle class="ico-sun-core" cx="${cx}" cy="${cy}" r="${r}" fill="url(#gSun)"/></g>`;
 }
-function moonShape(){return`<circle cx="22" cy="22" r="11" fill="url(#gMoon)" mask="url(#mMoon)"/>`;}
+function moonShape(){return`<g class="ico-moon-group"><circle cx="22" cy="22" r="11" fill="url(#gMoon)" mask="url(#mMoon)"/></g>`;}
 function ico(code,isDay=true,px=32){
   const day=isDay!==false&&isDay!==0;
-  // ico() jest wyłącznie rendererem. Kod pogody został już rozstrzygnięty
-  // wcześniej (np. przez getHourlyCode) i nie może być tutaj nadpisywany
-  // na podstawie cloud_cover.
   const c=Number(code);
   let g="";
-  if(c===0)g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
-  else if(c===1)g=(day?sunShape(21,19,9):`<g transform="translate(-4 -5) scale(.98)">${moonShape()}</g>`)+`<g transform="translate(10 12) scale(.62)" opacity=".9">${cloudShape()}</g>`;
-  else if(c===2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
-  else if(c===3)g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85">${cloudShape()}</g><g transform="translate(2 2)">${cloudShape(true)}</g>`;
-  else if(c<=48)g=`<g transform="translate(0 -4)">${cloudShape()}</g><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/>`;
-  else if(c<=57)g=`<g transform="translate(0 -3)">${cloudShape(true)}</g><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/>`;
-  else if(c<=67||(c>=80&&c<=82))g=`<g transform="translate(0 -4)">${cloudShape(true)}</g><path d="M16 37.5l-2.4 6.5M24 37.5l-2.4 6.5M32 37.5l-2.4 6.5" stroke="#8ADBFF" stroke-width="2.6" stroke-linecap="round"/>`;
-  else if(c<=77||(c>=85&&c<=86))g=`<g transform="translate(0 -4)">${cloudShape()}</g><g fill="#fff"><circle cx="16" cy="40" r="2"/><circle cx="25" cy="43" r="2"/><circle cx="34" cy="40" r="2"/></g>`;
-  else g=`<g transform="translate(0 -4)">${cloudShape(true)}</g><path d="M27 32l-7 10h5l-3 6 10-11h-5z" fill="#FFC857"/>`;
-  return`<svg class="ico" viewBox="0 0 48 48" width="${px}" height="${px}" aria-hidden="true">${g}</svg>`;
+  let wType="clear";
+  if(c===0){
+    wType = day ? "sun" : "moon";
+    g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
+  }else if(c===1){
+    wType = "pcloudy";
+    g=(day?sunShape(21,19,9):`<g transform="translate(-4 -5) scale(.98)">${moonShape()}</g>`)+`<g transform="translate(10 12) scale(.62)" opacity=".9" class="ico-cld-float">${cloudShape()}</g>`;
+  }else if(c===2){
+    wType = "mcloudy";
+    g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)" class="ico-cld-front">${cloudShape()}</g>`;
+  }else if(c===3){
+    wType = "cloudy";
+    g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85" class="ico-cld-back">${cloudShape()}</g><g transform="translate(2 2)" class="ico-cld-front">${cloudShape(true)}</g>`;
+  }else if(c<=48){
+    wType = "fog";
+    g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape()}</g><g class="ico-fog-lines"><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/></g>`;
+  }else if(c<=57){
+    wType = "drizzle";
+    g=`<g transform="translate(0 -3)" class="ico-cld-front">${cloudShape(true)}</g><g class="ico-rain-drops ico-drizzle"><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/></g>`;
+  }else if(c<=67||(c>=80&&c<=82)){
+    wType = "rain";
+    g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape(true)}</g><g class="ico-rain-drops"><path d="M16 37.5l-2.4 6.5M24 37.5l-2.4 6.5M32 37.5l-2.4 6.5" stroke="#8ADBFF" stroke-width="2.6" stroke-linecap="round"/></g>`;
+  }else if(c<=77||(c>=85&&c<=86)){
+    wType = "snow";
+    g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape()}</g><g class="ico-snow-flakes" fill="#fff"><circle cx="16" cy="40" r="2"/><circle cx="25" cy="43" r="2"/><circle cx="34" cy="40" r="2"/></g>`;
+  }else{
+    wType = "storm";
+    g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape(true)}</g><path class="ico-lightning" d="M27 32l-7 10h5l-3 6 10-11h-5z" fill="#FFC857"/>`;
+  }
+  return`<svg class="ico wico-${wType}" viewBox="0 0 48 48" width="${px}" height="${px}" aria-hidden="true">${g}</svg>`;
 }
 const MINI={
   pin:'<path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.500C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/>',
