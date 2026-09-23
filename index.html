@@ -2153,14 +2153,26 @@ function computeCtx(){
   const optiHigh = toFiniteNumber(opti?.layers?.high);
   let rawHigh = curHigh ?? hourHigh ?? optiHigh;
 
-  // Jeśli brak rozbicia na piętra, a występuje zachmurzenie, przypisz do chmur niskich
-  if(rawLow==null && rawMid==null && rawHigh==null && Number(cloud)>0){
-    rawLow = Number(cloud);
-  }
+  // Spójność zachmurzenia: suma pięter chmur nie może przekraczać całkowitego zachmurzenia (nakładanie chmur)
+  const totalCloudNum = Number.isFinite(Number(cloud)) ? Math.max(0, Number(cloud)) : 0;
+  let boundedLow = Math.max(0, Number(rawLow) || 0);
+  let boundedMid = Math.max(0, Number(rawMid) || 0);
+  let boundedHigh = Math.max(0, Number(rawHigh) || 0);
 
-  const boundedLow = (rawLow!=null&&Number.isFinite(Number(cloud)))?Math.min(rawLow,Number(cloud)):rawLow;
-  const boundedMid = (rawMid!=null&&Number.isFinite(Number(cloud)))?Math.min(rawMid,Number(cloud)):rawMid;
-  const boundedHigh = (rawHigh!=null&&Number.isFinite(Number(cloud)))?Math.min(rawHigh,Number(cloud)):rawHigh;
+  if (totalCloudNum <= 0) {
+    boundedLow = 0;
+    boundedMid = 0;
+    boundedHigh = 0;
+  } else {
+    const sumLayers = boundedLow + boundedMid + boundedHigh;
+    if (sumLayers === 0) {
+      boundedLow = totalCloudNum;
+    } else if (sumLayers > totalCloudNum) {
+      boundedLow = Math.round(boundedLow * totalCloudNum / sumLayers);
+      boundedMid = Math.round(boundedMid * totalCloudNum / sumLayers);
+      boundedHigh = Math.max(0, totalCloudNum - boundedLow - boundedMid);
+    }
+  }
 
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
@@ -2744,7 +2756,7 @@ function wVis(X){
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">${source}</div></div>`;
 }
 function wLayers(X){
-  const L=(n,v)=>v==null?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
+  const L=(n,v)=>(v==null||Math.round(v)<=0)?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
   return`<div class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
 }
 function wRain(X){
