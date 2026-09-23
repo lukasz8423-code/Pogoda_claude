@@ -454,9 +454,12 @@ function locativeCity(city){
   return raw;
 }
 
-function advice(city,cur,hourly,ci=0){
+function advice(city,cur,hourly,ci=0,currentState=null){
   const t=Math.round(cur?.temperature_2m??15);
-  const c=cur?.weather_code??0;
+  // Stan "Teraz" jest kanoniczny: dokładnie ten sam sygnał zasila hero/nowcast.
+  // Surowy cur.weather_code nie może tworzyć drugiej, rozjechanej interpretacji opadu.
+  const canonicalState=currentState&&typeof currentState==="object"?currentState:null;
+  const c=Number(canonicalState?.code??cur?.weather_code??0);
   const place=locativeCity(city);
   const isStorm=c>=95;
   const isSnow=(c>=71&&c<=77)||(c>=85&&c<=86);
@@ -465,9 +468,13 @@ function advice(city,cur,hourly,ci=0){
 
   // Rule Engine: aktywność jest walidowana względem bieżącej i najbliższych godzin.
   const nextHours=Array.from({length:3},(_,i)=>hourly?.time?.[ci+i]?({
-    precipitationMm:Number(hourly.precipitation?.[ci+i]??0),
+    precipitationMm:i===0&&canonicalState
+      ?Number(canonicalState.mm??0)
+      :Number(hourly.precipitation?.[ci+i]??0),
     precipitationProbability:Number(hourly.precipitation_probability?.[ci+i]??0),
-    weatherCode:Number(hourly.weather_code?.[ci+i]??0)
+    weatherCode:i===0&&canonicalState
+      ?Number(canonicalState.code??0)
+      :Number(hourly.weather_code?.[ci+i]??0)
   }):null).filter(Boolean);
   const blockedOutdoor=nextHours.some(h =>
     h.precipitationMm>0.5 ||
@@ -1301,7 +1308,6 @@ async function findNearestIMGW(lat,lng){
     S.imgwDiag={...S.imgwDiag,found:false};
   }
 
-  if(glodowo){
     const dist=stationDist(lat,lng,52.8306,19.2356);
     const tempRaw = glodowo.temperatura_powietrza ?? glodowo.temperatura;
     const tempTimestampRaw = glodowo.temperatura_powietrza_data ?? glodowo.temperatura_data;
@@ -1480,10 +1486,10 @@ async function findNearestIMGW(lat,lng){
     console.warn("IMGW Głodowo: stacja 252190030 nie została znaleziona w feedzie METEO",{meteoAvailable:Array.isArray(meteoAll),meteoCount:Array.isArray(meteoAll)?meteoAll.length:0});
   }
 
-  if(!all||!Array.isArray(all)||all.length===0)return null;
+  if(!meteoAll||!Array.isArray(meteoAll)||meteoAll.length===0)return null;
 
   const results=[];
-  all.forEach(s=>{
+  meteoAll.forEach(s=>{
     const known=IMGW_STATIONS.find(k=>{
       const nameMatch=s.stacja&&(
         s.stacja.toLowerCase()===k.name.toLowerCase()||
@@ -3085,6 +3091,16 @@ function minuteRainEvidenceForHour(hourlyData, idx){
 
 function hourlyRainEvidence(hourlyData, idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
+  const currentIdx=currentHourIndex(S.data||{hourly:hourlyData},new Date());
+  const currentState=S.X?.currentState;
+  // Dla bieżącej godziny meteogram musi używać dokładnie tego samego stanu
+  // co hero i pierwszy kafelek godzinowy. Surowy hourly/minutely nie może
+  // samodzielnie zapalić paska, gdy stan kanoniczny mówi "sucho".
+  if(idx===currentIdx&&currentState){
+    const mm=Number(currentState.mm??0);
+    const code=Number(currentState.code??0);
+    return Number.isFinite(mm)&&mm>0.05&&isPrecipCode(code);
+  }
   // Po zastosowaniu fuzji opad jest oceniany WYŁĄCZNIE z przefiltrowanego hourly.
   // Nie wolno przywracać słupka przez surowy minutely ani przez stare POP.
   if(S.canonicalWeatherFusion?.applied===true)return Number.isFinite(pr)&&pr>0;
@@ -3092,6 +3108,10 @@ function hourlyRainEvidence(hourlyData, idx){
 }
 
 function getHourlyCode(hourlyData, idx) {
+  const currentIdx=currentHourIndex(S.data||{hourly:hourlyData},new Date());
+  const canonicalCurrentCode=idx===currentIdx?Number(S.X?.currentState?.code):NaN;
+  // Bieżąca godzina ma identyczny kod jak hero/stan kanoniczny.
+  if(idx===currentIdx&&Number.isFinite(canonicalCurrentCode))return canonicalCurrentCode;
   const rawPop=Number(hourlyData?.precipitation_probability?.[idx]??0);
   const rawPopSafe=Number.isFinite(rawPop)?clamp(rawPop,0,100):0;
   // POP pochodzi wyłącznie z kanonicznej tablicy hourly. Gemini nie uczestniczy w meteorologii Aury.
@@ -3524,7 +3544,7 @@ function stationHTML(){
 }
 
 function assistantHTML(X){
-  const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0);
+  const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0,X?.currentState??null);
   return`<section class="card"><div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div><div class="say">${esc(adv.a)}</div>
     <div class="arow"><div><small>Ubiór</small>${esc(adv.cl)}</div></div><div class="arow"><div><small>Pomysł na dzień</small>${esc(adv.ac)}</div></div></section>`;
 }
