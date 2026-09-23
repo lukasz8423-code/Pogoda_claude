@@ -2756,7 +2756,7 @@ function wVis(X){
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">${source}</div></div>`;
 }
 function wLayers(X){
-  const L=(n,v)=>(v==null||Math.round(v)<=0)?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
+  const L=(n,v)=>v==null?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
   return`<div class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
 }
 function wRain(X){
@@ -4376,7 +4376,9 @@ document.addEventListener("visibilitychange",()=>{
       const metaBuild=document.querySelector('meta[name="aura-build"]')?.content;
       if(metaBuild&&v.buildId&&metaBuild!==v.buildId){
         try{localStorage.removeItem("aura_v7");}catch{}
-        window.location.reload();
+        const url=new URL(window.location.href);
+        url.searchParams.set("b",v.commit?v.commit.slice(0,7):Date.now());
+        window.location.replace(url.toString());
       }
     }catch{}
   })();
