@@ -1321,7 +1321,7 @@ async function apiGeminiAnalysisSnapshot(lat,lng){
 async function apiCity(lat,lng){
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
-    if(r.ok){const d=await r.json();const a=d.address||{};const n=a.city||a.town||a.village||a.hamlet||a.locality;if(n)return n;}
+    if(r.ok){const d=await r.json();const a=d.address||{};const n=a.city||a.town||a.village||a.municipality||a.hamlet||a.locality;if(n)return n;}
   }catch{}
   try{
     const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=pl`,{signal:AbortSignal.timeout(5000)});
@@ -3734,7 +3734,8 @@ function hourlyHTML(X){
       :(Number.isFinite(Number(X.T))?Number(X.T):0);
 
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
-    const code = (i === 0 && prNow > 0.05 && X.currentState?.code != null)
+    const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
+    const code = (i === 0 && prNow > 0.1 && cloudNow > 15 && X.currentState?.code != null)
       ? X.currentState.code
       : getHourlyCode(hourly, idx);
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
