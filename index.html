@@ -4984,6 +4984,13 @@ async function loadWCore(lat,lng,name,isRef,token){
       status:(S.imgwDiag?.found===true
         ?"IMGW online → Głodowo brak świeżych pól → Active Ensemble"
         :"IMGW Offline → Active Ensemble"),
+      stationFreshnessStatus:Number.isFinite(Number(imgwDiagDetails?.stationAgeMinutes))
+        ?(Number(imgwDiagDetails.stationAgeMinutes)<=30
+          ?"ŚWIEŻE"
+          :Number(imgwDiagDetails.stationAgeMinutes)<=120
+            ?"STARE, UŻYWALNE"
+            :"PRZETERMINOWANE")
+        :"BRAK POMIARU",
       sourceMode:S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"?"IMGW_ONLINE_STARE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE",
       imgwStatus:S.imgwDiag?.found===true?"ONLINE_STALE":"OFFLINE",
       activeEnsemble:modelNames,
@@ -5108,7 +5115,46 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
   S.pipelineDiag.hourlyPrecipitationCorrection=
     data.hourly?.__auraHourlyPrecipitationCorrection||null;
-  S.pipelineDiag.forecastPrecipitationConsensus=forecastPrecipitationConsensus||data.hourly?.__auraForecastPrecipitationConsensus||null;
+  const precipDiag=forecastPrecipitationConsensus||data.hourly?.__auraForecastPrecipitationConsensus||null;
+  if(precipDiag){
+    const decisions=Array.isArray(precipDiag.decisions)?precipDiag.decisions:[];
+    precipDiag.evaluatedCount=decisions.length;
+    precipDiag.acceptedCount=decisions.filter(d=>d?.accepted===true).length;
+    precipDiag.rejectedCount=decisions.filter(d=>d?.accepted===false).length;
+    precipDiag.minutelyConfirmedCount=decisions.filter(d=>d?.minutelyConfirmed===true).length;
+    precipDiag.correctedCount=Number(precipDiag.correctedCount)||0;
+    precipDiag.applied=precipDiag.acceptedCount>0||precipDiag.correctedCount>0;
+  }
+  S.pipelineDiag.forecastPrecipitationConsensus=precipDiag;
+
+  const canonicalPrecipTrace=buildCanonicalPrecipitation(data,fusionNowcast);
+  const traceSlots=Array.isArray(canonicalPrecipTrace?.slots)?canonicalPrecipTrace.slots:[];
+  const positiveSlots=traceSlots.filter(x=>Number(x?.mm)>0);
+  const eventSlots=traceSlots.filter(x=>Number(x?.mm)>=0.15);
+  S.pipelineDiag.precipitationTrace={
+    currentMm:Number.isFinite(Number(data.current?.precipitation))?Number(data.current.precipitation):0,
+    positiveSlotCount:positiveSlots.length,
+    eventSlotCount:eventSlots.length,
+    firstPositive:positiveSlots[0]||null,
+    nextEvent:canonicalPrecipTrace?.nextEvent||null,
+    source:"canonicalWeather.precipitation",
+    semantics:{displayPositiveMm:true,eventThresholdMm:0.15,strongEventThresholdMm:0.4}
+  };
+
+  const consistencyIssues=[];
+  for(let i=0;i<Math.min(traceSlots.length,data.hourly?.time?.length||0);i++){
+    const raw=Number(data.hourly?.precipitation?.[i]);
+    const canonical=Number(traceSlots[i]?.mm);
+    if(Number.isFinite(raw)&&Number.isFinite(canonical)&&Math.abs(raw-canonical)>0.001){
+      consistencyIssues.push({time:data.hourly.time[i],hourlyMm:raw,canonicalMm:canonical});
+    }
+  }
+  S.pipelineDiag.renderConsistency={
+    checkedSlots:Math.min(traceSlots.length,data.hourly?.time?.length||0),
+    mismatchCount:consistencyIssues.length,
+    issues:consistencyIssues.slice(0,20),
+    status:consistencyIssues.length?"MISMATCH":"OK"
+  };
 
   // CANONICAL WEATHER STATE: jeden stan prezentacyjny po wszystkich mutacjach.
   S.canonicalWeather={
