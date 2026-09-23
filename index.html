@@ -3234,7 +3234,7 @@ function meteogramHTML(X){
     const bar=Math.round(clamp(displayPr/maxPr,0,1)*38);
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
-    const pop=Math.round(Number.isFinite(p.pr)&&p.pr>0.05?p.pop:0);
+    const displayMm=rain&&Number.isFinite(p.pr)&&p.pr>=0.15?p.pr:0;\n    const pop=Math.round(displayMm>=0.15&&Number.isFinite(p.pop)?clamp(p.pop,0,100):0);
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
@@ -3266,7 +3266,7 @@ function canonicalDayPrecipitation(hourly,dayIso,isToday=false){
     if(isToday&&ts<now-15*60*1000)continue;
     const v=Number(hourly.precipitation?.[k]??0);
     const p=Number(hourly.precipitation_probability?.[k]??0);
-    if(Number.isFinite(v)&&v>0.05){
+    if(Number.isFinite(v)&&v>=0.15){
       mm+=v;hasRain=true;
       if(Number.isFinite(p))pop=Math.max(pop,clamp(p,0,100));
     }
@@ -3284,7 +3284,7 @@ function dailyRows(){
     const dayIso=String(daily.time?.[i]||"").slice(0,10);
     const canonicalDay=canonicalDayPrecipitation(hourly,dayIso,i===0);
     const dayPrecip=canonicalDay.mm;
-    const pop=canonicalDay.hasRain?canonicalDay.pop:0;
+    const pop=canonicalDay.mm>=0.15?canonicalDay.pop:0;
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3296,7 +3296,7 @@ function dailyRows(){
         if(!t.startsWith(dateStr))return;
         const hm=Number(hourly.precipitation?.[k]??0);
         const rawP=Number(hourly.precipitation_probability?.[k]??0);
-        const p=Number.isFinite(hm)&&hm>0.05?Math.round(clamp(rawP,0,100)):0;
+        const p=Number.isFinite(hm)&&hm>=0.15?Math.round(clamp(rawP,0,100)):0;
         const code=getHourlyCode(hourly,k);
         hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(code,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
