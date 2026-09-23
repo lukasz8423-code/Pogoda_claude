@@ -2370,7 +2370,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null,netDiag:[]};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,netDiag:[]};
 
 function auraFetch(input,init={}){
   const started=performance.now();
@@ -3124,10 +3124,8 @@ function hourlyRainEvidence(hourlyData, idx){
 function getHourlyCode(hourlyData, idx) {
   const rawPop=Number(hourlyData?.precipitation_probability?.[idx]??0);
   const rawPopSafe=Number.isFinite(rawPop)?clamp(rawPop,0,100):0;
-  const gemPop=Number(S.geminiAnalysis?.smoothedPop?.[idx]);
-  const gemPopSafe=Number.isFinite(gemPop)?clamp(gemPop,0,100):null;
-  // Gemini może wygładzać tylko w granicy ±20 pp od surowego Open-Meteo.
-  const pop=gemPopSafe!=null&&Math.abs(gemPopSafe-rawPopSafe)<=20?gemPopSafe:rawPopSafe;
+  // POP pochodzi wyłącznie z kanonicznej tablicy hourly. Gemini nie uczestniczy w meteorologii Aury.
+  const pop=rawPopSafe;
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
   const rainEvidence=hourlyRainEvidence(hourlyData,idx);
@@ -5194,10 +5192,8 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
 
-  // Opcjonalne snapshoty WeatherAPI/Gemini zostały wyłączone z runtime.
-  // Nie są źródłami kanonicznymi Aury i ich brak nie może generować błędów 404.
+  // Snapshoty zewnętrzne są diagnostyczne; nie uczestniczą w kanonicznym stanie pogody.
   S.weatherapi=null;
-  S.geminiAnalysis=null;
 
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
