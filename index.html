@@ -2736,10 +2736,84 @@ function dewWetness(o){
 }
 function wHum(X){
   const dp=X.dewStation!=null?X.dewStation:X.dew;
-  const r=dewWetness({temp:X.T,dew:dp,hum:X.hum,wind:X.wind,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:currentRainMm(X)});
   const dpTxt=dp==null?"–":Math.round(dp)+"°C";
-  const txt=`<b style="color:var(--ink);font-weight:600">Rosa ${r?r.score+"/15":"–"}</b> · punkt rosy ${dpTxt}${r?`<br>${r.label}`:""}${X.dewStation!=null?`<br>Punkt rosy ze stacji IMGW`:""}`;
-  return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">${txt}</div></div>`;
+  const sourceTxt=X.dewStation!=null?"ze stacji IMGW":"z modelu";
+  return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">Punkt rosy: <b style="color:var(--ink);font-weight:600">${dpTxt}</b> (${sourceTxt}). ${X.hum>=80?"Wysoka wilgotność powietrza.":X.hum>=45?"Komfortowa wilgotność.":"Suche powietrze."}</div></div>`;
+}
+function wLeafWetness(X){
+  const dp=X.dewStation!=null?X.dewStation:X.dew;
+  if(!Number.isFinite(X.T)||!Number.isFinite(dp))return"";
+  
+  const temp=X.T;
+  const rawDepression=Math.max(0, temp - dp);
+  const w=Number.isFinite(X.wind)?Math.max(0, X.wind):10;
+  const night=X.isDay===false||X.isDay===0;
+  const h=Number.isFinite(X.hum)?clamp(X.hum,0,100):50;
+  const p=currentRainMm(X);
+  const r=dewWetness({temp,dew:dp,hum:h,wind:w,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:p});
+
+  const calmFactor=Math.max(0.15,1-Math.min(1,w/28));
+  const clearFactor=Number.isFinite(X.cloud)?1-0.75*clamp(X.cloud,0,100)/100:1;
+  const radiativeDrop=(night?2.3:0.4)*calmFactor*clearFactor;
+  const effDepression=Math.max(0,rawDepression-radiativeDrop);
+
+  let prob=0;
+  if(p>0.05||(X.code>=50&&X.code<=99)){
+    prob=100;
+  }else if(effDepression<=0.2){
+    prob=Math.min(100, Math.round(92 + (0.2 - effDepression) * 40));
+  }else if(effDepression<=0.8){
+    prob=Math.round(75 + ((0.8 - effDepression)/0.6) * 17);
+  }else if(effDepression<=1.8){
+    prob=Math.round(45 + ((1.8 - effDepression)/1.0) * 30);
+  }else if(effDepression<=3.2){
+    prob=Math.round(20 + ((3.2 - effDepression)/1.4) * 25);
+  }else if(effDepression<=4.8){
+    prob=Math.round(5 + ((4.8 - effDepression)/1.6) * 15);
+  }else{
+    prob=Math.max(0, Math.round(5 - (effDepression - 4.8) * 3));
+  }
+  if(h>=95&&prob<85)prob=85;
+  if(w>=24&&prob>20)prob=Math.max(10, prob-15);
+  prob=clamp(prob, 0, 100);
+
+  const statusLabel=prob>=85
+    ?"Mokry liść · wysokie ryzyko rosy"
+    :prob>=60
+    ?"Wilgotne liście · prawdopodobna rosa"
+    :prob>=35
+    ?"Umiarkowane · możliwa lekka rosa"
+    :prob>=15
+    ?"Niskie · śladowa wilgoć"
+    :"Suche liście · brak kondensacji";
+
+  const barGrad=prob>=75
+    ?"linear-gradient(90deg,#38bdf8,#60a5fa)"
+    :prob>=40
+    ?"linear-gradient(90deg,#34d399,#38bdf8)"
+    :"linear-gradient(90deg,#94a3b8,#a3e635)";
+
+  const isImgw=X.dewStation!=null&&S.imgwData;
+  const stName=isImgw?(S.imgwData.stacja||S.imgwData.name||"IMGW"):"";
+  const stDist=isImgw&&S.imgwData.dist!=null?`${Math.round(S.imgwData.dist)} km`:"";
+  const dpSource=isImgw?`stacja IMGW ${stName}${stDist?` (${stDist})`:""}`:"model numeryczny";
+  const dpTxt=Math.round(dp)+"°C";
+  const diffTxt=rawDepression.toFixed(1)+"°C";
+
+  return`<div class="w">
+    <div class="wh">${mini("leaf")}Wilgotność liści</div>
+    <div class="wv tn">${prob}<small>%</small> <span style="font-size:14px;font-weight:600;opacity:0.85;margin-left:4px">· ${r?r.score+"/15":""}</span></div>
+    <div style="margin:6px 0 4px">
+      <div style="height:5px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${prob}%;background:${barGrad};border-radius:3px;transition:width .4s"></div>
+      </div>
+    </div>
+    <div class="ws">
+      <b style="color:var(--ink);display:block;margin-bottom:2px">${statusLabel}</b>
+      <div>Różnica T − Td: <b>${diffTxt}</b> (T: ${Math.round(temp)}°C, Td: ${dpTxt})</div>
+      <div style="font-size:11px;opacity:0.75;margin-top:2px">Punkt rosy: ${dpSource}</div>
+    </div>
+  </div>`;
 }
 function wPress(X){
   const p=X.press;if(!p)return"";
@@ -2885,7 +2959,7 @@ function wSun(X){
   return`<div class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
 }
 function widgetsInnerHTML(X){
-  return [wUV(X),wWind(X),wFeels(X),wHum(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean).join("");
+  return [wUV(X),wWind(X),wFeels(X),wHum(X),wLeafWetness(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean).join("");
 }
 function widgetsHTML(X){
   return`<div id="s-widgets" class="grid">${widgetsInnerHTML(X)}</div>`;
