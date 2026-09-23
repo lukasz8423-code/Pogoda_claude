@@ -5307,6 +5307,52 @@ function sanitizePrecipitationConsistency(data,imgwData){
   return;
 }
 
+function sanitizeHourlyCloudCover(data){
+  const hourly = data?.hourly;
+  if(!hourly?.cloud_cover || !Array.isArray(hourly.cloud_cover) || hourly.cloud_cover.length < 3) return;
+
+  const ci = currentHourIndex({ hourly }, new Date());
+  const startIdx = Math.max(0, ci);
+  const arr = hourly.cloud_cover;
+
+  // Anchor current hour to real-time current cloud_cover if available
+  if (startIdx < arr.length && data?.current?.cloud_cover != null && Number.isFinite(Number(data.current.cloud_cover))) {
+    arr[startIdx] = clamp(Math.round(Number(data.current.cloud_cover)), 0, 100);
+  }
+
+  // Pass 1: Remove isolated single-hour model spikes/dips (e.g. 1% -> 99% -> 0%)
+  for (let i = startIdx + 1; i < arr.length - 1; i++) {
+    const prev = Number(arr[i - 1]);
+    const curr = Number(arr[i]);
+    const next = Number(arr[i + 1]);
+
+    if (!Number.isFinite(prev) || !Number.isFinite(curr) || !Number.isFinite(next)) continue;
+
+    const diffPrev = Math.abs(curr - prev);
+    const diffNext = Math.abs(curr - next);
+    const outerDiff = Math.abs(prev - next);
+
+    if ((diffPrev > 40 && diffNext > 40 && outerDiff < 30) || (diffPrev > 50 && diffNext > 50)) {
+      arr[i] = Math.round(clamp((prev + next) / 2, 0, 100));
+    }
+  }
+
+  // Pass 2: Gentle 3-point running weighted smoothing across future hours
+  const smoothed = [...arr];
+  for (let i = startIdx + 1; i < arr.length - 1; i++) {
+    const prev = Number(arr[i - 1]);
+    const curr = Number(arr[i]);
+    const next = Number(arr[i + 1]);
+    if (Number.isFinite(prev) && Number.isFinite(curr) && Number.isFinite(next)) {
+      smoothed[i] = Math.round(clamp(0.25 * prev + 0.5 * curr + 0.25 * next, 0, 100));
+    }
+  }
+
+  for (let i = startIdx + 1; i < arr.length - 1; i++) {
+    arr[i] = smoothed[i];
+  }
+}
+
 // ═══════════════════════════════════════════════
 // v6 — pobieranie danych (logika z v5 zachowana, doszły: dystans stacji, więcej zmiennych, tło)
 // ═══════════════════════════════════════════════
@@ -5939,6 +5985,7 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   syncDailyExtremes(data);
   sanitizeVisibility(data,imgwData);
+  sanitizeHourlyCloudCover(data);
 
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
   // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
