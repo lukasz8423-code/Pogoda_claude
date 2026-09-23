@@ -3134,14 +3134,22 @@ function getHourlyCode(hourlyData, idx) {
   const minuteEvidence=minuteRainEvidenceForHour(hourlyData,idx);
   const finalMm=Number(hourlyData?.precipitation?.[idx]??0);
 
-  // Po finalnej kanonizacji ilość opadu jest źródłem prawdy.
+  // OPAD MA JEDNO ŹRÓDŁO PRAWDY: finalna ilość opadu.
+  // Sam weather_code/POP nie może wyświetlić deszczu, gdy Aura ma 0 mm.
+  // To jest ważne także wtedy, gdy świeży pomiar IMGW nie był dostępny
+  // i S.canonicalWeatherFusion.applied pozostaje false.
+  if(Number.isFinite(finalMm)&&finalMm<=0.05){
+    return pop>=50 ? (cloud>70?3:2) : (cloud<=20?0:cloud<=70?2:3);
+  }
+
+  // Po finalnej kanonizacji ilość opadu nadal jest nadrzędna.
   if(S.canonicalWeatherFusion?.applied===true){
     if(finalMm>0.05&&isPrecipCode(rawCode))return rawCode;
     return pop>=50 ? (cloud>70?3:2) : (cloud<=20?0:cloud<=70?2:3);
   }
 
   if(isPrecipCode(rawCode)&&(rainEvidence||minuteEvidence))return rawCode;
-  if(minuteEvidence)return 61;
+  if(minuteEvidence&&finalMm>0.05)return 61;
   if(finalMm>0.05&&isPrecipCode(rawCode))return rawCode;
   if(pop>=50)return cloud>70?3:2;
   if(cloud<=20)return 0;
@@ -3291,7 +3299,8 @@ function dailyRows(){
         const hm=Number(hourly.precipitation?.[k]??0);
         const rawP=Number(hourly.precipitation_probability?.[k]??0);
         const p=Number.isFinite(hm)&&hm>0.05?Math.round(clamp(rawP,0,100)):0;
-        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
+        const code=getHourlyCode(hourly,k);
+        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(code,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
       const kv=[];
       {
