@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'index.html'
+      - 'manifest.webmanifest'
+      - '.github/workflows/build-apk.yml'
 
 jobs:
   build-apk:
@@ -13,11 +17,6 @@ jobs:
     steps:
       - name: Klonowanie repozytorium
         uses: actions/checkout@v4
-
-      - name: Konfiguracja Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Konfiguracja Java 17
         uses: actions/setup-java@v4
@@ -28,27 +27,50 @@ jobs:
       - name: Konfiguracja Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Instalacja Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
 
-      - name: Budowanie Android APK z PWA
+      - name: Przygotowanie środowiska Bubblewrap
         run: |
           set -e
-          mkdir -p twa-dist
-          cd twa-dist
+          bubblewrap doctor || true
+          mkdir -p ~/.bubblewrap
+          cat <<EOF > ~/.bubblewrap/config.json
+          {
+            "jdkPath": "${JAVA_HOME}",
+            "androidSdkPath": "${ANDROID_HOME}"
+          }
+          EOF
+
+      - name: Generowanie projektu i budowanie pliku APK
+        run: |
+          set -e
+          mkdir -p build-twa
+          cd build-twa
           
+          # Generowanie klucza podpisującego
           keytool -genkey -v -keystore android.keystore -alias aura -keyalg RSA -keysize 2048 -validity 10000 -storepass aurapogoda123 -keypass aurapogoda123 -dname "CN=AuraPogoda, OU=App, O=Aura, L=Warszawa, S=Mazowieckie, C=PL"
           
-          bubblewrap init --manifest="https://lukasz8423-code.github.io/Pogoda_claude/manifest.webmanifest"
+          # Inicjalizacja bez pytań interaktywnych
+          bubblewrap init --manifest="https://lukasz8423-code.github.io/Pogoda_claude/manifest.webmanifest" --skipQuestions
+          
+          # Budowa pliku APK
           bubblewrap build --signingKeyPath="android.keystore" --signingKeyAlias="aura" --signingKeyPassword="aurapogoda123" --keyPassword="aurapogoda123"
           
-          find . -name "*.apk" -exec cp {} ../Aura-Pogoda.apk \;
+          # Kopiowanie gotowego pliku
+          find . -name "*release*.apk" -o -name "*.apk" | head -n 1 | xargs -I {} cp {} ../Aura-Pogoda.apk
           cd ..
+          ls -la Aura-Pogoda.apk
 
-      - name: Zapisz APK jako plik do pobrania (Artefakt)
+      - name: Zapisz gotowy plik APK jako artefakt do pobrania
         uses: actions/upload-artifact@v4
         with:
           name: Aura-Pogoda-Android-APK
           path: Aura-Pogoda.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
