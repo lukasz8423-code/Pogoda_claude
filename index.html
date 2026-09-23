@@ -3246,6 +3246,27 @@ function meteogramHTML(X){
   </section>`;
 }
 
+function canonicalDayPrecipitation(hourly,dayIso){
+  // JEDNO ŹRÓDŁO PRAWDY DLA 10-DNIÓWKI:
+  // liczymy dobę z tej samej, już przefiltrowanej tablicy hourly,
+  // którą pokazują 48h i prognoza godzinowa. Surowe daily.* nie może
+  // ponownie wprowadzić POP/opadu wyzerowanego wcześniej w hourly.
+  if(!hourly?.time?.length||!dayIso)return{mm:0,pop:0,hasRain:false};
+  let mm=0,pop=0,hasRain=false;
+  for(let k=0;k<hourly.time.length;k++){
+    const iso=String(hourly.time[k]||"");
+    if(!iso.startsWith(dayIso))continue;
+    const v=Number(hourly.precipitation?.[k]??0);
+    const p=Number(hourly.precipitation_probability?.[k]??0);
+    if(Number.isFinite(v)&&v>0.05){
+      mm+=v;
+      hasRain=true;
+      if(Number.isFinite(p))pop=Math.max(pop,clamp(p,0,100));
+    }
+  }
+  return{mm,pop,hasRain};
+}
+
 function dailyRows(){
   const {daily,hourly}=S.data,X=S.X;
   const idxs=[];
@@ -3253,20 +3274,10 @@ function dailyRows(){
   const gmin=Math.min(...idxs.map(i=>daily.temperature_2m_min[i])),gmax=Math.max(...idxs.map(i=>daily.temperature_2m_max[i])),span=Math.max(1,gmax-gmin);
   return idxs.map(i=>{
     const mn=daily.temperature_2m_min[i],mx=daily.temperature_2m_max[i];
-    const stationDryNow=
-      S.imgwData?.opad10minFresh===true &&
-      Number(S.imgwData?.opad_10min)===0 &&
-      Number(S.imgwData?.dist)<=5 &&
-      (!Number.isFinite(Number(S.imgwData?.opad10minAgeMinutes))||Number(S.imgwData.opad10minAgeMinutes)<=30);
-    const dayPrecip=Number(daily.precipitation_sum?.[i]);
-    const rawPop=Number(daily.precipitation_probability_max?.[i]??0);
-    // Jeżeli dzień ma tylko śladowy modelowy opad, a Głodowo potwierdza sucho,
-    // nie pokazujemy 70–80% POP jako faktu.
-    const pop=(
-      S.canonicalWeatherFusion?.applied===true &&
-      Number.isFinite(dayPrecip) &&
-      dayPrecip<=0.4
-    ) ? 0 : rawPop;
+    const dayIso=String(daily.time?.[i]||"").slice(0,10);
+    const canonicalDay=canonicalDayPrecipitation(hourly,dayIso);
+    const dayPrecip=canonicalDay.mm;
+    const pop=canonicalDay.hasRain?canonicalDay.pop:0;
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3276,14 +3287,14 @@ function dailyRows(){
       const dateStr=daily.time[i];let hs="";
       hourly.time.forEach((t,k)=>{
         if(!t.startsWith(dateStr))return;
-        const rawP=Number(hourly.precipitation_probability?.[k]??0);
         const hm=Number(hourly.precipitation?.[k]??0);
+        const rawP=Number(hourly.precipitation_probability?.[k]??0);
         const p=Number.isFinite(hm)&&hm>0.05?Math.round(clamp(rawP,0,100)):0;
         hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
       const kv=[];
       {
-        const p=toFiniteNumber(daily.precipitation_sum?.[i]);
+        const p=Number.isFinite(dayPrecip)?dayPrecip:null;
         kv.push(p===null?"Opady — mm":`Opady ${fnum(p,1)} mm`);
       }
       if(daily.uv_index_max?.[i]!=null)kv.push(`UV maks. ${fnum(daily.uv_index_max[i],1)}`);
