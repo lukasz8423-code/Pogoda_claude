@@ -3701,8 +3701,9 @@ function getHourlyCode(hourlyData,idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
-  if(pr<=0.05){
+  if(pr<=0.1 || cloud<=15 || !isPrecipCode(rawCode)){
     if(rawCode===45||rawCode===48)return rawCode;
+    if(isPrecipCode(rawCode) && pr>0.1 && cloud>15)return rawCode;
     // Spójność ikony z procentem zachmurzenia przy braku deszczu/mgły:
     if(cloud<=15)return 0;
     if(cloud<=45)return 1;
@@ -4126,8 +4127,10 @@ function wLayers(X){
 
   return`<div id="w-clouds" class="w" style="text-align:center">
     <div class="wh" style="justify-content:center">${mini("cloud")}Zachmurzenie</div>
-    <div class="wv tn" style="display:flex;justify-content:center;align-items:baseline;margin:4px 0">${v!=null?`${v}<small>%</small>`:"–"}</div>
-    <div class="ws" style="text-align:center">${hasCloud?`<b style="color:var(--ink);display:block;margin-bottom:2px">${desc}</b><div>Pokrycie nieba chmurami</div>`:"Brak pomiaru"}</div>
+    <div class="wv tn" style="display:flex;justify-content:center;align-items:baseline;margin:4px 0">
+      ${v!=null?`<div style="position:relative;display:inline-flex;justify-content:center;align-items:baseline"><span>${v}</span><small style="position:absolute;left:100%;margin-left:2px;font-size:15px;font-weight:500;color:var(--ink2)">%</small></div>`:"–"}
+    </div>
+    <div class="ws" style="text-align:center">${hasCloud?`<b style="color:var(--ink);display:block;margin-bottom:2px">${desc}</b><div style="color:var(--ink2);font-size:13px">Pokrycie nieba chmurami</div>`:"Brak pomiaru"}</div>
   </div>`;
 }
 function wRain(X){
