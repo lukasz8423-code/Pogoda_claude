@@ -3922,7 +3922,7 @@ function dewWetness(o){
   if(p>0.05)return{score:Math.min(15,Math.max(12,Math.round(12+Math.min(3,p*2)))),label:"Zwilżenie deszczowe"};
   if(p>0)return{score:11,label:"Śladowy opad"};
   if(isPrecipCode)return{score:10,label:"Mokry liść, mżawka"};
-  // 2. Kondensacja: efektywna różnica T − Td (po odjęciu wychładzania radiacyjnego liścia)
+  // 2. Rosa: efektywna różnica T − Td (po odjęciu wychładzania radiacyjnego liścia)
   const rawDepression=Math.max(0,temp-dew);
   const calmFactor=Math.max(0.15,1-Math.min(1,w/28));                  // wiatr miesza powietrze i osusza liście
   const clearFactor=Number.isFinite(o.cloud)?1-0.75*clamp(o.cloud,0,100)/100:1; // chmury ograniczają wychładzanie
@@ -3962,46 +3962,35 @@ function wLeafWetness(X){
   const p=currentRainMm(X);
   const r=dewWetness({temp,dew:dp,hum:h,wind:w,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:p});
 
-  const calmFactor=Math.max(0.15,1-Math.min(1,w/28));
-  const clearFactor=Number.isFinite(X.cloud)?1-0.75*clamp(X.cloud,0,100)/100:1;
-  const radiativeDrop=(night?2.3:0.4)*calmFactor*clearFactor;
-  const effDepression=Math.max(0,rawDepression-radiativeDrop);
+  const score = (r != null && Number.isFinite(r.score)) ? clamp(Math.round(r.score), 0, 15) : null;
+  const fillPct = score != null ? Math.round((score / 15) * 100) : 0;
 
-  let prob=0;
-  if(p>0.05||(X.code>=50&&X.code<=99)){
-    prob=100;
-  }else if(effDepression<=0.2){
-    prob=Math.min(100, Math.round(92 + (0.2 - effDepression) * 40));
-  }else if(effDepression<=0.8){
-    prob=Math.round(75 + ((0.8 - effDepression)/0.6) * 17);
-  }else if(effDepression<=1.8){
-    prob=Math.round(45 + ((1.8 - effDepression)/1.0) * 30);
-  }else if(effDepression<=3.2){
-    prob=Math.round(20 + ((3.2 - effDepression)/1.4) * 25);
-  }else if(effDepression<=4.8){
-    prob=Math.round(5 + ((4.8 - effDepression)/1.6) * 15);
-  }else{
-    prob=Math.max(0, Math.round(5 - (effDepression - 4.8) * 3));
+  let statusLabel = "Brak danych o wilgotności liści";
+  let dewSub = "";
+  if (score === 0) {
+    statusLabel = "Liście suche jak pieprz 🌿";
+    dewSub = "Rosa raczej się nie pojawi";
+  } else if (score <= 4) {
+    statusLabel = "Liście prawie suche";
+    dewSub = "Rosa raczej się nie pojawi";
+  } else if (score <= 8) {
+    statusLabel = "Liście lekko wilgotne";
+    dewSub = "Rosa może się pojawić 💧";
+  } else if (score <= 12) {
+    statusLabel = "Liście wyraźnie wilgotne 💧";
+    dewSub = "Rosa może pojawić się wkrótce 💧";
+  } else if (score != null) {
+    statusLabel = "Liście mokre 🌧️";
+    dewSub = "Obfita rosa na roślinach 💧";
   }
-  if(h>=95&&prob<85)prob=85;
-  if(w>=24&&prob>20)prob=Math.max(10, prob-15);
-  prob=clamp(prob, 0, 100);
 
-  const statusLabel=prob>=85
-    ?"Mokry liść · wysokie ryzyko rosy"
-    :prob>=60
-    ?"Wilgotne liście · prawdopodobna rosa"
-    :prob>=35
-    ?"Umiarkowane · możliwa lekka rosa"
-    :prob>=15
-    ?"Niskie · śladowa wilgoć"
-    :"Suche liście · brak kondensacji";
-
-  const barGrad=prob>=75
-    ?"linear-gradient(90deg,#38bdf8,#60a5fa)"
-    :prob>=40
-    ?"linear-gradient(90deg,#34d399,#38bdf8)"
-    :"linear-gradient(90deg,#94a3b8,#a3e635)";
+  const barGrad = score >= 13
+    ? "linear-gradient(90deg,#0284c7,#38bdf8)"
+    : score >= 9
+    ? "linear-gradient(90deg,#059669,#38bdf8)"
+    : score >= 5
+    ? "linear-gradient(90deg,#10b981,#a3e635)"
+    : "linear-gradient(90deg,#64748b,#94a3b8)";
 
   const isImgw=X.dewStation!=null&&S.imgwData;
   const stName=isImgw?(S.imgwData.stacja||S.imgwData.name||"IMGW"):"";
@@ -4010,16 +3999,17 @@ function wLeafWetness(X){
   const dpTxt=Math.round(dp)+"°C";
   const diffTxt=rawDepression.toFixed(1)+"°C";
 
-  return`<div class="w">
+  return`<div id="w-leaf" class="w">
     <div class="wh">${mini("leaf")}Wilgotność liści</div>
-    <div class="wv tn">${prob}<small>%</small> <span style="font-size:14px;font-weight:600;opacity:0.85;margin-left:4px">· ${r?r.score+"/15":""}</span></div>
+    <div class="wv tn">${fillPct}<small>%</small> <span style="font-size:14px;font-weight:600;opacity:0.85;margin-left:4px">· ${score!=null?score+"/15":"–/15"}</span></div>
     <div style="margin:6px 0 4px">
       <div style="height:5px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${prob}%;background:${barGrad};border-radius:3px;transition:width .4s"></div>
+        <div style="height:100%;width:${fillPct}%;background:${barGrad};border-radius:3px;transition:width .4s ease-out"></div>
       </div>
     </div>
     <div class="ws">
       <b style="color:var(--ink);display:block;margin-bottom:2px">${statusLabel}</b>
+      <div style="font-size:12px;color:var(--ink2);margin-bottom:2px">${dewSub}</div>
       <div>Różnica T − Td: <b>${diffTxt}</b> (T: ${Math.round(temp)}°C, Td: ${dpTxt})</div>
       <div style="font-size:11px;opacity:0.75;margin-top:2px">Punkt rosy: ${dpSource}</div>
     </div>
