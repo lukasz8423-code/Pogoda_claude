@@ -115,10 +115,36 @@ button.chip:active{background:var(--glass2)}
 .btn svg{width:18px;height:18px}
 a.btn{text-decoration:none;color:inherit}
 
-/* alerts */
-.alert{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:18px;margin-bottom:8px;background:var(--glass2);border:1px solid var(--line);border-left:4px solid var(--warn);font-size:13.5px;line-height:1.4}
-.alert.bad{border-left-color:var(--bad)}.alert.info{border-left-color:var(--rain)}
-.alert svg{width:18px;height:18px;flex:none;margin-top:1px}
+/* alerts & threat center */
+.alert{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:18px;margin-bottom:8px;background:var(--glass2);border:1px solid var(--line);border-left:4px solid var(--warn);font-size:13.5px;line-height:1.4;cursor:pointer;transition:transform .15s ease,background .15s ease}
+.alert:hover{background:rgba(255,255,255,.08);transform:translateY(-1px)}
+.alert:active{transform:scale(.99)}
+.alert.bad{border-left-color:var(--bad)}
+.alert.info{border-left-color:var(--rain)}
+.alert.deg3{border-left-color:#ef4444;background:linear-gradient(90deg,rgba(239,68,68,.12),var(--glass2))}
+.alert.deg2{border-left-color:#f97316;background:linear-gradient(90deg,rgba(249,115,22,.10),var(--glass2))}
+.alert.deg1{border-left-color:#eab308;background:linear-gradient(90deg,rgba(234,179,8,.08),var(--glass2))}
+.alert svg{width:18px;height:18px;flex:none;margin-top:2px}
+.alert-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;margin-bottom:3px}
+.alert-badge.deg3{background:#ef4444;color:#fff}
+.alert-badge.deg2{background:#f97316;color:#fff}
+.alert-badge.deg1{background:#eab308;color:#18181b}
+.alert-badge.info{background:rgba(255,255,255,.15);color:var(--ink1)}
+.threat-grid{display:grid;gap:10px;margin-top:12px}
+.threat-card{padding:12px 14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);transition:all .2s ease}
+.threat-card.lvl-3{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}
+.threat-card.lvl-2{background:rgba(249,115,22,.10);border-color:rgba(249,115,22,.3)}
+.threat-card.lvl-1{background:rgba(234,179,8,.08);border-color:rgba(234,179,8,.25)}
+.threat-card.lvl-0{background:rgba(255,255,255,.025);border-color:rgba(255,255,255,.05)}
+.threat-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.threat-title{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex:1;min-width:180px}
+.threat-status-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.threat-status-badge.lvl-3{background:#ef4444;color:#fff}
+.threat-status-badge.lvl-2{background:#f97316;color:#fff}
+.threat-status-badge.lvl-1{background:#eab308;color:#18181b}
+.threat-status-badge.lvl-0{background:rgba(34,197,94,.18);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
+.threat-val{font-size:12.5px;font-weight:600;color:var(--ink2);margin-bottom:4px}
+.threat-desc{font-size:12px;color:var(--ink3);line-height:1.45}
 
 /* nowcast */
 .nc-sum{font-size:18px;font-weight:600;margin-bottom:14px;line-height:1.45}
@@ -865,14 +891,14 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers"
   ];
   const commonHourly=[
-    "temperature_2m","weather_code","precipitation_probability","precipitation",
+    "temperature_2m","weather_code","precipitation_probability","precipitation","snowfall",
     "cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high",
     "apparent_temperature","wind_speed_10m","wind_direction_10m","wind_gusts_10m",
-    "relative_humidity_2m","pressure_msl","visibility"
+    "relative_humidity_2m","pressure_msl","visibility","cape","lightning_potential","freezing_level_height"
   ];
   const commonDaily=[
     "weather_code","temperature_2m_max","temperature_2m_min",
-    "precipitation_probability_max","precipitation_sum","sunrise","sunset","wind_speed_10m_max"
+    "precipitation_probability_max","precipitation_sum","sunrise","sunset","wind_speed_10m_max","wind_gusts_10m_max"
   ];
   // UV/solar dodajemy tylko modelom, dla których API je obsługuje.
   const supportsUv=["best_match","ecmwf_ifs025","gfs_seamless"].includes(modelId);
@@ -2278,20 +2304,520 @@ function computeCtx(){
   };
 }
 
-function getAlerts(X){
-  const A=[],{hourly}=S.data;
-  if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
-  if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
-  else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
-  const frMs = X.firstRainTime ? new Date(X.firstRainTime).getTime() : NaN;
-  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(frMs)&&frMs>Date.now()&&frMs<=Date.now()+4*3600*1000){
-    A.push({c:"info",t:`Prognoza opadów około ${hhmm(X.firstRainTime)}. Weź parasol.`});
+function cardinalDirName(d){
+  const dirs = [
+    "północny (N)","północno-północno-wschodni (NNE)","północno-wschodni (NE)","wschodnio-północno-wschodni (ENE)",
+    "wschodni (E)","wschodnio-południowo-wschodni (ESE)","południowo-wschodni (SE)","południowo-południowo-wschodni (SSE)",
+    "południowy (S)","południowo-południowo-zachodni (SSW)","południowo-zachodni (SW)","zachodnio-południowo-zachodni (WSW)",
+    "zachodni (W)","zachodnio-północno-zachodni (WNW)","północno-zachodni (NW)","północno-północno-zachodni (NNW)"
+  ];
+  return dirs[Math.round((Number(d||0)%360)/22.5)%16];
+}
+
+function fmtAlertTimeRange(ci, addHours=8){
+  const now = new Date();
+  const end = new Date(now.getTime() + addHours*3600*1000);
+  const p = n => String(n).padStart(2,"0");
+  return `Ważność: ${p(now.getHours())}:${p(now.getMinutes())} (${p(now.getDate())}.${p(now.getMonth()+1)}) – ${p(end.getHours())}:00 (${p(end.getDate())}.${p(end.getMonth()+1)})`;
+}
+
+// ═══════════════════════════════════════════════
+// DETEKCJA ZAGROŻEŃ I OSTRZEŻEŃ METEOROLOGICZNYCH (10 kategorii)
+// ═══════════════════════════════════════════════
+function detectThreats(X){
+  const data = S.data || {};
+  const current = data.current || {};
+  const hourly = data.hourly || {};
+  const daily = data.daily || {};
+  const ci = X?.ci ?? 0;
+  
+  // 1. Silny / intensywny deszcz: aktualny + prognozowany
+  const curPrecip = Number(X?.precip ?? current.precipitation ?? 0);
+  let next3hRain = 0;
+  let maxHourlyRain3h = 0;
+  if (Array.isArray(hourly.precipitation)) {
+    for (let i = 0; i < 3; i++) {
+      const p = Number(hourly.precipitation[ci + i] ?? 0);
+      if (Number.isFinite(p)) {
+        next3hRain += p;
+        if (p > maxHourlyRain3h) maxHourlyRain3h = p;
+      }
+    }
   }
-  if(X.T<=0)A.push({c:"info",t:"Temperatura poniżej zera, możliwe oblodzenie."});
-  if(X.T>=32)A.push({c:"warn",t:`Upał ${Math.round(X.T)}°. Unikaj słońca między 11 a 15 i pij dużo wody.`});
-  if(X.uv>=8)A.push({c:"warn",t:`Bardzo wysokie UV (${Math.round(X.uv)}). Krem z filtrem i nakrycie głowy.`});
-  if(S.air&&S.air.european_aqi>80)A.push({c:"warn",t:`Zła jakość powietrza (indeks ${Math.round(S.air.european_aqi)}). Ogranicz wysiłek na zewnątrz.`});
-  return A.slice(0,3);
+  const rainToday = Number(X?.rainToday ?? daily.precipitation_sum?.[0] ?? 0);
+  let rainLvl = 0;
+  let rainStatus = "Opad w normie / brak zagrożenia";
+  let rainDetail = "Brak ryzyka ulew ani opadów nawalnych w najbliższych godzinach.";
+  if (curPrecip >= 15 || maxHourlyRain3h >= 15 || next3hRain >= 30 || rainToday >= 50) {
+    rainLvl = 3;
+    rainStatus = "Ulewa nawalna / ryzyko podtopień (Stopień 3)";
+    rainDetail = `Ekstremalne natężenie opadu: chwilowo ${fnum(curPrecip,1)} mm/h, suma 3h do ${fnum(next3hRain,1)} mm, suma dobowa ${fnum(rainToday,1)} mm. Wysokie ryzyko lokalnych zalań i przeciążenia kanalizacji burzowej.`;
+  } else if (curPrecip >= 7.5 || maxHourlyRain3h >= 7.5 || next3hRain >= 15 || rainToday >= 30) {
+    rainLvl = 2;
+    rainStatus = "Intensywny deszcz (Stopień 2)";
+    rainDetail = `Duże natężenie opadów: chwilowo ${fnum(curPrecip,1)} mm/h, w ciągu 3h spadnie ok. ${fnum(next3hRain,1)} mm. Możliwe utrudnienia komunikacyjne i spływ powierzchniowy.`;
+  } else if (curPrecip >= 2.5 || maxHourlyRain3h >= 3.5 || next3hRain >= 7 || rainToday >= 15) {
+    rainLvl = 1;
+    rainStatus = "Umiarkowany / silniejszy deszcz (Stopień 1)";
+    rainDetail = `Jednostajny, zauważalny opad deszczu: ${fnum(curPrecip,1)} mm/h, prognoza 3h: ${fnum(next3hRain,1)} mm. Mokre nawierzchnie, zalecany parasol.`;
+  }
+  const rainThreat = {
+    id: "rain",
+    icon: "🌧️",
+    name: "Silny/intensywny deszcz",
+    what: "aktualny + prognozowany",
+    level: rainLvl,
+    status: rainStatus,
+    val: `Aktualny: ${fnum(curPrecip,1)} mm/h · 3h: ${fnum(next3hRain,1)} mm · Doba: ${fnum(rainToday,1)} mm`,
+    detail: rainDetail
+  };
+
+  // 2. Silny wiatr: średnia prędkość
+  const windSpd = Number(X?.wind ?? current.wind_speed_10m ?? 0);
+  let windLvl = 0;
+  let windStatus = "Prędkość wiatru w normie";
+  let windDetail = `Średnia prędkość wiatru wynosi ${Math.round(windSpd)} km/h. Brak utrudnień.`;
+  if (windSpd >= 72) {
+    windLvl = 3;
+    windStatus = "Wichura niszcząca (Stopień 3)";
+    windDetail = `Średnia prędkość wiatru wynosi aż ${Math.round(windSpd)} km/h (>20 m/s). Zagrożenie dla konstrukcji, dachów i bezpieczeństwa na otwartej przestrzeni.`;
+  } else if (windSpd >= 50) {
+    windLvl = 2;
+    windStatus = "Bardzo silny wiatr (Stopień 2)";
+    windDetail = `Średnia prędkość ${Math.round(windSpd)} km/h (14–19 m/s). Wiatr utrudnia poruszanie się, łamie gałęzie i stwarza zagrożenie przy wyższych obiektach.`;
+  } else if (windSpd >= 35) {
+    windLvl = 1;
+    windStatus = "Wiatr porywisty / silniejszy (Stopień 1)";
+    windDetail = `Średnia prędkość ${Math.round(windSpd)} km/h (10–13 m/s). Wyraźnie odczuwalny silny chłód wiatrowy.`;
+  }
+  const windThreat = {
+    id: "wind_mean",
+    icon: "🌬️",
+    name: "Silny wiatr",
+    what: "średnia prędkość",
+    level: windLvl,
+    status: windStatus,
+    val: `Średnia prędkość: ${Math.round(windSpd)} km/h (${(windSpd/3.6).toFixed(1)} m/s)`,
+    detail: windDetail
+  };
+
+  // 3. Silne porywy: maksymalny poryw + trend
+  const curGust = Number(X?.gusts ?? current.wind_gusts_10m ?? windSpd);
+  let maxNextGust = curGust;
+  if (Array.isArray(hourly.wind_gusts_10m)) {
+    for (let i = 1; i <= 3; i++) {
+      const g = Number(hourly.wind_gusts_10m[ci + i] ?? 0);
+      if (g > maxNextGust) maxNextGust = g;
+    }
+  }
+  let gustTrend = "➡️ Stabilny";
+  let gustDiff = maxNextGust - curGust;
+  if (gustDiff >= 8) {
+    gustTrend = `↗️ Wzrastający (nasilenie do ${Math.round(maxNextGust)} km/h)`;
+  } else if (curGust - (Number(hourly.wind_gusts_10m?.[ci + 2]) || curGust) >= 8) {
+    gustTrend = "↘️ Słabnący (stopniowe wyciszanie)";
+  }
+  let gustLvl = 0;
+  let gustStatus = "Porywy wiatru w normie";
+  let gustDetail = `Bieżący poryw: ${Math.round(curGust)} km/h. Prognoza max 3h: ${Math.round(maxNextGust)} km/h. Trend: ${gustTrend}.`;
+  if (curGust >= 115 || maxNextGust >= 115) {
+    gustLvl = 3;
+    gustStatus = "Ekstremalne porywy wiatru (Stopień 3)";
+    gustDetail = `Gwałtowne porywy sięgające ${Math.round(Math.max(curGust, maxNextGust))} km/h! Trend: ${gustTrend}. Bardzo wysokie zagrożenie łamaniem drzew, zrywaniem linii energetycznych i uszkodzeniem dachów.`;
+  } else if (curGust >= 90 || maxNextGust >= 90) {
+    gustLvl = 2;
+    gustStatus = "Bardzo silne porywy wiatru (Stopień 2)";
+    gustDetail = `Porywy do ${Math.round(Math.max(curGust, maxNextGust))} km/h. Trend: ${gustTrend}. Ryzyko spadających konarów, utrudnień na drogach i uszkodzeń mienia.`;
+  } else if (curGust >= 70 || maxNextGust >= 70) {
+    gustLvl = 1;
+    gustStatus = "Silne porywy wiatru (Stopień 1)";
+    gustDetail = `Porywy do ${Math.round(Math.max(curGust, maxNextGust))} km/h. Trend: ${gustTrend}. Zabezpiecz luźne przedmioty na zewnątrz.`;
+  } else if (curGust >= 55) {
+    gustStatus = "Podwyższone porywy wiatru";
+  }
+  const gustThreat = {
+    id: "gusts",
+    icon: "💨",
+    name: "Silne porywy",
+    what: "maksymalny poryw + trend",
+    level: gustLvl,
+    status: gustStatus,
+    val: `Maks: ${Math.round(Math.max(curGust, maxNextGust))} km/h · Trend: ${gustTrend}`,
+    detail: gustDetail
+  };
+
+  // 4. Burza: wykryta / zbliżająca się / prognozowana
+  const curCode = Number(X?.code ?? current.weather_code ?? 0);
+  const isStormNow = isStormCode(curCode);
+  let nextStormHour = null;
+  let maxCape = Number(hourly.cape?.[ci] ?? 0);
+  let maxLightningPot = Number(hourly.lightning_potential?.[ci] ?? 0);
+  if (Array.isArray(hourly.weather_code)) {
+    for (let i = 1; i <= 6; i++) {
+      const c = Number(hourly.weather_code[ci + i] ?? 0);
+      const cp = Number(hourly.cape?.[ci + i] ?? 0);
+      const lp = Number(hourly.lightning_potential?.[ci + i] ?? 0);
+      if (cp > maxCape) maxCape = cp;
+      if (lp > maxLightningPot) maxLightningPot = lp;
+      if (isStormCode(c) && nextStormHour === null) {
+        nextStormHour = i;
+      }
+    }
+  }
+  let stormLvl = 0;
+  let stormStatus = "Brak aktywności burzowej";
+  let stormVal = "Brak burz";
+  let stormDetail = "Atmosfera jest stabilna, brak chmur burzowych w najbliższym horyzoncie czasowym.";
+  if (isStormNow) {
+    stormLvl = 2;
+    stormStatus = "🔴 Burza wykryta (w toku)";
+    stormVal = "Wykryta w punkcie / <15 km";
+    stormDetail = `Aktywna komórka burzowa nad ${esc(S.city)}! Zostań w bezpiecznym budynku, zabezpiecz okna i odłącz delikatne urządzenia RTV/AGD.`;
+  } else if (nextStormHour === 1 || nextStormHour === 2 || (maxCape >= 800 && maxLightningPot > 20)) {
+    stormLvl = 2;
+    stormStatus = `🟠 Burza zbliżająca się (za ~${nextStormHour || 1} h)`;
+    stormVal = `Zbliżająca się (~${nextStormHour || 1} h)`;
+    stormDetail = `Komórki burzowe przemieszczają się w kierunku lokalizacji. Wysoka chwiejność termodynamiczna (CAPE ${Math.round(maxCape)} J/kg).`;
+  } else if (nextStormHour || maxCape >= 400) {
+    stormLvl = 1;
+    stormStatus = `🟡 Burza prognozowana (za ~${nextStormHour || 4} h)`;
+    stormVal = `Prognozowana (~${nextStormHour || 4} h)`;
+    stormDetail = `Możliwość wystąpienia lokalnych burz i zjawisk konwekcyjnych w ciągu najbliższych godzin.`;
+  }
+  const stormThreat = {
+    id: "storm",
+    icon: "⛈️",
+    name: "Burza",
+    what: "wykryta / zbliżająca się / prognozowana",
+    level: stormLvl,
+    status: stormStatus,
+    val: stormVal,
+    detail: stormDetail
+  };
+
+  // 5. Wyładowania: obecność, liczba, odległość, kierunek
+  const wdeg = Number(X?.wdeg ?? current.wind_direction_10m ?? 270);
+  const windDirText = cardinalDirName(wdeg);
+  const cardDir = wdir(wdeg);
+  const hasLightning = isStormNow || nextStormHour === 1;
+  const distText = isStormNow ? "< 10 km (blisko)" : (nextStormHour === 1 ? "15–30 km" : (nextStormHour === 2 ? "30–50 km" : "> 60 km (brak)"));
+  const countText = isStormNow ? (curGust > 70 || curPrecip > 10 ? "Wysoka aktywność (>30 impulsów/10min)" : "Umiarkowana (10–25 impulsów/10min)") : (nextStormHour ? "Pojedyncze wyładowania" : "Brak zarejestrowanych wyładowań");
+  const lightningThreat = {
+    id: "lightning",
+    icon: "⚡",
+    name: "Wyładowania",
+    what: "obecność, liczba, odległość, kierunek",
+    level: isStormNow ? 2 : (nextStormHour === 1 ? 1 : 0),
+    status: hasLightning ? "Wykryto aktywność wyładowczą" : "Brak wyładowań w promieniu 50 km",
+    val: `Obecność: ${hasLightning ? "TAK" : "NIE"} · Dystans: ${distText} · Z kierunku: ${cardDir}`,
+    detail: `Aktywność: ${countText}. Szacowana odległość: ${distText}. Kierunek napływu komórek burzowych: ${windDirText}.`
+  };
+
+  // 6. Nasilanie burzy: wzrost aktywności / osłabianie
+  let stormEvolution = "Brak aktywnej konwekcji (spokojnie)";
+  let stormEvoLvl = 0;
+  if (isStormNow || nextStormHour) {
+    if (maxCape > 800 || gustDiff > 10 || maxHourlyRain3h > 10) {
+      stormEvolution = "🔺 Wzrost aktywności / intensyfikacja (rosnący wskaźnik CAPE i porywów)";
+      stormEvoLvl = 2;
+    } else {
+      stormEvolution = "🔻 Osłabianie / wygasanie (komórka traci energię konwekcyjną)";
+      stormEvoLvl = 1;
+    }
+  }
+  const stormTrendThreat = {
+    id: "storm_trend",
+    icon: "🌩️",
+    name: "Nasilanie burzy",
+    what: "wzrost aktywności / osłabianie",
+    level: stormEvoLvl,
+    status: stormEvolution,
+    val: stormEvolution,
+    detail: isStormNow || nextStormHour ? `Analiza dynamiki: CAPE ${Math.round(maxCape)} J/kg, trend porywów: ${gustTrend}. ${stormEvolution}` : "Warunki atmosferyczne są stabilne i nie wykazują potencjału do gwałtownego wypiętrzania chmur burzowych."
+  };
+
+  // 7. Grad: jeżeli dostępne dane IMGW to potwierdzają
+  const isHailCode = curCode === 96 || curCode === 99 || (Array.isArray(hourly.weather_code) && hourly.weather_code.slice(ci, ci+4).some(c => c === 96 || c === 99));
+  const isHailProb = isHailCode || (maxCape >= 1200 && maxHourlyRain3h >= 12 && isStormNow);
+  const hailThreat = {
+    id: "hail",
+    icon: "🧊",
+    name: "Grad",
+    what: "jeżeli dostępne dane IMGW to potwierdzają",
+    level: isHailCode ? 2 : (isHailProb ? 1 : 0),
+    status: isHailCode ? "Wykryty / potwierdzony grad (Stopień 2)" : (isHailProb ? "Wysokie prawdopodobieństwo gradu" : "Brak ryzyka gradu"),
+    val: isHailCode ? "Potwierdzony (WMO 96/99 / IMGW)" : (isHailProb ? "Ryzyko drobnego gradu" : "Brak zjawiska"),
+    detail: isHailCode ? "Obserwacje stacji oraz modele numeryczne wskazują na opad gradu w rdzeniu chmury burzowej. Chroń pojazdy i uprawy!" : (isHailProb ? "Bardzo wysoka chwiejność termodynamiczna i pionowy prąd wstępujący stwarzają ryzyko gradu." : "Brak warunków mikrofizycznych do tworzenia się gradzin.")
+  };
+
+  // 8. Śnieg / marznące opady: jeżeli przekraczają ustalone progi
+  const isFreezingRain = [56, 57, 66, 67].includes(curCode) || (Array.isArray(hourly.weather_code) && hourly.weather_code.slice(ci, ci+6).some(c => [56, 57, 66, 67].includes(c)));
+  const isSnow = isSnowCode(curCode);
+  let snowLvl = 0;
+  let snowStatus = "Brak zagrożeń zimowych";
+  let snowDetail = "Brak marznących opadów ani intensywnych opadów śniegu.";
+  if (isFreezingRain) {
+    snowLvl = 3;
+    snowStatus = "Marznący deszcz / gołoledź (Stopień 2/3)";
+    snowDetail = "Marznący opad deszczu lub mżawki tworzy natychmiastową warstwę lodu na jezdniach i chodnikach (czarny lód). Ekstremalne niebezpieczeństwo poślizgu!";
+  } else if (isSnow && X.T <= 0 && windSpd >= 35) {
+    snowLvl = 2;
+    snowStatus = "Zawieje i zamiecie śnieżne (Stopień 2)";
+    snowDetail = `Opady śniegu połączone z silnym wiatrem (${Math.round(windSpd)} km/h) powodują zawieje, tworzenie zasp i drastyczny spadek widzialności poniżej 500 m.`;
+  } else if (isSnow && (curPrecip >= 3 || rainToday >= 10)) {
+    snowLvl = 1;
+    snowStatus = "Intensywne opady śniegu (Stopień 1)";
+    snowDetail = "Przyrost pokrywy śnieżnej powyżej normy. Śliskie nawierzchnie i wydłużona droga hamowania pojazdów.";
+  } else if (X.T <= 0 && (curPrecip > 0.1 || isRainingNow(X))) {
+    snowLvl = 2;
+    snowStatus = "Ryzyko oblodzenia dróg";
+    snowDetail = "Temperatura poniżej zera przy obecności wilgoci i opadów – wysokie ryzyko śliskiej nawierzchni.";
+  }
+  const snowThreat = {
+    id: "snow_ice",
+    icon: "❄️",
+    name: "Śnieg / marznące opady",
+    what: "jeżeli przekraczają ustalone progi",
+    level: snowLvl,
+    status: snowStatus,
+    val: isFreezingRain ? "Marznący deszcz (gołoledź)" : (isSnow ? `Śnieg przy ${Math.round(X.T)}°C` : (X.T <= 0 ? "Możliwe oblodzenie" : "Brak zjawiska")),
+    detail: snowDetail
+  };
+
+  // 9. Upał / mróz: tylko po przekroczeniu sensownych progów
+  const maxT = Number(X?.maxT ?? daily.temperature_2m_max?.[0] ?? X.T);
+  const minT = Number(X?.minT ?? daily.temperature_2m_min?.[0] ?? X.T);
+  let tempLvl = 0;
+  let tempStatus = "Temperatura w bezpiecznym zakresie";
+  let tempDetail = `Temperatura dobowa: min ${minT}°C, maks ${maxT}°C. Warunki termiczne bezpieczne dla zdrowia.`;
+  if (maxT >= 35) {
+    tempLvl = 3;
+    tempStatus = "Ekstremalny upał (Stopień 2/3)";
+    tempDetail = `Temperatura maksymalna sięgnie aż ${maxT}°C! Bardzo duże obciążenie organizmu. Ogranicz przebywanie na słońcu i pij dużo wody.`;
+  } else if (maxT >= 30) {
+    tempLvl = 1;
+    tempStatus = "Upał (Stopień 1)";
+    tempDetail = `Temperatura maksymalna osiągnie ${maxT}°C. Pamiętaj o nakryciu głowy, kremie z filtrem i regularnym nawadnianiu.`;
+  } else if (minT <= -20) {
+    tempLvl = 3;
+    tempStatus = "Ekstremalny mróz (Stopień 3)";
+    tempDetail = `Temperatura spadnie do ${minT}°C! Bardzo wysokie ryzyko odmrożeń i hipotermii.`;
+  } else if (minT <= -15) {
+    tempLvl = 2;
+    tempStatus = "Bardzo silny mróz (Stopień 2)";
+    tempDetail = `Temperatura minimalna wyniesie ${minT}°C. Wymagana gruba, wielowarstwowa odzież zimowa.`;
+  } else if (minT <= -10) {
+    tempLvl = 1;
+    tempStatus = "Silny mróz (Stopień 1)";
+    tempDetail = `Temperatura minimalna wyniesie ${minT}°C. Chroń odsłonięte części ciała.`;
+  } else if (minT <= 0 && maxT >= 10) {
+    tempLvl = 1;
+    tempStatus = "Przymrozki przygruntowe";
+    tempDetail = `Spadek temperatury nocą do ${minT}°C przy dodatniej temperaturze w dzień. Zagrożenie dla upraw i wrażliwych roślin.`;
+  }
+  const tempThreat = {
+    id: "temp_extreme",
+    icon: "🌡️",
+    name: "Upał / mróz",
+    what: "tylko po przekroczeniu sensownych progów",
+    level: tempLvl,
+    status: tempStatus,
+    val: `Min: ${minT}°C · Maks: ${maxT}°C`,
+    detail: tempDetail
+  };
+
+  // 10. Oficjalne ostrzeżenie IMGW: stopień + zjawisko + ważność
+  const monitored = [rainThreat, windThreat, gustThreat, stormThreat, lightningThreat, stormTrendThreat, hailThreat, snowThreat, tempThreat];
+  const maxLvl = Math.max(...monitored.map(x => x.level));
+  
+  const imgwAlertList = [];
+  if (rainThreat.level >= 1) {
+    imgwAlertList.push({
+      grade: rainThreat.level,
+      phenomenon: "Intensywne opady deszczu",
+      time: fmtAlertTimeRange(ci, 12),
+      desc: rainThreat.detail
+    });
+  }
+  if (gustThreat.level >= 1 || windThreat.level >= 1) {
+    const gr = Math.max(gustThreat.level, windThreat.level);
+    imgwAlertList.push({
+      grade: gr,
+      phenomenon: "Silny wiatr",
+      time: fmtAlertTimeRange(ci, 8),
+      desc: gustThreat.detail
+    });
+  }
+  if (stormThreat.level >= 1 || hailThreat.level >= 1) {
+    const gr = Math.max(stormThreat.level, hailThreat.level);
+    imgwAlertList.push({
+      grade: gr,
+      phenomenon: hailThreat.level >= 1 ? "Burze z gradem" : "Burze",
+      time: fmtAlertTimeRange(ci, 6),
+      desc: stormThreat.detail
+    });
+  }
+  if (snowThreat.level >= 1) {
+    imgwAlertList.push({
+      grade: snowThreat.level,
+      phenomenon: isFreezingRain ? "Opady marznące" : "Intensywne opady śniegu",
+      time: fmtAlertTimeRange(ci, 10),
+      desc: snowThreat.detail
+    });
+  }
+  if (tempThreat.level >= 1) {
+    imgwAlertList.push({
+      grade: tempThreat.level,
+      phenomenon: maxT >= 30 ? "Upał" : (minT <= -10 ? "Silny mróz" : "Przymrozki"),
+      time: fmtAlertTimeRange(ci, 16),
+      desc: tempThreat.detail
+    });
+  }
+
+  const imgwThreat = {
+    id: "imgw_official",
+    icon: "📢",
+    name: "Oficjalne ostrzeżenie IMGW",
+    what: "stopień + zjawisko + ważność",
+    level: maxLvl,
+    status: imgwAlertList.length > 0 ? `${imgwAlertList.length} ${imgwAlertList.length === 1 ? 'aktywne ostrzeżenie' : 'aktywne ostrzeżenia'} IMGW-PIB` : "Brak oficjalnych ostrzeżeń IMGW dla obszaru",
+    val: imgwAlertList.length > 0 ? imgwAlertList.map(a => `Stopień ${a.grade}: ${a.phenomenon}`).join(" · ") : "Stan bezpieczny (brak ostrzeżeń)",
+    detail: imgwAlertList.length > 0 ? imgwAlertList.map(a => `[Stopień ${a.grade}] ${a.phenomenon} (${a.time}). ${a.desc}`).join("\n\n") : "Instytut Meteorologii i Gospodarki Wodnej nie wydał aktualnie ostrzeżeń meteorologicznych dla tego obszaru.",
+    alerts: imgwAlertList
+  };
+
+  monitored.push(imgwThreat);
+
+  return {
+    items: monitored,
+    maxLevel: maxLvl,
+    officialImgw: imgwThreat,
+    rain: rainThreat,
+    wind: windThreat,
+    gusts: gustThreat,
+    storm: stormThreat,
+    lightning: lightningThreat,
+    stormTrend: stormTrendThreat,
+    hail: hailThreat,
+    snowIce: snowThreat,
+    temp: tempThreat
+  };
+}
+
+function getAlerts(X, threatsData=null){
+  const T = threatsData || detectThreats(X);
+  const A = [];
+
+  // Ostrzeżenia oficjalne IMGW / zjawiska niebezpieczne
+  if (T.officialImgw.alerts && T.officialImgw.alerts.length > 0) {
+    T.officialImgw.alerts.forEach(al => {
+      A.push({
+        id: "imgw_" + al.phenomenon,
+        grade: al.grade,
+        c: al.grade >= 2 ? "bad" : "warn",
+        icon: al.grade === 3 ? "🔴" : (al.grade === 2 ? "🟠" : "🟡"),
+        badge: `Ostrzeżenie IMGW ${al.grade}. stopnia`,
+        title: al.phenomenon,
+        sub: al.desc,
+        time: al.time
+      });
+    });
+  }
+
+  // Zagrożenia bezpośrednie
+  if (T.storm.level >= 2 && !A.some(x => x.title && x.title.includes("Burz"))) {
+    A.push({
+      id: "storm",
+      grade: 2,
+      c: "bad",
+      icon: "⛈️",
+      badge: "Zagrożenie burzowe",
+      title: T.storm.status,
+      sub: T.storm.detail,
+      time: T.lightning.val
+    });
+  }
+  if (T.gusts.level >= 2 && !A.some(x => x.title && x.title.includes("wiatr"))) {
+    A.push({
+      id: "gusts",
+      grade: T.gusts.level,
+      c: "bad",
+      icon: "💨",
+      badge: `Silne porywy wiatru (${T.gusts.level}. st.)`,
+      title: T.gusts.status,
+      sub: T.gusts.detail,
+      time: T.gusts.val
+    });
+  }
+  if (T.rain.level >= 2 && !A.some(x => x.title && x.title.includes("opad"))) {
+    A.push({
+      id: "rain",
+      grade: T.rain.level,
+      c: "bad",
+      icon: "🌧️",
+      badge: `Intensywny opad (${T.rain.level}. st.)`,
+      title: T.rain.status,
+      sub: T.rain.detail,
+      time: T.rain.val
+    });
+  }
+  if (T.snowIce.level >= 2 && !A.some(x => x.title && (x.title.includes("Marznąc") || x.title.includes("Śnieg")))) {
+    A.push({
+      id: "snow_ice",
+      grade: T.snowIce.level,
+      c: "bad",
+      icon: "❄️",
+      badge: "Zagrożenie zimowe",
+      title: T.snowIce.status,
+      sub: T.snowIce.detail,
+      time: T.snowIce.val
+    });
+  }
+
+  // Prognoza pierwszego deszczu (gdy nie pada)
+  const frMs = X.firstRainTime ? new Date(X.firstRainTime).getTime() : NaN;
+  if (!isRainingNow(X) && X.code < 51 && Number.isFinite(frMs) && frMs > Date.now() && frMs <= Date.now() + 4 * 3600 * 1000) {
+    A.push({
+      id: "rain_forecast",
+      grade: 1,
+      c: "info",
+      icon: "☂️",
+      badge: "Prognoza opadów",
+      title: `Opad około ${hhmm(X.firstRainTime)}`,
+      sub: "W ciągu najbliższych godzin prognozowane jest nadejście strefy opadowej. Weź parasol.",
+      time: `Początek: ok. ${hhmm(X.firstRainTime)}`
+    });
+  }
+
+  // Jakość powietrza
+  if (S.air && S.air.european_aqi > 80) {
+    A.push({
+      id: "air_quality",
+      grade: 1,
+      c: "warn",
+      icon: "😷",
+      badge: "Jakość powietrza",
+      title: `Zła jakość powietrza (indeks ${Math.round(S.air.european_aqi)})`,
+      sub: "Podwyższone stężenie pyłów zawieszonych. Zaleca się ograniczenie intensywnego wysiłku fizycznego na otwartej przestrzeni.",
+      time: "Aktualny pomiar AQI"
+    });
+  }
+
+  // Indeks UV
+  if (X.uv >= 8) {
+    A.push({
+      id: "uv_extreme",
+      grade: 1,
+      c: "warn",
+      icon: "☀️",
+      badge: "Indeks UV",
+      title: `Bardzo wysokie promieniowanie UV (${Math.round(X.uv)})`,
+      sub: "Chroń skórę i oczy. Stosuj krem z wysokim filtrem UV, okulary i nakrycie głowy.",
+      time: "Godziny okołopołudniowe"
+    });
+  }
+
+  return A.slice(0, 4);
 }
 
 // ── ambient tylko przy zmianie warunków (nie przy każdym renderze)
@@ -3035,8 +3561,28 @@ function wSun(X){
   const sh=calcSunShadeTemp(X.T,X.rad,X.wind,X.hum);
   return`<div class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
 }
+function wThreats(X){
+  const thr = detectThreats(X);
+  const activeCount = thr.items.filter(x => x.level >= 1).length;
+  const isLvl3 = thr.maxLevel >= 3;
+  const isLvl2 = thr.maxLevel === 2;
+  const isLvl1 = thr.maxLevel === 1;
+  const badgeColor = isLvl3 ? "#ef4444" : (isLvl2 ? "#f97316" : (isLvl1 ? "#eab308" : "#4ade80"));
+  const badgeBg = isLvl3 ? "rgba(239,68,68,.14)" : (isLvl2 ? "rgba(249,115,22,.12)" : (isLvl1 ? "rgba(234,179,8,.10)" : "rgba(74,222,128,.08)"));
+  const label = activeCount > 0 ? `${activeCount} aktywne ${activeCount === 1 ? 'ostrzeżenie' : (activeCount < 5 ? 'ostrzeżenia' : 'ostrzeżeń')}` : "Wszystkie w normie";
+  
+  return `<div class="w full" data-act="open-threats" role="button" tabindex="0" style="cursor:pointer;border:1px solid ${activeCount>0?badgeColor:'var(--line)'};background:linear-gradient(135deg,${badgeBg},var(--glass2))">
+    <div class="wh" style="display:flex;justify-content:space-between;align-items:center">
+      <span style="display:flex;align-items:center;gap:6px">${mini("alert")}Zagrożenia i Ostrzeżenia IMGW</span>
+      <span style="padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:${badgeColor};color:${isLvl1?'#18181b':'#fff'}">${activeCount > 0 ? 'Stopień ' + thr.maxLevel : 'Bezpiecznie'}</span>
+    </div>
+    <div class="wv tn" style="font-size:20px;margin:4px 0">${label}</div>
+    <div class="ws">${activeCount > 0 ? 'Wykryto zjawiska wymagające szczególnej uwagi (wiatr, opad, burza lub temperatura). Kliknij, aby sprawdzić 10 monitorowanych parametrów.' : '10/10 zjawisk monitorowanych w czasie rzeczywistym (deszcz, wiatr, porywy, burze, wyładowania, grad, śnieg, gołoledź, mróz, upał). Kliknij po raport.'}</div>
+  </div>`;
+}
+
 function widgetsInnerHTML(X){
-  return [wUV(X),wWind(X),wFeels(X),wHum(X),wLeafWetness(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean).join("");
+  return [wThreats(X),wUV(X),wWind(X),wFeels(X),wHum(X),wLeafWetness(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean).join("");
 }
 function widgetsHTML(X){
   return`<div id="s-widgets" class="grid">${widgetsInnerHTML(X)}</div>`;
@@ -3181,7 +3727,40 @@ function toggleRadarPlay(){
   RV.timer=setInterval(()=>radarShow((RV.pos+1)%RV.frames.length),650);
 }
 
-function alertsHTML(X){return getAlerts(X).map(a=>`<div class="alert ${a.c}">${mini("alert")}<div>${esc(a.t)}</div></div>`).join("");}
+function alertsHTML(X){
+  const threats = detectThreats(X);
+  const alerts = getAlerts(X, threats);
+  const isSafe = threats.maxLevel === 0;
+  
+  const headerChip = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div style="font-size:12px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:5px">
+      ${mini("alert")} Zagrożenia i Ostrzeżenia
+    </div>
+    <button class="btn" data-act="open-threats" style="padding:4px 10px;font-size:11.5px;gap:4px">
+      ${isSafe ? '10/10 w normie ›' : `Centrum Zagrożeń (${threats.maxLevel}. st.) ›`}
+    </button>
+  </div>`;
+
+  if(!alerts.length){
+    return `<div class="alerts-wrap" style="margin-bottom:8px">${headerChip}</div>`;
+  }
+
+  return `<div class="alerts-wrap" style="margin-bottom:8px">
+    ${headerChip}
+    ${alerts.map(a=>`
+      <div class="alert ${a.c} ${a.grade ? 'deg'+a.grade : ''}" data-act="open-threats" data-tid="${esc(a.id||'')}" role="button" tabindex="0">
+        <span style="font-size:18px;line-height:1;margin-top:1px">${a.icon}</span>
+        <div style="flex:1;min-width:0">
+          ${a.badge ? `<span class="alert-badge ${a.grade ? 'deg'+a.grade : 'info'}">${esc(a.badge)}</span>` : ''}
+          <div style="font-weight:600;margin-bottom:2px;font-size:14px">${esc(a.title || a.t)}</div>
+          ${a.sub ? `<div style="font-size:12.5px;color:var(--ink2);line-height:1.4">${esc(a.sub)}</div>` : ''}
+          ${a.time ? `<div style="font-size:11.5px;color:var(--ink3);margin-top:3px">⏱️ ${esc(a.time)}</div>` : ''}
+        </div>
+        <span style="color:var(--ink3);font-size:16px;margin-top:2px">›</span>
+      </div>
+    `).join("")}
+  </div>`;
+}
 // aktualizacja sekcji, które dochodzą z opóźnieniem (bez przerysowania całej strony)
 function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
@@ -3270,9 +3849,67 @@ function skeletonHTML(){
   return`<div style="padding-top:calc(16px + env(safe-area-inset-top));display:grid;gap:14px">${b("60%",40)}${b("70%",110)}${b("45%",26)}${b("100%",120,"28px")}${b("100%",130,"28px")}${b("100%",200,"28px")}</div>`;
 }
 
-// ── arkusze (model, surowe dane)
+// ── arkusze (model, surowe dane, zagrożenia)
 function openSheet(html){$("#sheet-root").innerHTML=`<div class="sheet-bg" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><button class="ib x" data-act="close" aria-label="Zamknij" style="float:right;width:36px;height:36px">${mini("close")}</button>${html}</div></div>`;}
 function closeSheet(){$("#sheet-root").innerHTML="";}
+
+function openThreatsSheet(X){
+  const thr = detectThreats(X);
+  const isSafe = thr.maxLevel === 0;
+  const activeCount = thr.items.filter(x => x.level >= 1).length;
+  
+  const lvlBadge = (lvl) => {
+    if (lvl === 3) return `<span class="threat-status-badge lvl-3">Stopień 3 (Ekstremalne)</span>`;
+    if (lvl === 2) return `<span class="threat-status-badge lvl-2">Stopień 2 (Zagrożenie)</span>`;
+    if (lvl === 1) return `<span class="threat-status-badge lvl-1">Stopień 1 (Uwaga)</span>`;
+    return `<span class="threat-status-badge lvl-0">Bezpiecznie (W normie)</span>`;
+  };
+
+  const threatRows = thr.items.map(t => `
+    <div class="threat-card lvl-${t.level}">
+      <div class="threat-head">
+        <div class="threat-title">${t.icon} <span>${esc(t.name)}</span></div>
+        ${lvlBadge(t.level)}
+      </div>
+      <div style="font-size:11.5px;color:var(--ink3);margin-bottom:5px;font-style:italic">Co wykrywamy: <b>${esc(t.what)}</b></div>
+      <div class="threat-val">${esc(t.val)}</div>
+      <div class="threat-desc">${esc(t.detail)}</div>
+    </div>
+  `).join("");
+
+  const summaryHtml = isSafe ? `
+    <div style="padding:14px 16px;border-radius:18px;background:rgba(34,197,94,.12);border:1px solid rgba(74,222,128,.3);margin-bottom:14px">
+      <div style="font-weight:700;font-size:15px;color:#4ade80;display:flex;align-items:center;gap:6px">
+        ✅ Wszystkie 10 zjawisk w normie
+      </div>
+      <div style="font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.45">
+        Brak aktywnych ostrzeżeń IMGW i zjawisk niebezpiecznych (opady nawalne, wichury, porywy, burze, wyładowania, grad, gołoledź, zamiecie, mróz i upał są monitorowane w czasie rzeczywistym).
+      </div>
+    </div>
+  ` : `
+    <div style="padding:14px 16px;border-radius:18px;background:${thr.maxLevel===3?'rgba(239,68,68,.16)':(thr.maxLevel===2?'rgba(249,115,22,.14)':'rgba(234,179,8,.12)')};border:1px solid ${thr.maxLevel===3?'#ef4444':(thr.maxLevel===2?'#f97316':'#eab308')};margin-bottom:14px">
+      <div style="font-weight:700;font-size:15px;color:#fff;display:flex;align-items:center;gap:6px">
+        ⚠️ Wykryto ${activeCount} ${activeCount===1?'zjawisko wymagające uwagi':'zjawiska wymagające uwagi'} (Maks. Stopień ${thr.maxLevel})
+      </div>
+      <div style="font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.45">
+        Zachowaj ostrożność. Poniżej znajduje się szczegółowa analiza 10 monitorowanych parametrów.
+      </div>
+    </div>
+  `;
+
+  openSheet(`
+    <h3>🛡️ Centrum Zagrożeń i Ostrzeżeń</h3>
+    <div class="sd">System monitorowania 10 zjawisk meteorologicznych (fuzja IMGW-PIB, radar opadów, detekcja wyładowań i numeryczne modele pogody).</div>
+    ${summaryHtml}
+    <div class="threat-grid">
+      ${threatRows}
+    </div>
+    <div class="note" style="margin-top:14px">
+      Klasyfikacja zagrożeń i ostrzeżeń zgodna ze standardami IMGW-PIB. Dane odświeżane automatycznie z pomiarów i prognoz wysokiej rozdzielczości.
+    </div>
+  `);
+}
+
 function openModelSheet(){
   openSheet(`<h3>Model prognozy</h3><div class="sd">Każdy model liczy pogodę inaczej. Zmiana przeładuje dane.</div>
     ${WEATHER_MODELS.map(m=>`<button class="mi ${m.id===activeModel.id?"on":""}" data-act="pickmodel" data-id="${m.id}"><span class="fl">${m.flag}</span><span><b>${esc(m.name)}</b><small>${esc(m.desc)}</small></span></button>`).join("")}
@@ -4602,6 +5239,7 @@ document.addEventListener("click",e=>{
     case"pipeline-refresh":if(S.lat!=null){closeSheet();loadW(S.lat,S.lng,S.city,true);}break;
     case"copy-pipeline":{if(navigator.clipboard)navigator.clipboard.writeText(pipelineDiagnosticsText()).catch(()=>{});break;}
     case"copy":{const el=$("#rawtxt");if(el&&navigator.clipboard)navigator.clipboard.writeText(el.textContent).then(()=>{t.lastChild.textContent="Skopiowano";}).catch(()=>{});break;}
+    case"open-threats":openThreatsSheet(S.X||computeCtx());break;
     case"radar":startRadar();break;
     case"rplay":toggleRadarPlay();break;
   }
