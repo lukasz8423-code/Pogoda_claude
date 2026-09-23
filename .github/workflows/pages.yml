@@ -29,25 +29,21 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Pobierz świeży snapshot IMGW METEO
+      - name: Użyj zatwierdzonego snapshotu IMGW METEO
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 -sS             "https://danepubliczne.imgw.pl/api/data/meteo/"             -o imgw-meteo.json.tmp
+          test -s imgw-meteo.json
           python - <<'PY'
-          import json, pathlib, time
-          p=pathlib.Path("imgw-meteo.json.tmp")
-          data=json.loads(p.read_text(encoding="utf-8"))
-          if not isinstance(data,list):
-              raise SystemExit("IMGW METEO: nieprawidłowy format")
-          station=next((x for x in data if str(x.get("kod_stacji","")).strip()=="252190030"),None)
+          import json, pathlib
+          d=json.loads(pathlib.Path('imgw-meteo.json').read_text(encoding='utf-8'))
+          if not isinstance(d,dict) or not isinstance(d.get('data'),list):
+              raise SystemExit('IMGW METEO: brak zatwierdzonego snapshotu')
+          station=next((x for x in d['data'] if str(x.get('kod_stacji','')).strip()=='252190030'),None)
           if station is None:
-              raise SystemExit("IMGW METEO: brak stacji Głodowo 252190030")
-          out={"fetchedAt":int(time.time()*1000),"source":"IMGW METEO","stationCount":len(data),"data":data}
-          pathlib.Path("imgw-meteo.json").write_text(json.dumps(out,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
-          print("IMGW METEO snapshot:",len(data),"stacji; Głodowo:",station.get("temperatura_powietrza"),station.get("temperatura_powietrza_data"),"opad10:",station.get("opad_10min"),station.get("opad_10min_data"))
+              raise SystemExit('IMGW METEO: snapshot nie zawiera Głodowa 252190030')
+          print('IMGW METEO snapshot z repo:',d.get('fetchedAt'),'Głodowo:',station.get('temperatura_powietrza'),station.get('temperatura_powietrza_data'),'opad10:',station.get('opad_10min'),station.get('opad_10min_data'))
           PY
-          rm -f imgw-meteo.json.tmp
 
       - name: Stamp buildu i wymuszenie świeżego artefaktu
         shell: bash
@@ -68,77 +64,29 @@ jobs:
           p.write_text(s,encoding="utf-8")
           PY
 
-      - name: Generuj snapshot WeatherAPI + analizę Gemini
+      - name: Generuj tylko diagnostyczny snapshot WeatherAPI
         env:
           WEATHERAPI_KEY: ${{ secrets.WEATHERAPI_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         shell: bash
         run: |
           set -u
           LAT="52.802542"
           LNG="19.205053"
-
-          # WeatherAPI jest dodatkiem diagnostycznym. Błąd 403/brak klucza NIE może zatrzymać deployu.
           if [ -z "${WEATHERAPI_KEY:-}" ]; then
-            echo "WeatherAPI: brak WEATHERAPI_KEY — pomijam snapshot."
             printf '%s' '{"source":"WeatherAPI","status":"unavailable"}' > weatherapi-visibility.json
-          else
-            if curl --fail-with-body --retry 2 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G               "https://api.weatherapi.com/v1/current.json"               --data-urlencode "key=$WEATHERAPI_KEY"               --data-urlencode "q=$LAT,$LNG"               --data-urlencode "aqi=no"               -o /tmp/weatherapi.json; then
-              python - <<'PY'
-          import json, pathlib, time
-          d=json.loads(pathlib.Path("/tmp/weatherapi.json").read_text(encoding="utf-8"))
-          cur=d.get("current") or {}
-          loc=d.get("location") or {}
-          v=cur.get("vis_km")
-          if not isinstance(v,(int,float)):
-              raise SystemExit("WeatherAPI: brak current.vis_km")
-          out={"fetchedAt":int(time.time()*1000),"source":"WeatherAPI","lat":float(loc.get("lat",52.802542)),"lon":float(loc.get("lon",19.205053)),"vis_km":float(v),"last_updated_epoch":cur.get("last_updated_epoch"),"last_updated":cur.get("last_updated")}
-          pathlib.Path("weatherapi-visibility.json").write_text(json.dumps(out,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
-          print("WeatherAPI vis_km:",out["vis_km"],"km")
-          PY
-            else
-              echo "WARNING: WeatherAPI zwrócił błąd — pomijam snapshot i kontynuuję deploy."
-              printf '%s' '{"source":"WeatherAPI","status":"unavailable"}' > weatherapi-visibility.json
-            fi
+            exit 0
           fi
-
-          # Gemini również jest warstwą opcjonalną — jego awaria nie blokuje Pages.
-          if [ -z "${GEMINI_API_KEY:-}" ]; then
-            echo "Gemini: brak GEMINI_API_KEY — pomijam analizę."
-            printf '%s' '{"source":"Gemini","status":"unavailable"}' > gemini-analysis.json
-          else
-            if curl --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G               "https://api.open-meteo.com/v1/forecast"               --data-urlencode "latitude=$LAT"               --data-urlencode "longitude=$LNG"               --data-urlencode "hourly=temperature_2m,precipitation_probability,precipitation,cloud_cover"               --data-urlencode "forecast_days=2"               --data-urlencode "timezone=auto"               -o /tmp/openmeteo-gemini.json; then
-              GEMINI_OK=1 python - <<'PY'
-          import json, pathlib, time, os, urllib.request
-          om=json.loads(pathlib.Path("/tmp/openmeteo-gemini.json").read_text(encoding="utf-8"))
-          h=om.get("hourly") or {}
-          rows=[]
-          times=h.get("time") or []
-          temps=h.get("temperature_2m") or []
-          pops=h.get("precipitation_probability") or []
-          precs=h.get("precipitation") or []
-          clouds=h.get("cloud_cover") or []
-          for i,t in enumerate(times[:24]):
-              rows.append({"time":t,"temp":temps[i] if i<len(temps) else None,"pop":pops[i] if i<len(pops) else None,"precip":precs[i] if i<len(precs) else None,"cloud":clouds[i] if i<len(clouds) else None})
-          prompt=("Jesteś warstwą analityczną aplikacji pogodowej Aura. Na podstawie wyłącznie podanych wartości Open-Meteo wygładź krótkoterminowo prawdopodobieństwo opadu i sumę opadu, usuwając pojedyncze skoki między sąsiednimi godzinami. Nie twórz opadu bez sygnału w danych, zachowaj trend i trzymaj wartości blisko źródła. Nie zmieniaj temperatury ani zachmurzenia. Zwróć JSON zgodny ze schematem.\nDane:\n"+json.dumps(rows,separators=(",",":")))
-          schema={"type":"object","properties":{"smoothedPop":{"type":"array","items":{"type":"number","minimum":0,"maximum":100},"minItems":1,"maxItems":24},"smoothedPrecip":{"type":"array","items":{"type":"number","minimum":0},"minItems":1,"maxItems":24},"confidence":{"type":"number","minimum":0,"maximum":1},"summary":{"type":"string"}},"required":["smoothedPop","smoothedPrecip","confidence","summary"]}
-          body=json.dumps({"contents":[{"parts":[{"text":prompt}]}],"generationConfig":{"responseMimeType":"application/json","responseSchema":schema,"temperature":0.1}}).encode()
-          req=urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",data=body,headers={"Content-Type":"application/json","x-goog-api-key":os.environ["GEMINI_API_KEY"]},method="POST")
-          try:
-              with urllib.request.urlopen(req,timeout=45) as r:
-                  resp=json.load(r)
-              result=json.loads(resp["candidates"][0]["content"]["parts"][0]["text"])
-              result.update({"fetchedAt":int(time.time()*1000),"source":"Gemini","lat":52.802542,"lng":19.205053})
-              pathlib.Path("gemini-analysis.json").write_text(json.dumps(result,separators=(",",":"),ensure_ascii=False),encoding="utf-8")
-              print("Gemini analysis generated; confidence:",result.get("confidence"))
-          except Exception as e:
-              print("WARNING: Gemini niedostępne:",e)
-              pathlib.Path("gemini-analysis.json").write_text('{"source":"Gemini","status":"unavailable"}',encoding="utf-8")
+          if curl --fail-with-body --retry 2 --retry-all-errors --retry-delay 2 --max-time 30 -sS -G "https://api.weatherapi.com/v1/current.json" --data-urlencode "key=$WEATHERAPI_KEY" --data-urlencode "q=$LAT,$LNG" --data-urlencode "aqi=no" -o /tmp/weatherapi.json; then
+            python - <<'PY'
+          import json,pathlib,time
+          d=json.loads(pathlib.Path('/tmp/weatherapi.json').read_text(encoding='utf-8')); c=d.get('current') or {}; loc=d.get('location') or {}
+          v=c.get('vis_km')
+          if not isinstance(v,(int,float)): raise SystemExit('WeatherAPI: brak current.vis_km')
+          out={'fetchedAt':int(time.time()*1000),'source':'WeatherAPI','lat':float(loc.get('lat',52.802542)),'lon':float(loc.get('lon',19.205053)),'vis_km':float(v),'last_updated_epoch':c.get('last_updated_epoch'),'last_updated':c.get('last_updated')}
+          pathlib.Path('weatherapi-visibility.json').write_text(json.dumps(out,separators=(',',':'),ensure_ascii=False),encoding='utf-8')
           PY
-            else
-              echo "WARNING: Open-Meteo request for Gemini failed — pomijam analizę."
-              printf '%s' '{"source":"Gemini","status":"unavailable"}' > gemini-analysis.json
-            fi
+          else
+            printf '%s' '{"source":"WeatherAPI","status":"unavailable"}' > weatherapi-visibility.json
           fi
 
       - name: Upload Pages artifact
