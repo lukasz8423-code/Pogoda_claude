@@ -1052,8 +1052,12 @@ async function fetchIMGWMeteoAll(){
   // polegać na bezpośrednim CORS do IMGW. Pages dostaje świeży snapshot
   // IMGW z GitHub Actions i ten sam-origin plik jest źródłem dla Aury.
   try{
-    const r=await auraFetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
-      mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(12000)
+    // IMGW METEO bywa podawane przez warstwę pośrednią/CDN. Samo
+    // cache:"no-store" nie gwarantuje, że po drodze nie zostanie zwrócona
+    // poprzednia odpowiedź. Dodajemy jawny cache-buster do każdego odczytu.
+    const liveUrl="https://danepubliczne.imgw.pl/api/data/meteo/?_aura_ts="+Date.now();
+    const r=await auraFetch(liveUrl,{
+      mode:"cors",cache:"no-store",headers:{Accept:"application/json","Cache-Control":"no-cache"},signal:AbortSignal.timeout(12000)
     });
     if(!r.ok)throw new Error("HTTP "+r.status);
     const list=await r.json();
