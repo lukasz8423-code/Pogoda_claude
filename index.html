@@ -2711,10 +2711,13 @@ function computeCtx(){
 
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   const stationPrecip = stationFreshPrecipMm(S.imgwData);
-  const isRainingActive = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode) ||
-    (Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
+  const curPrecip = Number(current.precipitation ?? 0);
+  const hasRealPrecipMm = (Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
     (stationPrecip !== null && stationPrecip > 0.05) ||
-    (Number.isFinite(current.precipitation) && current.precipitation > 0.05);
+    (Number.isFinite(curPrecip) && curPrecip > 0.05);
+
+  const rawPrecipCode = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode);
+  const isRainingActive = cloud > 15 && (hasRealPrecipMm || (rawPrecipCode && curPrecip > 0.01));
 
   let currentStateCode = isRainingActive
     ? (isRainCode(hourlyNowCode) ? hourlyNowCode : (isRainCode(rawCurrentCode) ? rawCurrentCode : 61))
@@ -3512,10 +3515,12 @@ function currentRainMm(X){
   return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
-  const code=X?.currentState?.code??X?.code??0;
-  if(isRainCode(code))return true;
+  const cloud=Number(X?.cloud??100);
+  if(cloud<=15)return false;
   const mm=currentRainMm(X);
-  return Number.isFinite(mm)&&mm>0.05;
+  if(Number.isFinite(mm)&&mm>0.05)return true;
+  const code=X?.currentState?.code??X?.code??0;
+  return isRainCode(code)&&cloud>20&&(mm==null||mm>0.01);
 }
 
 function heroHTML(X){
