@@ -3545,17 +3545,19 @@ function stationHTML(){
   const im=S.imgwData;if(!im)return"";
   const cim=S.canonicalWeather?.imgw||{};
   const fields=cim.fields||{};
-  const fieldTime=(value)=>{const ts=parseImgwMeteoTimestamp(value);return Number.isFinite(ts)?hhmm(ts):"brak";};
+  const num=v=>{const n=parseFloat(String(v??"").replace(",","."));return Number.isFinite(n)?n:null;};
+  const fieldTime=value=>{const ts=parseImgwMeteoTimestamp(value);return Number.isFinite(ts)?hhmm(ts):"brak";};
+  const valueWithUnit=(value,unit="")=>value==null?"brak":`${value}${unit}`;
   const rows=[
-    ["Temperatura",`${im.temperatura}°C`,!isNaN(parseFloat(im.temperatura))],
-    ["Wilgotność",`${im.wilgotnosc_wzgledna}%`,!isNaN(parseFloat(im.wilgotnosc_wzgledna))],
-    ["Wiatr",`${Math.round(parseFloat(im.predkosc_wiatru||0)*3.6)} km/h`,true],
-    ["Porywy",`${Math.round(parseFloat(im.poryw_wiatru||0)*3.6)} km/h`,Number.isFinite(parseFloat(im.poryw_wiatru))],
-    ["Kierunek",`${im.kierunek_wiatru||"–"}°`,true],
-    ["Ciśnienie",`${im.cisnienie} hPa`,parseFloat(im.cisnienie)>0],
-    ["Opad 10 min",`${Number.isFinite(parseFloat(im.opad_10min))?parseFloat(im.opad_10min):0} mm`,true],
+    ["Temperatura",valueWithUnit(num(im.temperatura),"°C"),num(im.temperatura)!=null],
+    ["Wilgotność",valueWithUnit(num(im.wilgotnosc_wzgledna),"%"),num(im.wilgotnosc_wzgledna)!=null],
+    ["Wiatr",valueWithUnit(im.predkosc_wiatru!=null?Math.round(num(im.predkosc_wiatru)*3.6):null," km/h"),num(im.predkosc_wiatru)!=null],
+    ["Porywy",valueWithUnit(im.poryw_wiatru!=null?Math.round(num(im.poryw_wiatru)*3.6):null," km/h"),num(im.poryw_wiatru)!=null],
+    ["Kierunek",im.kierunek_wiatru!=null?valueWithUnit(num(im.kierunek_wiatru),"°"):"brak",num(im.kierunek_wiatru)!=null],
+    ["Ciśnienie",valueWithUnit(num(im.cisnienie)," hPa"),num(im.cisnienie)!=null&&num(im.cisnienie)>0],
+    ["Opad 10 min",valueWithUnit(num(im.opad_10min)," mm"),num(im.opad_10min)!=null],
   ].filter(r=>r[2]);
-  const stale=im.isFresh===false;
+  const stale=im.isFresh===false||[im.tempFresh,im.humidityFresh,im.windFresh,im.windDirFresh,im.opad10minFresh].some(v=>v===false);
   const timeRows=[
     ["Temperatura",fields.temperature||im.temperatura_data],
     ["Wilgotność",fields.humidity||im.wilgotnosc_wzgledna_data],
@@ -3564,12 +3566,14 @@ function stationHTML(){
     ["Opad 10 min",fields.precipitation10min||im.opad_10min_data]
   ];
   const timeRowsHtml=timeRows.map(([label,value])=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span>${label}</span><b class="tn">${fieldTime(value)}</b></div>`).join("");
+  const latestText=im.latestObservedAt!=null?hhmm(im.latestObservedAt):"brak";
+  const latestAge=im.latestAgeMinutes!=null?`, ${fmtAge(im.latestAgeMinutes)}`:"";
   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
     <div class="note" style="margin-top:12px">Czasy poszczególnych pomiarów IMGW</div>
     <div class="note" style="margin-top:4px">${timeRowsHtml}</div>
-    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Najnowszy z powyższych pomiarów: ${im.latestObservedAt!=null?hhmm(im.latestObservedAt):"brak"}${im.latestAgeMinutes!=null?`, ${fmtAge(im.latestAgeMinutes)}`:""}.</div>`:""}
-    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":im.dist>80?"Stacja jest poza zasięgiem fuzji (45 km), więc jej pomiar ma charakter informacyjny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe."}</div></section>`;
+    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Najnowszy rzeczywisty pomiar: ${latestText}${latestAge}.</div>`:""}
+    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; brak pomiaru nie jest zamieniany na zero."}</div></section>`;
 }
 
 function assistantHTML(X){
