@@ -3257,7 +3257,7 @@ function dailyRows(){
     const dayIso=String(daily.time?.[i]||"").slice(0,10);
     const canonicalDay=canonicalDayPrecipitation(hourly,dayIso,i===0);
     const dayPrecip=canonicalDay.mm;
-    const pop=canonicalDay.mm>=0.15?canonicalDay.pop:0;
+    const pop=canonicalDay.mm>0?canonicalDay.pop:0;
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3269,7 +3269,7 @@ function dailyRows(){
         if(!t.startsWith(dateStr))return;
         const hm=Number(hourly.precipitation?.[k]??0);
         const rawP=Number(hourly.precipitation_probability?.[k]??0);
-        const p=Number.isFinite(hm)&&hm>=0.15?Math.round(clamp(rawP,0,100)):0;
+        const p=Number.isFinite(hm)&&hm>0?Math.round(clamp(rawP,0,100)):0;
         const code=getHourlyCode(hourly,k);
         hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(code,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
