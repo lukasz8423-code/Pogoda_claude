@@ -91,8 +91,13 @@ jobs:
 
           git add imgw-meteo.json
 
-          if git diff --cached --quiet; then
-            echo "IMGW snapshot bez zmian."
+          # Nie twórz commitów co 10 minut tylko dlatego, że zmienił się fetchedAt.
+          # Snapshot zapisujemy ponownie wyłącznie wtedy, gdy zmieniły się dane stacji.
+          git diff --cached --word-diff=porcelain -- imgw-meteo.json | grep -vE '^[+-]{"fetchedAt":' > /tmp/imgw-diff || true
+
+          if [ ! -s /tmp/imgw-diff ]; then
+            echo "IMGW: brak zmiany danych stacji — pomijam commit."
+            git reset -- imgw-meteo.json
             exit 0
           fi
 
