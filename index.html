@@ -2697,25 +2697,79 @@ function playAlertChime(level=1){
   }catch{
     fallbackWebAudioChime(safeLvl);
   }
-  if(navigator.vibrate&&level>=1){
+  if(window.Android && typeof window.Android.vibrate === "function"){
+    window.Android.vibrate(level>=3?400:200);
+  } else if(navigator.vibrate&&level>=1){
     navigator.vibrate(level>=3?[120,80,150]:[80,50,80]);
   }
 }
 
+function isNotificationSupported(){
+  return (typeof window.Android !== "undefined" && typeof window.Android.showNotification === "function") || ("Notification" in window);
+}
+
+function getNotificationPermissionStatus(){
+  if (typeof window.Android !== "undefined" && typeof window.Android.hasNotificationPermission === "function") {
+    try {
+      return window.Android.hasNotificationPermission() ? "granted" : "default";
+    } catch {}
+  }
+  if (!("Notification" in window)) return "unsupported";
+  try {
+    return Notification.permission;
+  } catch {
+    return "unsupported";
+  }
+}
+
+function showPushNotification(title, message){
+  if (typeof window.Android !== "undefined" && typeof window.Android.showNotification === "function") {
+    try {
+      window.Android.showNotification(title, message);
+      return true;
+    } catch {}
+  }
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, { body: message, icon: "./favicon.ico" });
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 async function requestWebNotifications(){
-  if(!("Notification" in window))return"unsupported";
+  if (typeof window.Android !== "undefined" && typeof window.Android.requestNotificationPermission === "function") {
+    try {
+      window.Android.requestNotificationPermission();
+      setTimeout(() => {
+        showPushNotification("🛡️ Aura Pogoda · Alerty aktywne", "Powiadomienia o burzach, ulewach i wichurach zostały pomyślnie włączone w aplikacji.");
+        playAlertChime(1);
+      }, 500);
+      return "granted";
+    } catch {}
+  }
+  if (!("Notification" in window)) return "unsupported";
   try{
     const perm=await Notification.requestPermission();
     if(perm==="granted"){
-      new Notification("🛡️ Aura Pogoda · Alerty aktywne",{
-        body:"Powiadomienia o burzach, ulewach i wichurach zostały pomyślnie włączone.",
-        icon:"./favicon.ico"
-      });
+      showPushNotification("🛡️ Aura Pogoda · Alerty aktywne", "Powiadomienia o burzach, ulewach i wichurach zostały pomyślnie włączone.");
       playAlertChime(1);
     }
     return perm;
   }catch{return"denied";}
 }
+
+window.onAndroidNotificationPermission = function(granted){
+  if (granted) {
+    showPushNotification("🛡️ Aura Pogoda · Alerty aktywne", "Powiadomienia o burzach, ulewach i wichurach zostały pomyślnie włączone w telefonie.");
+    playAlertChime(1);
+  }
+  const sheet = document.getElementById("sheet-root");
+  if (sheet && sheet.innerHTML.trim().length > 0) {
+    openThreatsSheet(S.X || computeCtx());
+  }
+};
 
 function detectThreats(X){
   const data = S.data || {};
@@ -4535,20 +4589,23 @@ function openThreatsSheet(X){
   `;
 
   const soundEnabled = isSoundAlertsEnabled();
+  const notifPerm = getNotificationPermissionStatus();
+  const notifIsActive = notifPerm === "granted";
+
   const notifControls = `
     <div style="margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:8px">
       <div style="font-weight:700;font-size:13px;display:flex;justify-content:space-between;align-items:center">
-        <span>🔔 Dźwięki i powiadomienia</span>
+        <span>🔔 Dźwięki i powiadomienia w telefonie</span>
         <button class="btn" data-act="toggle-sound" style="padding:4px 10px;font-size:11.5px">
           ${soundEnabled ? '🔊 Dźwięki: Włączone' : '🔇 Dźwięki: Wyciszone'}
         </button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" data-act="test-chime" style="padding:6px 12px;font-size:12px;flex:1">
-          🎵 Przetestuj sygnał (Web Audio)
+          🎵 Przetestuj sygnał i wibracje
         </button>
-        <button class="btn pri" data-act="req-notif" style="padding:6px 12px;font-size:12px;flex:1">
-          📲 Włącz powiadomienia w telefonie
+        <button class="btn ${notifIsActive ? 'ok' : 'pri'}" data-act="req-notif" style="padding:6px 12px;font-size:12px;flex:1">
+          ${notifIsActive ? '✅ Powiadomienia włączone (Testuj)' : '📲 Włącz powiadomienia w telefonie'}
         </button>
       </div>
     </div>
