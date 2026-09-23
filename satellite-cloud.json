@@ -2,8 +2,8 @@
   "source": "EUMETSAT EUMETView",
   "collection": "EO:EUM:DAT:MSG:CLM",
   "layer": "msg_fes:clm",
-  "lat": 52.8142,
-  "lon": 19.21174,
+  "lat": 52.802542,
+  "lon": 19.205053,
   "cloudFraction": null,
   "classification": "cloud_fraction_from_9_real_satellite_pixels",
   "sampleCount": 0,
@@ -11,61 +11,61 @@
   "clearPixels": 0,
   "samples": [
     {
-      "lat": 52.77816396396396,
-      "lon": 19.152117340406765,
+      "lat": 52.766505963963965,
+      "lon": 19.14544632571036,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.77816396396396,
-      "lon": 19.21174,
+      "lat": 52.766505963963965,
+      "lon": 19.205053,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.77816396396396,
-      "lon": 19.271362659593233,
+      "lat": 52.766505963963965,
+      "lon": 19.26465967428964,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.8142,
-      "lon": 19.152117340406765,
+      "lat": 52.802542,
+      "lon": 19.14544632571036,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.8142,
-      "lon": 19.21174,
+      "lat": 52.802542,
+      "lon": 19.205053,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.8142,
-      "lon": 19.271362659593233,
+      "lat": 52.802542,
+      "lon": 19.26465967428964,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.85023603603604,
-      "lon": 19.152117340406765,
+      "lat": 52.83857803603604,
+      "lon": 19.14544632571036,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.85023603603604,
-      "lon": 19.21174,
+      "lat": 52.83857803603604,
+      "lon": 19.205053,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     },
     {
-      "lat": 52.85023603603604,
-      "lon": 19.271362659593233,
+      "lat": 52.83857803603604,
+      "lon": 19.26465967428964,
       "class": "unknown",
-      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 255.0\nGREEN_BAND = 255.0\nBLUE_BAND = 255.0\n--------------------------------------------"
+      "raw": "Results for FeatureType 'http://www.eumetsat.int/msg_fes:clm':\n--------------------------------------------\nRED_BAND = 0.0\nGREEN_BAND = 192.0\nBLUE_BAND = 0.0\n--------------------------------------------"
     }
   ],
-  "generatedAt": "2026-09-23T02:32:04.462211+00:00",
+  "generatedAt": "2026-09-23T07:57:45.148079+00:00",
   "status": "NO_VALID_SAMPLES",
   "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used."
 }
