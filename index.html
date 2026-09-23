@@ -2636,9 +2636,12 @@ function computeCtx(){
   // "pada teraz". Do stanu TERAZ dopuszczamy tylko niezależne potwierdzenie
   // z obserwacji stacyjnej albo z przeszłego/bieżącego slotu nowcastu.
   const fusionRainConfirmed=S.cloudSource?.fusion?.precipitationConfirmed===true;
+  // Nieaktualna stacja IMGW nie może być zastępowana przez fusion jako dowód
+  // bieżącego deszczu. Fusion może nadal zasilać prognozę, ale "Teraz" wymaga
+  // świeżej obserwacji stacyjnej albo jawnie potwierdzonego bieżącego slotu nowcastu.
   const rainNowConfirmed=stationNowValid
     ?stationNowMm>0.05
-    :fusionRainConfirmed;
+    :false;
   let currentStateCode;
   if(rainNowConfirmed){
     currentStateCode=61;
