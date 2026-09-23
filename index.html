@@ -4121,10 +4121,20 @@ function wLayers(X){
   const hasCloud=raw!=null&&Number.isFinite(Number(raw));
   const v=hasCloud?clamp(Math.round(Number(raw)),0,100):null;
   const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych o zachmurzeniu";
-  const valStr=v!=null?`${v}<small>%</small>`:"–";
+  
+  let valHtml = "–";
+  if (v != null) {
+    const numDigits = String(v).length;
+    const offsetCh = (numDigits * 0.55).toFixed(2);
+    valHtml = `<div style="position:relative;display:inline-flex;align-items:baseline;justify-content:center;width:100%">
+      <span>${v}</span>
+      <small style="position:absolute;left:calc(50% + ${offsetCh}ch + 2px);font-size:15px;font-weight:500;color:var(--ink2)">%</small>
+    </div>`;
+  }
+
   return`<div id="w-clouds" class="w" style="text-align:center">
     <div class="wh" style="justify-content:center">${mini("cloud")}Zachmurzenie</div>
-    <div class="wv tn" style="text-align:center;justify-content:center">${valStr}</div>
+    <div class="wv tn" style="display:flex;justify-content:center;align-items:center;margin:4px 0">${valHtml}</div>
     <div class="ws" style="text-align:center">${hasCloud?`<b style="color:var(--ink);display:block;margin-bottom:2px">${desc}</b><div>${v}% nieba pokryte chmurami</div>`:"Brak pomiaru"}</div>
   </div>`;
 }
