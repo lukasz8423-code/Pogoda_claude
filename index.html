@@ -41,6 +41,7 @@
 }
 :root[data-theme="light"] body{color:#0f172a}
 :root[data-theme="light"] .card,
+:root[data-theme="light"] #s-hero,
 :root[data-theme="light"] .ib,
 :root[data-theme="light"] .hero-metric,
 :root[data-theme="light"] .pill,
@@ -126,21 +127,22 @@ svg{display:block}
 .ib.busy svg{animation:spin .8s linear infinite}
 
 /* hero */
-.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:6px 2px 0}
+#s-hero{background:var(--glass);border:1px solid var(--line);border-radius:28px;padding:16px 16px 14px;margin:0 0 12px;backdrop-filter:blur(18px) saturate(1.25);-webkit-backdrop-filter:blur(18px) saturate(1.25);position:relative;overflow:hidden}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:0 2px}
 .hero-temp{font-size:112px;font-weight:300;line-height:.95;letter-spacing:-5px;margin-left:-4px}
 .hero-temp sup{font-size:44px;font-weight:300;letter-spacing:0;vertical-align:top;position:relative;top:10px;margin-left:2px;color:var(--ink2)}
 .hero-ico{padding-bottom:10px;filter:drop-shadow(0 10px 22px rgba(0,0,0,.28))}
 .cond{font-size:22px;font-weight:500;margin:6px 2px 2px}
 .subline{color:var(--ink2);font-size:14px;margin:0 2px 2px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .subline b{color:var(--ink);font-weight:600}
-.hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:12px 2px 0}
+.hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:12px 0 0}
 .hero-metric{min-width:0;padding:9px 8px 8px;border-radius:16px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .hero-metric .hm-label{display:flex;align-items:center;gap:5px;color:var(--ink3);font-size:10.5px;font-weight:600;white-space:nowrap}
 .hero-metric .hm-label svg{width:13px;height:13px;flex:none}
 .hero-metric .hm-value{margin-top:3px;font-size:17px;font-weight:600;line-height:1.1;white-space:nowrap}
 .hero-metric .hm-value small{font-size:10px;color:var(--ink2);font-weight:500;margin-left:2px}
 @media(max-width:380px){.hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 2px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12.5px;font-weight:500;color:var(--ink2);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .chip svg{width:13px;height:13px}
 .chip.ok{color:var(--ok)}.chip.warn{color:var(--warn)}.chip.link{color:var(--ink)}
