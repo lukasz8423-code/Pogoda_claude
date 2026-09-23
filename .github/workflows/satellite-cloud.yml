@@ -31,4 +31,5 @@ jobs:
           git add satellite-cloud.json
           git diff --cached --quiet && exit 0
           git commit -m "Aktualizuj obserwację zachmurzenia satelitarnego"
+          git pull --rebase origin main || true
           git push
