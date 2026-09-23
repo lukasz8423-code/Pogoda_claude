@@ -20,83 +20,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Konfiguracja Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Konfiguracja Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      - name: Instalacja Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli
-
-      - name: Konfiguracja środowiska Android SDK
+      - name: Kompilacja i budowanie pliku APK
         run: |
-          mkdir -p ~/.bubblewrap
-          cat <<EOF > ~/.bubblewrap/config.json
-          {
-            "jdkPath": "${JAVA_HOME}",
-            "androidSdkPath": "${ANDROID_HOME}"
-          }
-          EOF
-
-      - name: Przygotowanie projektu i kompilacja APK
-        run: |
-          set -e
-          mkdir -p build-twa
-          cd build-twa
-          
-          # Generowanie klucza do podpisu APK
-          keytool -genkey -v -keystore android.keystore -alias aura -keyalg RSA -keysize 2048 -validity 10000 -storepass aurapogoda123 -keypass aurapogoda123 -dname "CN=AuraPogoda, OU=App, O=Aura, L=Warszawa, S=Mazowieckie, C=PL"
-          
-          # Pobranie ikonki lokalnej
-          cp ../icon-512.png ./icon-512.png
-          cp ../icon-192.png ./icon-192.png
-
-          # Konfiguracja manifestu TWA Android
-          cat <<EOF > twa-manifest.json
-          {
-            "packageId": "pl.aura.pogoda",
-            "host": "lukasz8423-code.github.io",
-            "name": "Aura Pogoda",
-            "launcherName": "Aura Pogoda",
-            "display": "standalone",
-            "themeColor": "#0b1430",
-            "navigationColor": "#0b1430",
-            "backgroundColor": "#0b1430",
-            "enableNotifications": true,
-            "startUrl": "/Pogoda_claude/",
-            "iconUrl": "https://lukasz8423-code.github.io/Pogoda_claude/icon-512.png",
-            "maskableIconUrl": "https://lukasz8423-code.github.io/Pogoda_claude/icon-512.png",
-            "appVersionName": "1.0.0",
-            "appVersionCode": 1,
-            "signingKey": {
-              "path": "./android.keystore",
-              "alias": "aura"
-            },
-            "generatorApp": "bubblewrap-cli",
-            "webManifestUrl": "https://lukasz8423-code.github.io/Pogoda_claude/manifest.webmanifest",
-            "fallbackType": "customtabs",
-            "features": {
-              "locationDelegation": {
-                "enabled": true
-              }
-            },
-            "alphaDependencies": {
-              "enabled": false
-            },
-            "enableSiteSettingsShortcut": true,
-            "isChromeOSOnly": false,
-            "isMetaQuest": false,
-            "fullScopeUrl": "https://lukasz8423-code.github.io/Pogoda_claude/"
-          }
-          EOF
-
-          # Budowanie natywnego projektu Android i pliku APK
-          bubblewrap build --signingKeyPath="android.keystore" --signingKeyAlias="aura" --signingKeyPassword="aurapogoda123" --keyPassword="aurapogoda123"
-          
-          # Wyszukanie wygenerowanego pliku APK
-          find . -name "*.apk" -exec cp {} ../Aura-Pogoda.apk \;
+          cd android
+          gradle assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../Aura-Pogoda.apk
           cd ..
-          ls -la Aura-Pogoda.apk
+          ls -lh Aura-Pogoda.apk
 
       - name: Zapisz gotowy plik APK jako artefakt do pobrania
         uses: actions/upload-artifact@v4

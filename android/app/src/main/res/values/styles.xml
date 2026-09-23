@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.AuraPogoda" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:statusBarColor">#0b1430</item>
+        <item name="android:navigationBarColor">#0b1430</item>
+        <item name="android:windowBackground">#0b1430</item>
+    </style>
+</resources>
