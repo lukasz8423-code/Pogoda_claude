@@ -817,9 +817,6 @@ function locativeCity(city){
   const key=Object.keys(LOCATIVE).find(k=>k.toLowerCase()===raw.toLowerCase());
   if(key)return LOCATIVE[key];
 
-  // Nominatim może zwrócić lokalizację w formie:
-  // "Ryszewek, Powiat lipnowski". Odmieniamy nazwę miejscowości,
-  // zachowując pozostałą część lokalizacji.
   const parts=raw.split(",");
   const placeName=parts[0].trim();
   const placeKey=Object.keys(LOCATIVE).find(k=>k.toLowerCase()===placeName.toLowerCase());
@@ -828,7 +825,16 @@ function locativeCity(city){
     return [LOCATIVE[placeKey],...rest].join(", ");
   }
 
-  return raw;
+  // Ogólna gramatyka odmiany miejscowości dla całej Polski:
+  let conjugated = placeName;
+  if(placeName.endsWith("owo") || placeName.endsWith("ewo")) conjugated = placeName.slice(0,-1) + "ie";
+  else if(placeName.endsWith("ko")) conjugated = placeName.slice(0,-1) + "u";
+  else if(placeName.endsWith("ice") || placeName.endsWith("sze")) conjugated = placeName.slice(0,-1) + "ach";
+  else if(placeName.endsWith("awa")) conjugated = placeName.slice(0,-1) + "ie";
+  else if(placeName.endsWith("in") || placeName.endsWith("yn")) conjugated = placeName + "ie";
+
+  const rest=parts.slice(1).map(x=>x.trim()).filter(Boolean);
+  return [conjugated,...rest].join(", ");
 }
 
 function advice(city,cur,hourly,ci=0,currentStateOrX=null){
