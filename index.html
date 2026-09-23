@@ -4299,7 +4299,7 @@ function stationCockpitHTML(X){
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px">
         <div>
           <div class="st-value-huge tn" style="font-weight:300;color:var(--ink);font-size:54px">
-            ${(Math.round(X.T * 10) / 10).toFixed(1)}<sup style="font-size:24px;top:-16px;margin-left:2px;color:var(--ink2)">°C</sup>
+            ${Math.round(X.T)}<sup style="font-size:24px;top:-16px;margin-left:2px;color:var(--ink2)">°C</sup>
           </div>
           <div style="font-size:12px;color:var(--ink2);margin-top:2px">
             Trend: <b class="tn" style="color:${Number(tDiffPrev) > 0 ? 'var(--warn)' : 'var(--rain)'}">${Number(tDiffPrev) > 0 ? '+' : ''}${tDiffPrev}°C/h</b>
