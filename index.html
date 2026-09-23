@@ -3732,9 +3732,10 @@ function hourlyHTML(X){
       ?Number(rawTemp)
       :(Number.isFinite(Number(X.T))?Number(X.T):0);
 
-    const code=i===0
-      ?(X.currentState?.code??getHourlyCode(hourly,idx))
-      :getHourlyCode(hourly,idx);
+    const prNow = Number(hourly.precipitation?.[idx] ?? 0);
+    const code = (i === 0 && prNow > 0.05 && X.currentState?.code != null)
+      ? X.currentState.code
+      : getHourlyCode(hourly, idx);
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
     const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
       ?Number(X.cloud)
