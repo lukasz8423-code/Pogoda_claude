@@ -7,8 +7,8 @@ from urllib.parse import urlencode
 
 import requests
 
-LAT = 52.8142
-LON = 19.21174
+LAT = 52.802542
+LON = 19.205053
 WMS_URL = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "msg_fes:clm"
 OUT = Path("satellite-cloud.json")
