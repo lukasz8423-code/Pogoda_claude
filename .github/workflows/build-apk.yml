@@ -20,13 +20,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Konfiguracja Gradle
+      - name: Konfiguracja Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
 
       - name: Kompilacja i budowanie pliku APK
         run: |
           cd android
-          gradle assembleDebug --no-daemon
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          gradle assembleDebug --stacktrace --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../Aura-Pogoda.apk
           cd ..
           ls -lh Aura-Pogoda.apk
