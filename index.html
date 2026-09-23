@@ -2422,38 +2422,74 @@ function sunShape(cx,cy,r){
   return`<g class="ico-sun-group"><path class="ico-sun-rays" d="${rays}" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/><circle class="ico-sun-core" cx="${cx}" cy="${cy}" r="${r}" fill="url(#gSun)"/></g>`;
 }
 function moonShape(){return`<g class="ico-moon-group"><circle cx="22" cy="22" r="11" fill="url(#gMoon)" mask="url(#mMoon)"/></g>`;}
-function ico(code,isDay=true,px=32){
+function ico(code,isDay=true,px=32,cloud=null){
   const day=isDay!==false&&isDay!==0;
   const c=Number(code);
   let g="";
   let wType="clear";
-  if(c===0){
-    wType = day ? "sun" : "moon";
-    g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
-  }else if(c===1){
-    wType = "pcloudy";
-    g=(day?sunShape(21,19,9):`<g transform="translate(-4 -5) scale(.98)">${moonShape()}</g>`)+`<g transform="translate(10 12) scale(.62)" opacity=".9" class="ico-cld-float">${cloudShape()}</g>`;
-  }else if(c===2){
-    wType = "mcloudy";
-    g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)" class="ico-cld-front">${cloudShape()}</g>`;
-  }else if(c===3){
-    wType = "cloudy";
-    g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85" class="ico-cld-back">${cloudShape()}</g><g transform="translate(2 2)" class="ico-cld-front">${cloudShape(true)}</g>`;
-  }else if(c<=48){
+  const hasCloudCover=cloud!=null&&Number.isFinite(Number(cloud));
+  const C=hasCloudCover?clamp(Math.round(Number(cloud)),0,100):null;
+
+  // Jeżeli mamy aktywne zjawiska opadowe/mgłowe/burzowe (kod >= 45), mają one pierwszeństwo ikonograficzne
+  if(c>3&&c<=48){
     wType = "fog";
     g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape()}</g><g class="ico-fog-lines"><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/></g>`;
-  }else if(c<=57){
+  }else if(c>3&&c<=57){
     wType = "drizzle";
     g=`<g transform="translate(0 -3)" class="ico-cld-front">${cloudShape(true)}</g><g class="ico-rain-drops ico-drizzle"><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/></g>`;
-  }else if(c<=67||(c>=80&&c<=82)){
+  }else if(c>3&&(c<=67||(c>=80&&c<=82))){
     wType = "rain";
     g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape(true)}</g><g class="ico-rain-drops"><path d="M16 37.5l-2.4 6.5M24 37.5l-2.4 6.5M32 37.5l-2.4 6.5" stroke="#8ADBFF" stroke-width="2.6" stroke-linecap="round"/></g>`;
-  }else if(c<=77||(c>=85&&c<=86)){
+  }else if(c>3&&(c<=77||(c>=85&&c<=86))){
     wType = "snow";
     g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape()}</g><g class="ico-snow-flakes" fill="#fff"><circle cx="16" cy="40" r="2"/><circle cx="25" cy="43" r="2"/><circle cx="34" cy="40" r="2"/></g>`;
-  }else{
+  }else if(c>3){
     wType = "storm";
     g=`<g transform="translate(0 -4)" class="ico-cld-front">${cloudShape(true)}</g><path class="ico-lightning" d="M27 32l-7 10h5l-3 6 10-11h-5z" fill="#FFC857"/>`;
+  }else if(C!==null){
+    // Dynamiczna, płynna wizualizacja poziomu zachmurzenia względem słońca/księżyca
+    if(C<=5){
+      wType = day ? "sun" : "moon";
+      g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
+    }else if(C<=25){
+      wType = "pcloudy";
+      const sBody=day?sunShape(22,20,9.5):`<g transform="translate(0 -1) scale(1.02)">${moonShape()}</g>`;
+      g=sBody+`<g transform="translate(14 15) scale(.5)" opacity=".85" class="ico-cld-float">${cloudShape()}</g>`;
+    }else if(C<=45){
+      wType = "pcloudy";
+      const sBody=day?sunShape(20,18,9):`<g transform="translate(-3 -4) scale(.98)">${moonShape()}</g>`;
+      g=sBody+`<g transform="translate(9 10) scale(.68)" opacity=".92" class="ico-cld-float">${cloudShape()}</g>`;
+    }else if(C<=65){
+      wType = "mcloudy";
+      const sBody=day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`;
+      g=sBody+`<g transform="translate(3 4) scale(.88)" class="ico-cld-front">${cloudShape()}</g>`;
+    }else if(C<=84){
+      wType = "mcloudy";
+      const sBody=day?`<g opacity=".85">${sunShape(15,14,7.5)}</g>`:`<g transform="translate(-7 -8) scale(.85)" opacity=".85">${moonShape()}</g>`;
+      g=sBody+`<g transform="translate(-6 -6) scale(.72)" opacity=".6" class="ico-cld-back">${cloudShape()}</g><g transform="translate(1 2) scale(.95)" class="ico-cld-front">${cloudShape(true)}</g>`;
+    }else if(C<=94){
+      wType = "cloudy";
+      const sBody=day?`<g opacity=".45">${sunShape(13,12,6.5)}</g>`:`<g transform="translate(-8 -9) scale(.75)" opacity=".4">${moonShape()}</g>`;
+      g=sBody+`<g transform="translate(-4 -6) scale(.8)" opacity=".85" class="ico-cld-back">${cloudShape()}</g><g transform="translate(2 2)" class="ico-cld-front">${cloudShape(true)}</g>`;
+    }else{
+      wType = "cloudy";
+      g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85" class="ico-cld-back">${cloudShape()}</g><g transform="translate(2 2)" class="ico-cld-front">${cloudShape(true)}</g>`;
+    }
+  }else{
+    // Standardowa kategoryzacja statyczna bez wartości procentowej
+    if(c===0){
+      wType = day ? "sun" : "moon";
+      g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
+    }else if(c===1){
+      wType = "pcloudy";
+      g=(day?sunShape(21,19,9):`<g transform="translate(-4 -5) scale(.98)">${moonShape()}</g>`)+`<g transform="translate(10 12) scale(.62)" opacity=".9" class="ico-cld-float">${cloudShape()}</g>`;
+    }else if(c===2){
+      wType = "mcloudy";
+      g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)" class="ico-cld-front">${cloudShape()}</g>`;
+    }else{
+      wType = "cloudy";
+      g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85" class="ico-cld-back">${cloudShape()}</g><g transform="translate(2 2)" class="ico-cld-front">${cloudShape(true)}</g>`;
+    }
   }
   return`<svg class="ico wico-${wType}" viewBox="0 0 48 48" width="${px}" height="${px}" aria-hidden="true">${g}</svg>`;
 }
@@ -3479,7 +3515,7 @@ function heroHTML(X){
   return`<div id="s-hero">
   <section class="hero">
     <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
-    <div class="hero-ico">${ico(heroCode,X.isDay,108)}</div>
+    <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
   <div class="cond">${esc(heroMeta.t)}</div>
   <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
@@ -4109,44 +4145,27 @@ function wVis(X){
   const source=waOk?"WeatherAPI · vis_km":omOk?"Open-Meteo · visibility":"Brak pomiaru";
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small>${pctBadge}</div><div class="ws"><b style="color:var(--ink);display:block;margin-bottom:2px;font-size:12.5px">${info.desc}</b><span style="opacity:0.65;font-size:11px">${source}</span></div></div>`;
 }
-function layerCloudDesc(layerName, val){
-  if(val==null||!Number.isFinite(Number(val)))return "—";
-  const v=Math.round(Number(val));
-  const name=String(layerName||"").toLowerCase();
-  if(v<=10)return "Prawie bezchmurnie";
-  if(v<=30){
-    if(name.includes("nisk"))return "Nieliczne niskie chmury";
-    if(name.includes("średn"))return "Nieliczne chmury średnie";
-    if(name.includes("wysok"))return "Nieliczne wysokie chmury";
-    return "Nieliczne chmury";
-  }
-  if(v<=60){
-    if(name.includes("nisk"))return "Umiarkowane chmury niskie";
-    if(name.includes("średn"))return "Umiarkowane chmury średnie";
-    if(name.includes("wysok"))return "Umiarkowane chmury wysokie";
-    return "Umiarkowane zachmurzenie";
-  }
-  if(v<=80){
-    if(name.includes("nisk"))return "Dużo chmur niskich";
-    if(name.includes("średn"))return "Dużo chmur średnich";
-    if(name.includes("wysok"))return "Dużo chmur wysokich";
-    return "Dużo chmur";
-  }
-  if(name.includes("nisk"))return "Prawie pełne niskie chmury";
-  if(name.includes("średn"))return "Prawie pełne chmury średnie";
-  if(name.includes("wysok"))return "Prawie pełne wysokie chmury";
-  return "Prawie pełne zachmurzenie";
+function totalCloudHumanDesc(cloudVal){
+  if(cloudVal==null||!Number.isFinite(Number(cloudVal)))return null;
+  const v=clamp(Math.round(Number(cloudVal)),0,100);
+  if(v<=10)return "Czyste niebo";
+  if(v<=30)return "Prawie całe niebo czyste";
+  if(v<=50)return "Chmury i przejaśnienia";
+  if(v<=70)return "Chmur jest sporo, są przejaśnienia";
+  if(v<=90)return "Niebo w większości zasnute chmurami";
+  return "Całe niebo zasnute chmurami";
 }
 function wLayers(X){
-  const L=(n,v)=>{
-    if(v==null)return"";
-    const desc=layerCloudDesc(n,v);
-    return`<div style="margin-top:6px">
-      <div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>
-      <div style="font-size:10.5px;color:var(--ink3);text-align:right;margin-top:1px;line-height:1.2">${desc}</div>
-    </div>`;
-  };
-  return`<div id="w-clouds" class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
+  const raw=X?.cloud;
+  const hasCloud=raw!=null&&Number.isFinite(Number(raw));
+  const v=hasCloud?clamp(Math.round(Number(raw)),0,100):null;
+  const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych";
+  const subText=hasCloud?`${v}% nieba pokryte chmurami`:"Brak aktualnego pomiaru lub prognozy";
+  return`<div id="w-clouds" class="w">
+    <div class="wh">${mini("cloud")}Zachmurzenie</div>
+    <div class="wv tn" style="font-size:20px;font-weight:700;line-height:1.2;margin:5px 0 3px">${desc}</div>
+    <div class="ws" style="font-size:12.5px;color:var(--ink2)">${subText}</div>
+  </div>`;
 }
 function wRain(X){
   let next="";
