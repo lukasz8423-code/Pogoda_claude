@@ -2,90 +2,112 @@ name: Aktualizuj snapshot IMGW METEO
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Celowo poza pełną godziną — GitHub ostrzega, że wtedy obciążenie jest największe.
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: imgw-snapshot
+  group: imgw-meteo-refresh
   cancel-in-progress: true
 
 jobs:
   update:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Pobierz i porównaj IMGW METEO
+      - name: Pobierz IMGW METEO
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 -sS \
-            "https://danepubliczne.imgw.pl/api/data/meteo/?_=${RANDOM}" -o /tmp/imgw.json
+          url="https://danepubliczne.imgw.pl/api/data/meteo/?_aura_ts=$(date +%s%3N)"
+          curl --fail --silent --show-error --location             --retry 5 --retry-all-errors --retry-delay 2             --connect-timeout 10 --max-time 45             -H 'Accept: application/json'             -H 'Cache-Control: no-cache'             -o /tmp/imgw.json "$url"
 
           python - <<'PY'
           import json, pathlib, time
+          from datetime import datetime, timezone
 
-          raw=json.loads(pathlib.Path("/tmp/imgw.json").read_text(encoding="utf-8"))
-          if not isinstance(raw,list):
-              raise SystemExit("IMGW METEO: nieprawidłowy format")
+          raw = json.loads(pathlib.Path("/tmp/imgw.json").read_text(encoding="utf-8"))
+          if not isinstance(raw, list) or not raw:
+              raise SystemExit("IMGW METEO: pusty lub nieprawidłowy feed")
 
-          station=next((x for x in raw if str(x.get("kod_stacji","")).strip()=="252190030"),None)
+          station = next(
+              (x for x in raw
+               if str(x.get("kod_stacji", "")).strip() == "252190030"),
+              None
+          )
           if station is None:
               raise SystemExit("IMGW METEO: brak Głodowa 252190030")
 
-          target=pathlib.Path("imgw-meteo.json")
-          new_data=raw
+          timestamps = [
+              station.get("temperatura_powietrza_data"),
+              station.get("wilgotnosc_wzgledna_data"),
+              station.get("wiatr_srednia_predkosc_data"),
+              station.get("wiatr_kierunek_data"),
+              station.get("opad_10min_data"),
+          ]
+          if not any(timestamps):
+              raise SystemExit("IMGW METEO: Głodowo bez timestampów")
 
-          old_data=None
-          if target.exists():
-              try:
-                  old=json.loads(target.read_text(encoding="utf-8"))
-                  old_data=old.get("data") if isinstance(old,dict) else old
-              except Exception:
-                  old_data=None
+          fetched = int(datetime.now(timezone.utc).timestamp() * 1000)
+          payload = {
+              "fetchedAt": fetched,
+              "source": "IMGW METEO",
+              "stationCount": len(raw),
+              "data": raw,
+          }
 
-          old_station=None
-          if isinstance(old_data,list):
-              old_station=next((x for x in old_data if str(x.get("kod_stacji","")).strip()=="252190030"),None)
+          pathlib.Path("imgw-meteo.json").write_text(
+              json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8"
+          )
 
-          if old_data == new_data and old_station == station:
-              print("IMGW METEO: snapshot bez zmian — brak commita.")
-          else:
-              out={
-                  "fetchedAt":int(time.time()*1000),
-                  "source":"IMGW METEO",
-                  "stationCount":len(raw),
-                  "data":new_data
-              }
-              target.write_text(
-                  json.dumps(out,separators=(",",":"),ensure_ascii=False),
-                  encoding="utf-8"
-              )
-              print(
-                  "IMGW METEO: snapshot zmieniony; Głodowo:",
-                  station.get("temperatura_powietrza"),
-                  station.get("temperatura_powietrza_data"),
-                  "opad10:",
-                  station.get("opad_10min"),
-                  station.get("opad_10min_data")
-              )
+          print(
+              "IMGW GŁODOWO:",
+              json.dumps(
+                  {
+                      "temperature": station.get("temperatura_powietrza"),
+                      "temperatureAt": station.get("temperatura_powietrza_data"),
+                      "humidity": station.get("wilgotnosc_wzgledna"),
+                      "humidityAt": station.get("wilgotnosc_wzgledna_data"),
+                      "wind": station.get("wiatr_srednia_predkosc"),
+                      "windAt": station.get("wiatr_srednia_predkosc_data"),
+                      "rain10": station.get("opad_10min"),
+                      "rain10At": station.get("opad_10min_data"),
+                      "fetchedAt": fetched,
+                  },
+                  ensure_ascii=False,
+              ),
+          )
           PY
 
-      - name: Commit tylko gdy snapshot się zmienił
+      - name: Commit tylko gdy dane IMGW się zmieniły
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Snapshot ma być cache'em danych, nie generatorom pustych commitów.
           git add imgw-meteo.json
           if git diff --cached --quiet; then
-            echo "Brak zmian IMGW — nic do commitowania."
+            echo "IMGW: dane bez zmian — brak commita."
             exit 0
           fi
+
+          # Jeżeli użytkownik zdążył wypchnąć commit między checkoutem a push,
+          # pobierz najnowsze main i zastosuj snapshot ponownie na jego szczycie.
+          git fetch origin main
+          git rebase origin/main
+
+          git add imgw-meteo.json
           git commit -m "Aktualizuj snapshot IMGW METEO"
-          git push
+          git push origin HEAD:main
