@@ -4158,12 +4158,12 @@ function wLayers(X){
   const raw=X?.cloud;
   const hasCloud=raw!=null&&Number.isFinite(Number(raw));
   const v=hasCloud?clamp(Math.round(Number(raw)),0,100):null;
-  const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych";
-  const subText=hasCloud?`${v}% nieba pokryte chmurami`:"Brak aktualnego pomiaru lub prognozy";
+  const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych o zachmurzeniu";
+  const valStr=v!=null?`${v}<small>%</small>`:"–";
   return`<div id="w-clouds" class="w">
     <div class="wh">${mini("cloud")}Zachmurzenie</div>
-    <div class="wv tn" style="font-size:20px;font-weight:700;line-height:1.2;margin:5px 0 3px">${desc}</div>
-    <div class="ws" style="font-size:12.5px;color:var(--ink2)">${subText}</div>
+    <div class="wv tn">${valStr}</div>
+    <div class="ws">${desc}</div>
   </div>`;
 }
 function wRain(X){
