@@ -1,0 +1,54 @@
+name: Buduj Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    name: Budowanie gotowego pliku APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Klonowanie repozytorium
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Konfiguracja Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Konfiguracja Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalacja Bubblewrap CLI
+        run: npm install -g @bubblewrap/cli
+
+      - name: Budowanie Android APK z PWA
+        run: |
+          set -e
+          mkdir -p twa-dist
+          cd twa-dist
+          
+          keytool -genkey -v -keystore android.keystore -alias aura -keyalg RSA -keysize 2048 -validity 10000 -storepass aurapogoda123 -keypass aurapogoda123 -dname "CN=AuraPogoda, OU=App, O=Aura, L=Warszawa, S=Mazowieckie, C=PL"
+          
+          bubblewrap init --manifest="https://lukasz8423-code.github.io/Pogoda_claude/manifest.webmanifest"
+          bubblewrap build --signingKeyPath="android.keystore" --signingKeyAlias="aura" --signingKeyPassword="aurapogoda123" --keyPassword="aurapogoda123"
+          
+          find . -name "*.apk" -exec cp {} ../Aura-Pogoda.apk \;
+          cd ..
+
+      - name: Zapisz APK jako plik do pobrania (Artefakt)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aura-Pogoda-Android-APK
+          path: Aura-Pogoda.apk
+          if-no-files-found: warn
+          retention-days: 30

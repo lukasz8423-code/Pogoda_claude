@@ -2545,8 +2545,7 @@ function toggleSoundAlerts(){
   if(!cur)playAlertChime(2);
   return!cur;
 }
-function playAlertChime(level=1){
-  if(!isSoundAlertsEnabled())return;
+function fallbackWebAudioChime(level=1){
   try{
     const AudioCtx=window.AudioContext||window.webkitAudioContext;
     if(!AudioCtx)return;
@@ -2567,10 +2566,24 @@ function playAlertChime(level=1){
       osc.start(now+idx*0.11);
       osc.stop(now+idx*0.11+0.33);
     });
-    if(navigator.vibrate&&level>=1){
-      navigator.vibrate(level>=3?[120,80,150]:[80,50,80]);
-    }
   }catch(err){console.debug("WebAudio:",err);}
+}
+
+function playAlertChime(level=1){
+  if(!isSoundAlertsEnabled())return;
+  const safeLvl = Math.min(3, Math.max(1, Number(level) || 1));
+  try{
+    const audio = new Audio(`./sounds/alert-${safeLvl}.wav`);
+    audio.volume = 0.9;
+    audio.play().catch(()=>{
+      fallbackWebAudioChime(safeLvl);
+    });
+  }catch{
+    fallbackWebAudioChime(safeLvl);
+  }
+  if(navigator.vibrate&&level>=1){
+    navigator.vibrate(level>=3?[120,80,150]:[80,50,80]);
+  }
 }
 
 async function requestWebNotifications(){
