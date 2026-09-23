@@ -997,8 +997,7 @@ const IMGW_STATIONS = [
   {id:"152120010",name:"Olsztyn",lat:53.7667,lng:20.4333},
   {id:"152120020",name:"Giżycko",lat:54.0333,lng:21.7667},
   // Slaskie
-  {id:"152250010",name:"Katowice",lat:50.2333,lng:19.0333},
-  {id:"152250020",name:"Częstochowa",lat:50.8167,lng:19.1333},
+  {id:"152250010",name:"Katowice",lat:50.2333,lng:19.0333},  {id:"152250020",name:"Częstochowa",lat:50.8167,lng:19.1333},
   // Malopolskie
   {id:"152260010",name:"Kraków",lat:50.0667,lng:19.9167},
   {id:"152260020",name:"Zakopane",lat:49.3000,lng:19.9500},
@@ -1997,7 +1996,6 @@ function correctHourlyPrecipitation(hourlyData,imgwData){
     // Czyścimy wyłącznie śladowe 0–0.4 mm/h. Realnego opadu >0.4 mm/h
     // świeże IMGW nie może automatycznie wyzerować.
     if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
-
     // Nie kasujemy mikroopadu z prognozy. Ten etap odpowiada za stan
     // bieżący oparty o świeże IMGW; przyszły mikroopad jest oceniany
     // osobno przez consensus/event engine.
@@ -2997,8 +2995,7 @@ function nowcastHTML(X){
       sum=endLabel?"Śnieg pada teraz i może potrwać do około "+endLabel+".":"Śnieg pada teraz.";
     }else if(stateRain){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
-    }else if(firstRain){
-      const classLabel=precipClass?.label&&precipClass.type!=="none"?precipClass.label:"Opady";
+    }else if(firstRain){      const classLabel=precipClass?.label&&precipClass.type!=="none"?precipClass.label:"Opady";
       sum=endLabel?classLabel+" około "+startTime+" i mogą potrwać do około "+endLabel+".":classLabel+" około "+startTime+".";
     }else{
       // Oś 15-minutowa nie pokazuje opadu — nie pobieramy zastępczej godziny z modelu.
@@ -3470,8 +3467,12 @@ function wRain(X){
   const nextEvent=p?.nextEvent||null;
   const dayIso=new Date().toISOString().slice(0,10);
   const day=canonicalDayPrecipitation(S.data?.hourly,dayIso,true);
-  const rainToday=day.hasRain?day.mm:0;
-  const popToday=day.hasRain?day.pop:0;
+  // Mikroopad jest danymi prognostycznymi, nie "brakiem opadu".
+  // Kafelek "Opady dziś" musi być spójny z prognozą godzinową:
+  // jeśli zaakceptowana oś hourly ma np. 0.07 mm i 21% POP,
+  // nie wolno tutaj pokazywać 0.0 mm i 0%.
+  const rainToday=Number.isFinite(day.mm)?Math.max(0,day.mm):0;
+  const popToday=rainToday>0&&Number.isFinite(day.pop)?clamp(day.pop,0,100):0;
   if(active)next="Pada teraz.";
   else if(nextEvent?.startsAt)next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";
   return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(rainToday,1)}<small>mm</small></div><div class="ws">Maks. prawdopodobieństwo opadu: ${popToday}%. ${next||"Brak prognozowanego opadu w ciągu najbliższych 24 godz."}</div></div>`;
@@ -3997,8 +3998,7 @@ function pipelineDiagnosticsText(){
     satelliteCloud:S.satelliteCloud||null,
     pipeline:S.pipelineDiag||null,
     liveHealth:S.liveHealth||null
-  },null,2);
-}
+  },null,2);}
 
 function openRawSheet(){
   const rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
@@ -4997,8 +4997,7 @@ async function loadWCore(lat,lng,name,isRef,token){
     for(let step=0;step<=3;step++){
       const idx=ci+step;
       if(idx>=data.hourly.time.length)break;
-      rows.push({
-        step,
+      rows.push({        step,
         time:data.hourly.time[idx],
         imgwStation:null,
         imgwModel:null,
