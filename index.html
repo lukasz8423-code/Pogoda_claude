@@ -3234,7 +3234,8 @@ function meteogramHTML(X){
     const bar=Math.round(clamp(displayPr/maxPr,0,1)*38);
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
-    const displayMm=rain&&Number.isFinite(p.pr)&&p.pr>=0.15?p.pr:0;\n    const pop=Math.round(displayMm>=0.15&&Number.isFinite(p.pop)?clamp(p.pop,0,100):0);
+    const displayMm=rain&&Number.isFinite(p.pr)&&p.pr>=0.15?p.pr:0;
+    const pop=Math.round(displayMm>=0.15&&Number.isFinite(p.pop)?clamp(p.pop,0,100):0);
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
