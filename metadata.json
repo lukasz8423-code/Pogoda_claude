@@ -1,0 +1,6 @@
+{
+  "name": "Aura - Prognoza Pogody",
+  "description": "Aplikacja pogodowa Aura z prognozą, porównaniem źródeł meteo oraz radarem satelitarnym.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

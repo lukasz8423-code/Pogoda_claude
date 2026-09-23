@@ -7,8 +7,8 @@ from urllib.parse import urlencode
 
 import requests
 
-LAT = 52.802542
-LON = 19.205053
+LAT = 52.8142
+LON = 19.21174
 WMS_URL = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "msg_fes:clm"
 OUT = Path("satellite-cloud.json")
@@ -21,49 +21,47 @@ TIMEOUT = 15
 
 
 def point_query(lat, lon):
-    # EUMETView CLM zwraca w text/plain zarówno etykietę klasy,
-    # jak i (w zależności od wersji GeoServera) pola RGB. Parsujemy oba formaty.
+    # Small bbox around the queried point; the center pixel is requested.
     dlat = 0.015
     dlon = 0.015 / max(0.2, math.cos(math.radians(lat)))
-    bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
+    # WMS 1.3.0 + EPSG:4326: kolejność osi to lat,lon.\n    bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
     params = {
-        "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetFeatureInfo",
-        "LAYERS": LAYER, "QUERY_LAYERS": LAYER, "STYLES": "",
-        "CRS": "EPSG:4326", "BBOX": bbox, "WIDTH": "101", "HEIGHT": "101",
-        "I": "50", "J": "50", "INFO_FORMAT": "text/plain",
+        "SERVICE": "WMS",
+        "VERSION": "1.3.0",
+        "REQUEST": "GetFeatureInfo",
+        "LAYERS": LAYER,
+        "QUERY_LAYERS": LAYER,
+        "STYLES": "",
+        "CRS": "EPSG:4326",
+        "BBOX": bbox,
+        "WIDTH": "101",
+        "HEIGHT": "101",
+        "I": "50",
+        "J": "50",
+        "INFO_FORMAT": "text/plain",
     }
     r = requests.get(WMS_URL, params=params, timeout=TIMEOUT)
     r.raise_for_status()
-    text = re.sub(r"\\s+", " ", r.text).strip()
+    text = re.sub(r"\s+", " ", r.text).strip()
     low = text.lower()
 
-    # Najpierw próbujemy semantycznej wartości zwróconej przez CLM.
-    if re.search(r"clear\\s+sky\\s+over\\s+land|clear\\s+land", low):
-        cls = "clear_land"
-    elif re.search(r"clear\\s+sky\\s+over\\s+water|clear\\s+water", low):
-        cls = "clear_water"
-    elif re.search(r"\\bcloud(?:y|s)?\\b", low):
-        cls = "cloud"
-    elif re.search(r"not\\s+processed|off\\s+earth", low):
+    if "not processed" in low or "off earth" in low:
         cls = "not_processed"
+    elif "clear sky over land" in low or "clear land" in low:
+        cls = "clear_land"
+    elif "clear sky over water" in low or "clear water" in low:
+        cls = "clear_water"
+    elif re.search(r"\bcloud(?:y|s)?\b", low):
+        cls = "cloud"
     else:
-        # Nie traktujemy dowolnego RGB jako obrazu RGB. Akceptujemy je tylko,
-        # gdy odpowiedź zawiera jawne pola RED/GREEN/BLUE i mieści się w 0..255.
-        vals = {}
-        for name in ("RED_BAND", "GREEN_BAND", "BLUE_BAND"):
-            m = re.search(rf"\\b{name}\\s*=\\s*(-?\\d+(?:\\.\\d+)?)", text, re.I)
-            if m:
-                vals[name] = float(m.group(1))
-        if len(vals) == 3 and all(0 <= v <= 255 for v in vals.values()):
-            # CLM jest maską kategoryczną, a RGB w odpowiedzi jest jej paletą.
-            # Białe 255/255/255 traktujemy jako brak klasy, nie jako "chmury".
-            # Dla innych wartości pozostawiamy unknown, aby nie wprowadzać
-            # heurystycznego fałszu do fuzji pogody.
-            cls = "unknown"
-        else:
-            cls = "unknown"
+        cls = "unknown"
 
-    return {"lat": lat, "lon": lon, "class": cls, "raw": text[:500]}
+    return {
+        "lat": lat,
+        "lon": lon,
+        "class": cls,
+        "raw": text[:500],
+    }
 
 
 def main():

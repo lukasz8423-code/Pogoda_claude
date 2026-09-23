@@ -96,11 +96,6 @@ svg{display:block}
 .chip svg{width:13px;height:13px}
 .chip.ok{color:var(--ok)}.chip.warn{color:var(--warn)}.chip.link{color:var(--ink)}
 button.chip:active{background:var(--glass2)}
-.imgw-status-chip{color:var(--ink2)}
-.imgw-status-chip .chip-online{color:var(--ok);font-weight:600}
-.imgw-status-chip .chip-stale{color:var(--warn);font-weight:500}
-.imgw-status-chip .chip-ensemble{color:var(--rain);font-weight:600}
-.imgw-status-chip .chip-sep{color:var(--ink3)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s ease infinite}
 .sunline{margin:14px 2px 18px}
 .sunline svg{width:100%;height:auto;overflow:visible}
@@ -375,25 +370,21 @@ function buildNowcast(hourly,ci,precipitationModelWeight=1){
   const points=[];
   const end=Math.min(ci+4,hourly.time.length);
   const w=clamp(Number(precipitationModelWeight),0,1);
-  const stationNowMm=stationFreshPrecipMm(S.imgwData);
-  const stationNowValid=stationNowMm!==null;
   for(let idx=ci;idx<end;idx++){
     const code=Number(hourly.weather_code?.[idx]);
     const rawPop=Number(hourly.precipitation_probability?.[idx]??0);
     const rawPrecip=Number(hourly.precipitation?.[idx]??0);
+    // Ghost Rain Guard może obniżyć wpływ modelu wyłącznie dla bieżącej godziny.
     const modelFactor=idx===ci?w:1;
     const precip=Math.max(0,rawPrecip*modelFactor);
     const pop=Math.max(0,rawPop*modelFactor);
-    const isCurrent=idx===ci;
-    const effectivePrecip=isCurrent&&stationNowValid?stationNowMm:precip;
-    const effectiveCode=isCurrent&&stationNowValid?(stationNowMm>0.05?61:0):code;
-    const rain=isRainCode(effectiveCode)&&((effectivePrecip>=0.1)||rawPrecip===0);
+    const rain=isRainCode(code)&&((precip>=0.1)||rawPrecip===0);
     points.push({
       h:idx-ci,
       time:hourly.time?.[idx],
       pop,
-      precip:effectivePrecip,
-      code:Number.isFinite(effectiveCode)?effectiveCode:0,
+      precip,
+      code:Number.isFinite(code)?code:0,
       rain
     });
   }
@@ -454,27 +445,21 @@ function locativeCity(city){
   return raw;
 }
 
-function advice(city,cur,hourly,ci=0,currentState=null){
+function advice(city,cur,hourly,ci=0,currentStateOrX=null){
+  const currentState = currentStateOrX?.currentState || (currentStateOrX?.code != null ? currentStateOrX : null);
+  const code = currentState?.code ?? cur?.weather_code ?? 0;
   const t=Math.round(cur?.temperature_2m??15);
-  // Stan "Teraz" jest kanoniczny: dokładnie ten sam sygnał zasila hero/nowcast.
-  // Surowy cur.weather_code nie może tworzyć drugiej, rozjechanej interpretacji opadu.
-  const canonicalState=currentState&&typeof currentState==="object"?currentState:null;
-  const c=Number(canonicalState?.code??cur?.weather_code??0);
   const place=locativeCity(city);
-  const isStorm=c>=95;
-  const isSnow=(c>=71&&c<=77)||(c>=85&&c<=86);
-  const isRain=(c>=51&&c<=67)||(c>=80&&c<=82);
-  const isMist=c>=45&&c<=48;
+  const isStorm=isStormCode(code);
+  const isSnow=isSnowCode(code);
+  const isRain=isRainCode(code);
+  const isMist=code>=45&&code<=48;
 
   // Rule Engine: aktywność jest walidowana względem bieżącej i najbliższych godzin.
   const nextHours=Array.from({length:3},(_,i)=>hourly?.time?.[ci+i]?({
-    precipitationMm:i===0&&canonicalState
-      ?Number(canonicalState.mm??0)
-      :Number(hourly.precipitation?.[ci+i]??0),
+    precipitationMm:Number(hourly.precipitation?.[ci+i]??0),
     precipitationProbability:Number(hourly.precipitation_probability?.[ci+i]??0),
-    weatherCode:i===0&&canonicalState
-      ?Number(canonicalState.code??0)
-      :Number(hourly.weather_code?.[ci+i]??0)
+    weatherCode:Number(hourly.weather_code?.[ci+i]??0)
   }):null).filter(Boolean);
   const blockedOutdoor=nextHours.some(h =>
     h.precipitationMm>0.5 ||
@@ -583,21 +568,13 @@ function fuseCloudCover(records,context={}){
     ((Number.isFinite(modelRain)&&modelRain>0)||modelRainCode);
 
   const nowcast=Array.isArray(context.nowcast)?context.nowcast:[];
-  // T0 może być potwierdzony wyłącznie obserwacją bieżącego/przeszłego
-  // slotu minutely. Przyszła prognoza 15-min NIE jest dowodem, że teraz pada.
-  // To było źródłem fałszywego "deszcz teraz", gdy przyszłe sloty miały opad.
-  const nowMs=Date.now();
-  const observedNowcast=nowcast.filter(x=>{
-    const t=Date.parse(String(x?.t));
-    return Number.isFinite(t)&&t<=nowMs+2*60000&&Number(x?.mm)>0.05;
-  });
+  const nowcastRainSlots=nowcast.filter(x=>Number.isFinite(Number(x?.mm))&&Number(x.mm)>0.05);
   let nowcastConfirmedRain=false;
-  if(observedNowcast.length>=1){
-    const latestObserved=observedNowcast.reduce((a,b)=>
-      Date.parse(String(a.t))>Date.parse(String(b.t))?a:b
-    );
-    nowcastConfirmedRain=Number(latestObserved?.mm)>0.05;
+  for(let i=0;i<nowcast.length-1;i++){
+    const a=Number(nowcast[i]?.mm),b=Number(nowcast[i+1]?.mm);
+    if(Number.isFinite(a)&&Number.isFinite(b)&&a>0.05&&b>0.05){nowcastConfirmedRain=true;break;}
   }
+  if(nowcastRainSlots.length>=3)nowcastConfirmedRain=true;
 
   const stationConfirmsRain=Number.isFinite(Number(context.stationPrecipMm))&&Number(context.stationPrecipMm)>0;
   const precipitationConfirmed=stationConfirmsRain||nowcastConfirmedRain;
@@ -606,14 +583,6 @@ function fuseCloudCover(records,context={}){
   if(precipitation>0&&precipitation<=0.4&&!precipitationConfirmed){
     precipitation=0;
     precipitationCorrected=true;
-  }
-
-  // Jeżeli T0 nie ma niezależnego potwierdzenia opadu, kod deszczu z modelu
-  // nie może pozostać jako stan prezentacyjny "teraz".
-  if(precipitationCorrected&&isRainCode(Number(context.modelCode))){
-    const c=Number.isFinite(Number(raw))?Number(raw):0;
-    // Kod jest przeliczany później po finalnym cloud_cover; tutaj tylko
-    // zapamiętujemy brak potwierdzonego opadu.
   }
 
   const satellite=context.satellite||null;
@@ -670,18 +639,15 @@ function fuseCloudCover(records,context={}){
   const visibility=Number(context.visibilityMeters);
   const clearAir=Number.isFinite(visibility)&&visibility>=12000;
   const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
-  const modelSkyCode=Number(context.modelCode);
-  // Widzialność jest obserwacją pomocniczą, a kod pogody daje dodatkową
-  // informację jakościową. Przy bezchmurnym kodzie 0/1 nie pozwalamy, aby
-  // modelowe 70–100% zachmurzenia przebiło lokalny sygnał czystego nieba.
-  let clearCap=veryClearAir?35:40;
-  if(modelSkyCode===0||modelSkyCode===1)clearCap=Math.min(clearCap,20);
-  else if(modelSkyCode===2)clearCap=Math.min(clearCap,45);
-  else if(modelSkyCode===3)clearCap=Math.min(clearCap,70);
-
-  if(clearAir && !precipitationConfirmed && !modelRainCode && value>clearCap){
-    value=clearCap;
-    reason+=" + hard clear-sky cap";
+  // Przy suchej, bardzo dobrej widzialności modelowe 70–100% zachmurzenia
+  // jest traktowane jako konflikt z obserwacją lokalną. Nie pozwalamy, aby
+  // jeden model utrzymywał "Duże zachmurzenie", gdy powietrze jest wyraźnie przejrzyste.
+  if(clearAir && !precipitationConfirmed && !modelRainCode){
+    const clearCap=veryClearAir?35:40;
+    if(value>clearCap){
+      value=clearCap;
+      reason+=" + hard clear-sky cap";
+    }
   }
 
   if(prior!=null&&priorAge!=null&&!recentRainConflict){
@@ -690,21 +656,8 @@ function fuseCloudCover(records,context={}){
     if(Math.abs(value-raw)>0.5)reason+=" + temporal continuity";
   }
 
-  // Ciągłość czasowa nie może ponownie podnieść zachmurzenia ponad
-  // zweryfikowany limit czystego powietrza.
-  if(clearAir && !precipitationConfirmed && !modelRainCode && value>clearCap){
-    value=clearCap;
-    reason+=" + final clear-sky cap";
-  }
-
   value=Math.round(clamp(value,0,100)*10)/10;
   precipitation=Math.round(Math.max(0,precipitation)*100)/100;
-
-  // T0 bez potwierdzonego opadu: nie pokazujemy deszczowego kodu tylko dlatego,
-  // że jeden model podał WMO 51/53/61/80. Stan opisowy musi być spójny z T0.
-  const finalWeatherCode = precipitationCorrected && isRainCode(Number(context.modelCode))
-    ? (value<=10 ? 0 : value<=40 ? 2 : 3)
-    : Number(context.modelCode);
   try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),value}));}catch{}
 
   return {
@@ -712,7 +665,6 @@ function fuseCloudCover(records,context={}){
     prior,priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
     recentRainConflict,clearAir,precipitation,precipitationCorrected,
     precipitationConfirmed,nowcastConfirmedRain,cloudDampeningFactor,
-    weatherCode:finalWeatherCode,
     windKmh:Number.isFinite(wind)?wind:null,
     satelliteUsed:satelliteUsable,
     satelliteCloud:satelliteUsable?satCloud:null,
@@ -860,7 +812,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     forecast_days:String(requestDays),
     models:modelId
   });
-  const r=await auraFetch("https://api.open-meteo.com/v1/forecast?"+p,{cache:"no-store",signal:AbortSignal.timeout(10000)});
+  const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
   if(!r.ok)throw new Error("HTTP "+r.status);
   const data=await r.json();
   putWeatherCache(key,data);
@@ -873,40 +825,19 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
 
 
 async function apiWeather(lat,lng,forceFresh=false){
-  // GŁÓWNY FETCH MA ZAWSZE MIEĆ BEZPIECZNY FALLBACK.
-  // Awaria konkretnego modelu nie może wywalić całego ładowania Aury.
-  try{
-    return await apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
-  }catch(primaryError){
-    console.warn("[AURA WEATHER] aktywny model niedostępny:",activeModel.id,primaryError?.message||primaryError);
-    // best_match jest niezależnym wyborem modelu po stronie Open-Meteo.
-    // Używamy go tylko jako transportowego fallbacku, bez udawania IMGW.
-    try{
-      const fallback=await apiWeatherModel(lat,lng,"best_match",10,true);
-      if(fallback?.current&&fallback?.hourly&&fallback?.daily){
-        console.warn("[AURA WEATHER] fallback best_match OK");
-        return fallback;
-      }
-    }catch(fallbackError){
-      console.warn("[AURA WEATHER] fallback best_match także niedostępny:",fallbackError?.message||fallbackError);
-    }
-    throw primaryError;
-  }
+  // best_match = automatyczny wybór najlepszego modelu dla lokalizacji przez Open-Meteo; to nie jest fuzja satelitarna.
+  return apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
 }
 
 async function apiSatelliteCloudMask(lat,lng){
   try{
-    const r=await auraFetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
+    const r=await fetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
     if(!r.ok)return null;
     const d=await r.json();
-    const slat=Number(d.lat),slng=Number(d.lon),cf=Number(d.cloudFraction);
-    const validStatus=String(d.status||"").toUpperCase()==="OK";
-    const validSamples=Number(d.sampleCount)>0&&Number(d.cloudPixels)>=0&&Number(d.clearPixels)>=0;
-    if(!validStatus||!validSamples||!Number.isFinite(cf)||cf<0||cf>100)return null;
+    const slat=Number(d.lat),slng=Number(d.lon);
     if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
     const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
-    if(distanceKm>30)return null;
-    return {...d,distanceKm:+distanceKm.toFixed(2),validForFusion:true};
+    return {...d,distanceKm:+distanceKm.toFixed(2)};
   }catch{return null;}
 }
 function sameLocationSnapshot(lat,lng){
@@ -915,42 +846,21 @@ function sameLocationSnapshot(lat,lng){
 }
 
 async function apiWeatherApiSnapshot(lat,lng){
-  try{
-    const r=await auraFetch("./weatherapi-visibility.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
-    if(!r.ok)return null;
-    const d=await r.json();
-    const slat=Number(d.lat),slng=Number(d.lon),v=Number(d.vis_km);
-    if(!Number.isFinite(slat)||!Number.isFinite(slng)||!Number.isFinite(v)||v<0)return null;
-    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
-    if(distanceKm>30)return null;
-    const fetchedAt=Number(d.fetchedAt);
-    if(Number.isFinite(fetchedAt)&&Date.now()-fetchedAt>30*60*1000)return null;
-    return {...d,distanceKm};
-  }catch{return null;}
+  return null;
 }
 
 async function apiGeminiAnalysisSnapshot(lat,lng){
-  try{
-    const r=await auraFetch("./gemini-analysis.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
-    if(!r.ok)return null;
-    const d=await r.json();
-    const slat=Number(d.lat),slng=Number(d.lng??d.lon);
-    if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
-    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
-    const fetchedAt=Number(d.fetchedAt);
-    if(distanceKm>30||(Number.isFinite(fetchedAt)&&Date.now()-fetchedAt>30*60*1000))return null;
-    return {...d,distanceKm};
-  }catch{return null;}
+  return null;
 }
 
 
 async function apiCity(lat,lng){
   try{
-    const r=await auraFetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
     if(r.ok){const d=await r.json();const a=d.address||{};const n=a.city||a.town||a.village||a.hamlet||a.locality;if(n)return n;}
   }catch{}
   try{
-    const r=await auraFetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=pl`,{signal:AbortSignal.timeout(5000)});
+    const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=pl`,{signal:AbortSignal.timeout(5000)});
     if(r.ok){const d=await r.json();const n=d.locality||d.city;if(n)return n;}
   }catch{}
   return null;
@@ -958,15 +868,16 @@ async function apiCity(lat,lng){
 
 async function apiSearch(q){
   try{
-    const r=await auraFetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=7&language=pl`,{signal:AbortSignal.timeout(6000)});
+    const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=7&language=pl`,{signal:AbortSignal.timeout(6000)});
     if(r.ok){const d=await r.json();return(d.results||[]).map(x=>({n:[x.name,x.admin2||x.admin1].filter(Boolean).join(", "),lat:x.latitude,lng:x.longitude}));}
   }catch{}
   return null;
 }
 
 async function apiIP(){
-  try{const r=await auraFetch("https://ipapi.co/json/",{signal:AbortSignal.timeout(5000)});if(r.ok){const d=await r.json();if(d.latitude)return{lat:d.latitude,lng:d.longitude,city:d.city};}}catch{}
-  try{const r=await auraFetch("https://ip-api.com/json/?fields=lat,lon,city",{signal:AbortSignal.timeout(5000)});if(r.ok){const d=await r.json();if(d.lat)return{lat:d.lat,lng:d.lon,city:d.city};}}catch{}
+  try{const r=await fetch("https://get.geojs.io/v1/ip/geo.json",{signal:AbortSignal.timeout(5000)});if(r.ok){const d=await r.json();if(d.latitude&&d.longitude)return{lat:parseFloat(d.latitude),lng:parseFloat(d.longitude),city:d.city||""};}}catch{}
+  try{const r=await fetch("https://freeipapi.com/api/json",{signal:AbortSignal.timeout(5000)});if(r.ok){const d=await r.json();if(d.latitude&&d.longitude)return{lat:parseFloat(d.latitude),lng:parseFloat(d.longitude),city:d.cityName||""};}}catch{}
+  try{const r=await fetch("https://ipapi.co/json/",{signal:AbortSignal.timeout(5000)});if(r.ok){const d=await r.json();if(d.latitude)return{lat:parseFloat(d.latitude),lng:parseFloat(d.longitude),city:d.city||""};}}catch{}
   return null;
 }
 
@@ -997,7 +908,8 @@ const IMGW_STATIONS = [
   {id:"152120010",name:"Olsztyn",lat:53.7667,lng:20.4333},
   {id:"152120020",name:"Giżycko",lat:54.0333,lng:21.7667},
   // Slaskie
-  {id:"152250010",name:"Katowice",lat:50.2333,lng:19.0333},  {id:"152250020",name:"Częstochowa",lat:50.8167,lng:19.1333},
+  {id:"152250010",name:"Katowice",lat:50.2333,lng:19.0333},
+  {id:"152250020",name:"Częstochowa",lat:50.8167,lng:19.1333},
   // Malopolskie
   {id:"152260010",name:"Kraków",lat:50.0667,lng:19.9167},
   {id:"152260020",name:"Zakopane",lat:49.3000,lng:19.9500},
@@ -1033,7 +945,7 @@ function stationDist(lat1,lng1,lat2,lng2){
 // Pobierz dane ze wszystkich stacji IMGW
 async function fetchIMGWAll(){
   try{
-    const r=await auraFetch("https://danepubliczne.imgw.pl/api/data/synop/",{signal:AbortSignal.timeout(8000)});
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/synop/",{signal:AbortSignal.timeout(8000)});
     if(!r.ok)throw new Error("HTTP "+r.status);
     const data=await r.json();
     console.log(`IMGW: pobrano ${data.length} stacji`);
@@ -1042,108 +954,14 @@ async function fetchIMGWAll(){
 }
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
-async function fetchIMGWMeteoAll(){
-  // GitHub Pages nie ma backendu Node. Bezpośredni fetch do IMGW METEO
-  // kończył się w przeglądarce na CORS/Failed to fetch, więc nie może być
-  // kanonicznym transportem Aury.
-  //
-  // Kanoniczny transport dla Pages:
-  // GitHub Actions pobiera IMGW METEO i zapisuje imgw-meteo.json co 10 min.
-  // Ten plik jest same-origin i zawiera dokładny czas pobrania oraz
-  // osobne timestampy każdego pola stacji.
-  S.imgwDiag={
-    ...(S.imgwDiag||{}),
-    status:"pobieranie-snapshotu",
-    count:null,
-    found:false,
-    used:false,
-    error:null,
-    station:null,
-    temperature:null,
-    timestamp:null,
-    ageMinutes:null,
-    dist:null,
-    reason:null,
-    liveSource:"same-origin IMGW snapshot"
-  };
-  window.__AURA_IMGW_DIAG=S.imgwDiag;
+const IMGW_MAX_FIELD_AGE_MINUTES = 120;
 
-  try{
-    const url="./imgw-meteo.json?ts="+Date.now();
-    const started=Date.now();
-    const r=await auraFetch(url,{
-      cache:"no-store",
-      headers:{"Accept":"application/json"},
-      signal:AbortSignal.timeout(8000)
-    });
-    if(!r.ok)throw new Error("HTTP "+r.status);
-
-    const payload=await r.json();
-    const list=Array.isArray(payload)
-      ? payload
-      : (Array.isArray(payload?.data)?payload.data:null);
-
-    if(!Array.isArray(list)||list.length===0){
-      throw new Error("IMGW snapshot ma pusty lub nieprawidłowy format");
-    }
-
-    const station=list.find(s=>{
-      const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-      return code==="252190030";
-    });
-
-    const fetchedAt=Number(payload?.fetchedAt)||null;
-    const snapshotAgeMinutes=Number.isFinite(fetchedAt)
-      ? Math.max(0,(Date.now()-fetchedAt)/60000)
-      : null;
-
-    S.imgwDiag={
-      ...S.imgwDiag,
-      status:"snapshot-pobrany",
-      count:list.length,
-      found:!!station,
-      station:station?.nazwa_stacji||"Głodowo",
-      stationCode:"252190030",
-      temperature:station?.temperatura_powietrza??null,
-      timestamp:station?.temperatura_powietrza_data??null,
-      ageMinutes:null,
-      dist:null,
-      fetchedAt,
-      snapshotFetchedAt:fetchedAt,
-      snapshotAgeMinutes,
-      sourceAvailable:true,
-      snapshotValid:true,
-      liveRefreshUsed:false,
-      liveSource:"IMGW METEO snapshot via GitHub Actions",
-      error:null,
-      requestDurationMs:Date.now()-started
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-
-    if(!station){
-      throw new Error("IMGW snapshot nie zawiera Głodowa 252190030");
-    }
-
-    console.log("IMGW METEO snapshot:",{
-      count:list.length,
-      fetchedAt,
-      snapshotAgeMinutes,
-      glodowo:station
-    });
-    return list;
-  }catch(e){
-    S.imgwDiag={
-      ...S.imgwDiag,
-      status:"niedostępne",
-      sourceAvailable:false,
-      error:e?.message||String(e),
-      reason:"same-origin IMGW snapshot niedostępny"
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-    console.warn("IMGW snapshot niedostępny:",S.imgwDiag.error);
-    return null;
-  }
+function parseImgwNumber(val){
+  if(val===null||val===undefined||val==="")return null;
+  const num=parseFloat(String(val).replace(",","."));
+  return Number.isFinite(num)?num:null;
 }
+
 function parseImgwMeteoTimestamp(value){
   if(value==null||value==="")return null;
   if(value instanceof Date){
@@ -1152,46 +970,166 @@ function parseImgwMeteoTimestamp(value){
   }
   if(typeof value==="number"){
     const ms=Number(value);
-    return Number.isFinite(ms)?ms:null;
+    if(!Number.isFinite(ms))return null;
+    return ms<1e11?ms*1000:ms;
   }
   const raw=String(value).trim();
   if(!raw)return null;
-
-  // IMGW METEO zwraca pola *_data jako czas lokalny stacji (Polska),
-  // bez oznaczenia strefy. Nie wolno traktować "10:40" jako 10:40 UTC.
-  // Konwertujemy jawny czas Europe/Warsaw na UTC, z uwzględnieniem DST.
   const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if(m){
-    const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
-    const guess=Date.UTC(y,mo-1,d,h,mi,s);
-    try{
-      const parts=new Intl.DateTimeFormat("en-US",{
-        timeZone:"Europe/Warsaw",hour12:false,
-        year:"numeric",month:"2-digit",day:"2-digit",
-        hour:"2-digit",minute:"2-digit",second:"2-digit"
-      }).formatToParts(new Date(guess));
-      const p=Object.fromEntries(parts.filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));
-      const wallAsUtc=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second);
-      const offsetMs=wallAsUtc-guess;
-      return guess-offsetMs;
-    }catch{}
-    return guess;
-  }
+  if(m)return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
   const parsed=Date.parse(raw);
   return Number.isFinite(parsed)?parsed:null;
+}
+
+// Centralna normalizacja rekordu stacji IMGW telemetrycznej / snapshotu.
+// Żadne brakujące pole nie jest zastępowane sztucznymi stałymi.
+function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot=false){
+  if(!rawStation||typeof rawStation!=="object")return null;
+
+  const tempRaw=parseImgwNumber(rawStation.temperatura_powietrza??rawStation.temperatura);
+  const tempTsRaw=rawStation.temperatura_powietrza_data??rawStation.temperatura_data;
+  const tempObservedAt=parseImgwMeteoTimestamp(tempTsRaw);
+
+  const humidityRaw=parseImgwNumber(rawStation.wilgotnosc_wzgledna);
+  const humidityTsRaw=rawStation.wilgotnosc_wzgledna_data;
+  const humidityObservedAt=parseImgwMeteoTimestamp(humidityTsRaw);
+
+  const windRaw=parseImgwNumber(rawStation.wiatr_srednia_predkosc??rawStation.predkosc_wiatru);
+  const windTsRaw=rawStation.wiatr_srednia_predkosc_data??rawStation.predkosc_wiatru_data;
+  const windObservedAt=parseImgwMeteoTimestamp(windTsRaw);
+
+  const windDirRaw=parseImgwNumber(rawStation.wiatr_kierunek??rawStation.kierunek_wiatru);
+  const windDirTsRaw=rawStation.wiatr_kierunek_data??rawStation.kierunek_wiatru_data;
+  const windDirObservedAt=parseImgwMeteoTimestamp(windDirTsRaw);
+
+  const gustRaw=parseImgwNumber(rawStation.wiatr_predkosc_maksymalna??rawStation.wiatr_poryw_10min??rawStation.poryw_wiatru);
+  const gustTsRaw=rawStation.wiatr_predkosc_maksymalna_data??rawStation.wiatr_poryw_10min_data??rawStation.poryw_wiatru_data;
+  const gustObservedAt=parseImgwMeteoTimestamp(gustTsRaw);
+
+  const rainRaw=parseImgwNumber(rawStation.opad_10min);
+  const rainTsRaw=rawStation.opad_10min_data;
+  const rainObservedAt=parseImgwMeteoTimestamp(rainTsRaw);
+
+  const groundTempRaw=parseImgwNumber(rawStation.temperatura_gruntu);
+  const groundTempTsRaw=rawStation.temperatura_gruntu_data;
+  const groundTempObservedAt=parseImgwMeteoTimestamp(groundTempTsRaw);
+
+  const maxAgeMs=maxAgeMinutes*60*1000;
+  const calcAgeMin=ts=>ts==null?null:Math.round((nowMs-ts)/60000);
+  const isFresh=(val,ts)=>{
+    if(val===null||ts===null)return false;
+    const ageMs=nowMs-ts;
+    return Number.isFinite(ageMs)&&ageMs>=-10*60*1000&&ageMs<=maxAgeMs;
+  };
+
+  const tempAgeMinutes=calcAgeMin(tempObservedAt);
+  const tempFresh=isFresh(tempRaw,tempObservedAt);
+
+  const humidityAgeMinutes=calcAgeMin(humidityObservedAt);
+  const humidityFresh=isFresh(humidityRaw,humidityObservedAt);
+
+  const windAgeMinutes=calcAgeMin(windObservedAt);
+  const windFresh=isFresh(windRaw,windObservedAt);
+
+  const windDirAgeMinutes=calcAgeMin(windDirObservedAt);
+  const windDirFresh=isFresh(windDirRaw,windDirObservedAt);
+
+  const gustAgeMinutes=calcAgeMin(gustObservedAt);
+  const gustFresh=isFresh(gustRaw,gustObservedAt);
+
+  const rainAgeMinutes=calcAgeMin(rainObservedAt);
+  const rainFresh=isFresh(rainRaw,rainObservedAt);
+
+  const groundTempAgeMinutes=calcAgeMin(groundTempObservedAt);
+  const groundTempFresh=isFresh(groundTempRaw,groundTempObservedAt);
+
+  const freshObservedTimestamps=[
+    tempFresh?tempObservedAt:null,
+    humidityFresh?humidityObservedAt:null,
+    windFresh?windObservedAt:null,
+    windDirFresh?windDirObservedAt:null,
+    rainFresh?rainObservedAt:null
+  ].filter(Number.isFinite);
+
+  const latestObservedAt=freshObservedTimestamps.length?Math.max(...freshObservedTimestamps):null;
+  const latestAgeMinutes=latestObservedAt==null?null:calcAgeMin(latestObservedAt);
+
+  const anyUsable=tempFresh||humidityFresh||windFresh||windDirFresh||rainFresh;
+
+  const staleFields=[];
+  if(!tempFresh&&tempRaw!==null)staleFields.push("temperatura_powietrza");
+  if(!humidityFresh&&humidityRaw!==null)staleFields.push("wilgotnosc_wzgledna");
+  if(!windFresh&&windRaw!==null)staleFields.push("wiatr_srednia_predkosc");
+  if(!windDirFresh&&windDirRaw!==null)staleFields.push("wiatr_kierunek");
+  if(!rainFresh&&rainRaw!==null)staleFields.push("opad_10min");
+
+  const freshFields=[];
+  if(tempFresh)freshFields.push("temperatura_powietrza");
+  if(humidityFresh)freshFields.push("wilgotnosc_wzgledna");
+  if(windFresh)freshFields.push("wiatr_srednia_predkosc");
+  if(windDirFresh)freshFields.push("wiatr_kierunek");
+  if(rainFresh)freshFields.push("opad_10min");
+
+  return {
+    ...rawStation,
+    id_stacji:String(rawStation.kod_stacji||rawStation.id_stacji||"252190030"),
+    kod_stacji:String(rawStation.kod_stacji||rawStation.id_stacji||"252190030"),
+    stacja:rawStation.nazwa_stacji||rawStation.stacja||"Głodowo",
+    name:"Głodowo",
+    lat:52.830556,
+    lng:19.235556,
+    temperatura:tempFresh?tempRaw:null,
+    temperatura_data:tempTsRaw||null,
+    tempAgeMinutes,
+    tempFresh,
+    wilgotnosc_wzgledna:humidityFresh?humidityRaw:null,
+    wilgotnosc_wzgledna_data:humidityTsRaw||null,
+    humidityAgeMinutes,
+    humidityFresh,
+    predkosc_wiatru:windFresh?windRaw:null,
+    predkosc_wiatru_data:windTsRaw||null,
+    windAgeMinutes,
+    windFresh,
+    kierunek_wiatru:windDirFresh?windDirRaw:null,
+    kierunek_wiatru_data:windDirTsRaw||null,
+    windDirAgeMinutes,
+    windDirFresh,
+    opad_10min:rainFresh?rainRaw:null,
+    opad_10min_data:rainTsRaw||null,
+    opad10minAgeMinutes:rainAgeMinutes,
+    opad10minFresh:rainFresh,
+    poryw_wiatru:gustFresh?gustRaw:null,
+    poryw_wiatru_data:gustTsRaw||null,
+    porywWiatruAgeMinutes:gustAgeMinutes,
+    porywWiatruFresh:gustFresh,
+    temperatura_gruntu:groundTempFresh?groundTempRaw:null,
+    temperatura_gruntu_data:groundTempTsRaw||null,
+    cisnienie:null,
+    observedAt:latestObservedAt,
+    fetchedAt:rawStation.fetchedAt||nowMs,
+    ageMinutes:latestAgeMinutes,
+    latestObservedAt,
+    latestAgeMinutes,
+    isFresh:anyUsable,
+    anyUsable,
+    freshFields,
+    staleFields,
+    sourceType:isSnapshot?"IMGW_METEO_SNAPSHOT":"IMGW_METEO",
+    sourceLabel:isSnapshot?"IMGW Głodowo (snapshot)":"IMGW Głodowo (na żywo)"
+  };
 }
 
 // Centralna walidacja świeżości pól IMGW METEO.
 // Każde pole pomiarowe jest sprawdzane względem własnego pola `${field}_data`.
 // Stary pomiar jest zerowany tylko dla tego pola — reszta stacji pozostaje użyteczna.
-function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=180){
+function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_MAX_FIELD_AGE_MINUTES){
   const safeData={...station};
   const stale_fields=[];
   const warnings=[];
   const maxAgeMs=maxAgeMinutes*60*1000;
 
   Object.keys(station||{}).forEach(field=>{
-    if(field.endsWith("_data"))return;
+    if(field.endsWith("_data")||field.endsWith("AgeMinutes")||field.endsWith("Fresh"))return;
     const timestampKey=field+"_data";
     if(!Object.prototype.hasOwnProperty.call(station,timestampKey))return;
 
@@ -1202,347 +1140,201 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=180){
     const ageMs=observedAt==null?NaN:nowMs-observedAt;
     const ageMinutes=Number.isFinite(ageMs)?ageMs/60000:NaN;
 
-    if(!Number.isFinite(observedAt)||!Number.isFinite(ageMs)||ageMs<0||ageMs>maxAgeMs){
+    if(!Number.isFinite(observedAt)||!Number.isFinite(ageMs)||ageMs<-10*60*1000||ageMs>maxAgeMs){
       safeData[field]=null;
       stale_fields.push(field);
 
       const reason=!Number.isFinite(observedAt)
         ?"nieprawidłowy timestamp"
-        :ageMs<0
+        :ageMs<-10*60*1000
           ?"timestamp z przyszłości"
           :"wiek "+ageMinutes.toFixed(1)+" min > limit "+maxAgeMinutes+" min";
 
-      const warning="[IMGW] STALE FIELD: "+field+" — "+reason+"; wartość ignorowana.";
+      const warning="[IMGW] STALE FIELD: "+field+" — "+reason;
       warnings.push(warning);
-      console.warn(warning,{
-        field,
-        value:station[field],
-        timestamp:rawTimestamp,
-        ageMinutes:Number.isFinite(ageMinutes)?Number(ageMinutes.toFixed(1)):null,
-        maxAgeMinutes
-      });
     }
   });
 
   return {data:safeData,stale_fields,warnings,maxAgeMinutes};
 }
 
+async function fetchIMGWMeteoAll(){
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
+  window.__AURA_IMGW_DIAG=S.imgwDiag;
+  let list=null;
+  let isFallback=false;
+  let fetchedAt=Date.now();
+
+  // 1. Spróbuj pobrać bezpośrednio z IMGW METEO API z progiem timeout
+  try{
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
+      mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(8000)
+    });
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    if(Array.isArray(data)&&data.length>0){
+      const glodowoCheck=data.find(s=>{
+        const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+        const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
+        return code==="252190030"||name==="głodowo"||name==="glodowo";
+      });
+      if(glodowoCheck){
+        list=data;
+        isFallback=false;
+        fetchedAt=Date.now();
+      }else{
+        throw new Error("Stacja Głodowo nieodnaleziona w sieciowym feedzie IMGW");
+      }
+    }else{
+      throw new Error("Nieprawidłowa odpowiedź IMGW API");
+    }
+  }catch(e){
+    console.warn("Pobieranie IMGW METEO z sieci nie powiodło się, sięgam po lokalny zrzut zapasowy imgw-meteo.json:", e.message);
+  }
+
+  // 2. Twardy fallback: sięganie po lokalne snapshoty zapasowe (imgw-meteo.json)
+  if(!list||!list.length){
+    const paths=["/imgw-meteo.json","./imgw-meteo.json","imgw-meteo.json"];
+    for(const p of paths){
+      try{
+        const r=await fetch(p,{cache:"no-cache",signal:AbortSignal.timeout(5000)});
+        if(r.ok){
+          const json=await r.json();
+          const rawList=Array.isArray(json)?json:(json?.data||[]);
+          if(Array.isArray(rawList)&&rawList.length>0){
+            list=rawList;
+            isFallback=true;
+            if(json?.fetchedAt)fetchedAt=Number(json.fetchedAt);
+            console.log(`IMGW METEO: załadowano snapshot zapasowy (${p}, ${list.length} stacji, fetchedAt: ${new Date(fetchedAt).toISOString()})`);
+            break;
+          }
+        }
+      }catch(err){}
+    }
+  }
+
+  if(list&&list.length){
+    const station=list.find(s=>{
+      const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+      const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
+      return code==="252190030"||name==="głodowo"||name==="glodowo";
+    });
+    S.imgwDiag={
+      ...S.imgwDiag,
+      status:isFallback?"snapshot (imgw-meteo.json)":"pobrano na żywo (IMGW API)",
+      isFallback,
+      fetchedAt,
+      count:list.length,
+      found:!!station,
+      station:station?.nazwa_stacji||station?.stacja||null,
+      temperature:station?.temperatura_powietrza??station?.temperatura??null,
+      timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
+      error:null
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+    return {list,isFallback,fetchedAt};
+  }
+
+  S.imgwDiag={
+    ...S.imgwDiag,status:"niedostępne",count:null,found:false,used:false,
+    error:"API oraz plik imgw-meteo.json niedostępne",
+    reason:"Brak możliwości pobrania stacji Głodowo z sieci i zrzutu lokalnego"
+  };
+  window.__AURA_IMGW_DIAG=S.imgwDiag;
+  console.warn("IMGW METEO niedostępne:",S.imgwDiag.error);
+  return null;
+}
+
 // Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
 async function findNearestIMGW(lat,lng){
-  let meteoAll=null;
-  try{
-    const r=await auraFetch("./imgw-meteo.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
-    if(r.ok){
-      const payload=await r.json();
-      meteoAll=Array.isArray(payload)?payload:(Array.isArray(payload?.data)?payload.data:null);
-      if(meteoAll)S.imgwDiag={...(S.imgwDiag||{}),status:"snapshot-same-origin",sourceAvailable:true,snapshotValid:true,count:meteoAll.length,snapshotFetchedAt:Number(payload?.fetchedAt)||null,error:null};
-    }
-  }catch(e){console.warn("[IMGW] snapshot niedostępny:",e?.message||e);}
-  // Nie odpytywać SYNOP jako warunku dla Głodowa — Głodowo jest w feedzie METEO.
-  // Jedynym kanonicznym pomiarem lokalnym jest bezpośredni feed /meteo/.
-  const fetchedAt=Date.now();
+  const [all,meteoRes]=await Promise.all([fetchIMGWAll(),fetchIMGWMeteoAll()]);
+  const fetchedAt=meteoRes?.fetchedAt||Date.now();
+  const meteoAll=meteoRes?.list||(Array.isArray(meteoRes)?meteoRes:null);
+  const isSnapshot=meteoRes?.isFallback===true;
 
-  // KANONICZNE ŹRÓDŁO IMGW METEO:
-  // ZAWSZE próbujemy świeżego feedu IMGW przed użyciem snapshotu.
-  // Snapshot jest wyłącznie awaryjnym cache'em na wypadek braku połączenia
-  // z IMGW. Nie wolno pozwolić, aby "świeży" technicznie snapshot blokował
-  // świeższy pomiar ze stacji.
-  const snapshotFetchedAt=Number(S.imgwDiag?.snapshotFetchedAt)||0;
-  const snapshotAgeMinutes=snapshotFetchedAt>0 ? (fetchedAt-snapshotFetchedAt)/60000 : Infinity;
-  const snapshotFresh=Number.isFinite(snapshotAgeMinutes)&&snapshotAgeMinutes>=0&&snapshotAgeMinutes<=90;
-  const snapshotHasGlodowo=Array.isArray(meteoAll)&&meteoAll.some(s=>{
-    const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-    const slat=Number(s?.lat),slon=Number(s?.lon??s?.lng);
-    const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
-      &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
-    return code==="252190030"||name==="glodowo"||name.includes("glodowo")||coordinateMatch;
-  });
-
-  // Live jest pierwsze. Jeżeli IMGW odpowie, jego rekord zastępuje snapshot
-  // niezależnie od wieku snapshotu.
-  const live=await fetchIMGWMeteoAll();
-  if(Array.isArray(live)){
-    meteoAll=live;
-    S.imgwDiag={...(S.imgwDiag||{}),
-      snapshotRetained:false,
-      snapshotValid:true,
-      liveRefreshUsed:true,
-      liveSource:"IMGW METEO",
-      liveFetchedAt:Number(S.imgwDiag?.liveFetchedAt)||fetchedAt,
-      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-  }else if(meteoAll){
-    // Brak live: używamy ostatniego snapshotu, ale jawnie oznaczamy go jako fallback.
-    S.imgwDiag={...(S.imgwDiag||{}),
-      snapshotStale:!snapshotFresh,
-      snapshotHasGlodowo,
-      snapshotRetained:true,
-      liveRefreshUsed:false,
-      liveSource:"snapshot-fallback",
-      liveFetchedAt:null,
-      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-  }
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
-  // To osobny feed /meteo, nie SYNOP. Uzywamy jej tylko jako lokalnej obserwacji
-  // dla punktow do 30 km i tylko wtedy, gdy pomiar temperatury jest swiezy.
-  const usableTimestamp=(value,ts,fresh)=>Number.isFinite(value)&&fresh&&Number.isFinite(ts)?ts:null;
-  // Głodowo identyfikujemy trzema niezależnymi sygnałami:
-  // 1) kod IMGW, 2) nazwa, 3) współrzędne znanej stacji.
-  // Dzięki temu zmiana nazwy/pola identyfikatora w feedzie nie może
-  // wyłączyć lokalnej stacji i przełączyć całej Aury na ensemble.
-  const isGlodowoStation=s=>{
-    const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-    const slat=Number(s?.lat), slon=Number(s?.lon??s?.lng);
-    const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
-      &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
-    return code==="252190030"
-      || name==="glodowo"
-      || name.includes("glodowo")
-      || coordinateMatch;
-  };
-  const glodowo=Array.isArray(meteoAll)
-    ? meteoAll.find(isGlodowoStation)
+  const rawGlodowo=Array.isArray(meteoAll)
+    ? meteoAll.find(s=>{
+        const code=String(s.kod_stacji??s.id_stacji??"").trim();
+        const name=String(s.nazwa_stacji??s.stacja??"").trim().toLowerCase();
+        return code==="252190030" || name==="głodowo" || name==="glodowo";
+      })
     : null;
-  if(Array.isArray(meteoAll)){
-    const stationRows=meteoAll.map(st=>({
-      id:String(st.kod_stacji??st.id_stacji??""),
-      name:String(st.nazwa_stacji??st.stacja??"—"),
-      lat:Number(st.lat),lng:Number(st.lon??st.lng),
-      distanceKm:(Number.isFinite(Number(st.lat))&&Number.isFinite(Number(st.lon??st.lng)))?Math.round(stationDist(lat,lng,Number(st.lat),Number(st.lon??st.lng))*10)/10:null,
-      temperature:st.temperatura_powietrza??st.temperatura??null,
-      temperatureAt:st.temperatura_powietrza_data??st.temperatura_data??null,
-      humidity:st.wilgotnosc_wzgledna??null,
-      humidityAt:st.wilgotnosc_wzgledna_data??null,
-      wind:st.wiatr_srednia_predkosc??null,
-      windAt:st.wiatr_srednia_predkosc_data??null,
-      rain10:st.opad_10min??null,
-      rain10At:st.opad_10min_data??null
-    })).sort((a,b)=>(a.distanceKm??Infinity)-(b.distanceKm??Infinity));
-    S.imgwDiag={...(S.imgwDiag||{}),stationCount:meteoAll.length,nearbyStations:stationRows.slice(0,15)};
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-  }
 
-  if(glodowo){
-    // Zachowujemy prawdziwy rekord z IMGW PRZED wyzerowaniem pól przez TTL,
-    // żeby diagnostyka rozróżniała "parser odczytał dane" od "pole odrzucone jako stare".
-    const rawGlodowoBeforeValidation={...glodowo};
-    // WAŻNE: świeżość oceniamy osobno dla każdego pomiaru, nie dla całej paczki.
-    // Głodowo raportuje cyklicznie około godzinowo. 120 min to maksymalny
-    // techniczny TTL awaryjny; wiek pomiaru nadal jest zachowany i raportowany.
-    // Nigdy nie udajemy, że starszy pomiar jest bieżący.
-    const imgwValidation=validateImgwStationFields(glodowo,fetchedAt,120);
-    Object.assign(glodowo,imgwValidation.data);
+  if(rawGlodowo){
+    const dist=stationDist(lat,lng,52.8306,19.2356);
+    const distRounded=Math.round(dist*10)/10;
+    const nowMs=Date.now();
+
+    const normalized=normalizeImgwStationRecord(rawGlodowo,nowMs,IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot);
+    if(normalized){
+      normalized.dist=distRounded;
+    }
+
+    const anyUsable=normalized?.anyUsable===true;
+
+    // Diagnostyka telemetryczna per pole
+    const diagSummary=[
+      normalized.tempFresh?`temperatura ${normalized.tempAgeMinutes} min`:normalized.temperatura_data?`temperatura ${normalized.tempAgeMinutes} min (odrzucona >${IMGW_MAX_FIELD_AGE_MINUTES} min)`:null,
+      normalized.humidityFresh?`wilgotność ${normalized.humidityAgeMinutes} min`:normalized.wilgotnosc_wzgledna_data?`wilgotność ${normalized.humidityAgeMinutes} min (odrzucona)`:null,
+      normalized.windFresh?`wiatr ${normalized.windAgeMinutes} min`:normalized.predkosc_wiatru_data?`wiatr ${normalized.windAgeMinutes} min (odrzucony)`:null,
+      normalized.windDirFresh?`kierunek ${normalized.windDirAgeMinutes} min`:null,
+      normalized.opad10minFresh?`opad ${normalized.opad10minAgeMinutes} min`:null
+    ].filter(Boolean).join(", ");
 
     S.imgwDiag={
       ...(S.imgwDiag||{}),
-      stale_fields:imgwValidation.stale_fields,
-      staleWarnings:imgwValidation.warnings,
-      fieldFreshnessTtlMinutes:120,
-      snapshotAgeMinutes:Number.isFinite(snapshotAgeMinutes)?Math.max(0,Math.round(snapshotAgeMinutes)):null,
-      snapshotFresh
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-
-    const __rawTempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
-    S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",stationCode:String(glodowo.kod_stacji??glodowo.id_stacji??"252190030"),temperature:glodowo.temperatura_powietrza??glodowo.temperatura??null,timestamp:glodowo.temperatura_powietrza_data??glodowo.temperatura_data??null,rawTempFields:__rawTempFields,rawKeys:Object.keys(glodowo||{}),rawStation:rawGlodowoBeforeValidation,rawGlodowo:{code:String(rawGlodowoBeforeValidation.kod_stacji??rawGlodowoBeforeValidation.id_stacji??""),name:rawGlodowoBeforeValidation.nazwa_stacji??rawGlodowoBeforeValidation.stacja??null,lat:Number(rawGlodowoBeforeValidation.lat),lng:Number(rawGlodowoBeforeValidation.lon??rawGlodowoBeforeValidation.lng),temperature:rawGlodowoBeforeValidation.temperatura_powietrza??rawGlodowoBeforeValidation.temperatura??null,temperatureAt:rawGlodowoBeforeValidation.temperatura_powietrza_data??rawGlodowoBeforeValidation.temperatura_data??null,humidity:rawGlodowoBeforeValidation.wilgotnosc_wzgledna??null,humidityAt:rawGlodowoBeforeValidation.wilgotnosc_wzgledna_data??null,wind:rawGlodowoBeforeValidation.wiatr_srednia_predkosc??null,windAt:rawGlodowoBeforeValidation.wiatr_srednia_predkosc_data??null,rain10:rawGlodowoBeforeValidation.opad_10min??null,rain10At:rawGlodowoBeforeValidation.opad_10min_data??null}};
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-
-    const dist=stationDist(lat,lng,52.8306,19.2356);
-    const tempRaw = glodowo.temperatura_powietrza ?? glodowo.temperatura;
-    const tempTimestampRaw = glodowo.temperatura_powietrza_data ?? glodowo.temperatura_data;
-    const observedAt=parseImgwMeteoTimestamp(tempTimestampRaw);
-    const rawAge=observedAt==null?null:(fetchedAt-observedAt)/60000;
-    const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
-    const __allFields=Object.keys(glodowo||{});
-    const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
-    const __rawAllFields=Object.keys(rawGlodowoBeforeValidation||{});
-    const __candidateTemps=__rawAllFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:rawGlodowoBeforeValidation[k],num:parseFloat(String(rawGlodowoBeforeValidation[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
-    const temp=parseFloat(String(tempRaw ?? "").replace(",","."));
-    const humidityObservedAt=parseImgwMeteoTimestamp(glodowo.wilgotnosc_wzgledna_data);
-    const windObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_srednia_predkosc_data);
-    const windDirObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_kierunek_data);
-    const groundObservedAt=parseImgwMeteoTimestamp(glodowo.temperatura_gruntu_data);
-
-    // Każdy parametr IMGW ma własny timestamp. Świeżo pobrana paczka
-    // nie oznacza, że wszystkie pola w środku są świeże.
-    const fieldAge=ts=>{
-      if(ts==null)return null;
-      const age=(fetchedAt-ts)/60000;
-      if(!Number.isFinite(age)||age<0)return null;
-      return Math.round(age);
-    };
-
-    const IMGW_FIELD_MAX_AGE_MIN=120;
-
-    const validateFieldFreshness=(value,ts,maxAge=IMGW_FIELD_MAX_AGE_MIN)=>{
-      const numeric=Number(value);
-      const age=fieldAge(ts);
-      const fresh=Number.isFinite(numeric)&&age!=null&&age<=maxAge;
-      if(!fresh&&age!=null&&age>maxAge){
-        console.warn("[IMGW] Zamrożone pole — ignoruję przestarzały odczyt:",{
-          value:numeric,
-          ageMinutes:age,
-          maxAgeMinutes:maxAge,
-          timestamp:ts?new Date(ts).toISOString():null
-        });
-      }
-      return {value:fresh?numeric:null,ageMinutes:age,isFresh:fresh};
-    };
-
-    const humidityAgeMinutes=fieldAge(humidityObservedAt);
-    const windAgeMinutes=fieldAge(windObservedAt);
-    const windDirAgeMinutes=fieldAge(windDirObservedAt);
-    const groundAgeMinutes=fieldAge(groundObservedAt);
-    // Jeden kanoniczny TTL dla obserwacji Głodowa. Nie może istnieć drugi
-    // limit 120 min, który pozwala użyć zamrożonego pola po walidacji 30 min.
-    const IMGW_CANONICAL_MAX_AGE_MIN=120;
-    const TEMP_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
-    const HUMIDITY_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
-    const WIND_MAX_AGE_MIN=IMGW_CANONICAL_MAX_AGE_MIN;
-    const tempFresh=ageMinutes!=null&&ageMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
-    const humidityFresh=humidityAgeMinutes!=null&&humidityAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
-    const windFresh=windAgeMinutes!=null&&windAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
-    const windDirFresh=windDirAgeMinutes!=null&&windDirAgeMinutes<=IMGW_CANONICAL_MAX_AGE_MIN;
-
-    // Opad jest już odfiltrowany przez centralny walidator.
-    const rain10Raw=parseFloat(String(glodowo.opad_10min??"").replace(",","."));
-    const rain10ObservedAt=parseImgwMeteoTimestamp(glodowo.opad_10min_data);
-    const rain10AgeMinutes=rain10ObservedAt==null?null:Math.max(0,Math.round((fetchedAt-rain10ObservedAt)/60000));
-    const rain10Fresh=Number.isFinite(rain10Raw)&&!imgwValidation.stale_fields.includes("opad_10min");
-    const rain10={value:rain10Fresh?rain10Raw:null,ageMinutes:rain10AgeMinutes,isFresh:rain10Fresh};
-
-    // Czas prezentowany użytkownikowi = najświeższy faktycznie użyty parametr.
-    // Temperatura może być starsza od wilgotności/wiatru i nie może narzucać czasu całego rekordu.
-    // Diagnostyka pokazuje ostatni timestamp faktycznie odebrany z IMGW,
-    // nawet gdy wszystkie pola są już poza TTL użycia. "Brak" oznacza odtąd
-    // wyłącznie brak jakiegokolwiek timestampu w rekordzie stacji.
-    const latestReceivedCandidates=[
-      observedAt,
-      humidityObservedAt,
-      windObservedAt,
-      windDirObservedAt,
-      groundObservedAt,
-      rain10ObservedAt
-    ].filter(Number.isFinite);
-    const latestObservedAt=latestReceivedCandidates.length?Math.max(...latestReceivedCandidates):null;
-    const latestAgeMinutes=latestObservedAt==null?null:Math.max(0,Math.round((fetchedAt-latestObservedAt)/60000));
-
-    const distRounded=Math.round(dist*10)/10;
-    const distOK=dist<=30;
-    const tempOK=Number.isFinite(temp);
-    const ageOK=tempFresh;
-    if(S.imgwDiag)S.imgwDiag={
-      ...S.imgwDiag,
-      temperature:Number.isFinite(temp)?temp:null,
-      timestamp:latestObservedAt,
-      ageMinutes:latestAgeMinutes,
+      found:true,
+      station:normalized.stacja||"Głodowo",
       dist:distRounded,
-      rawAge,
-      distOK,
-      tempOK,
-      ageOK
+      isFallback:isSnapshot,
+      fetchedAt,
+      normalized,
+      fieldFreshnessTtlMinutes:IMGW_MAX_FIELD_AGE_MINUTES,
+      freshFields:normalized.freshFields,
+      staleFields:normalized.staleFields,
+      diagSummary,
+      sourceType:normalized.sourceType,
+      sourceLabel:normalized.sourceLabel,
+      temperature:normalized.temperatura,
+      humidity:normalized.wilgotnosc_wzgledna,
+      wind:normalized.predkosc_wiatru,
+      rain:normalized.opad_10min,
+      observedAt:normalized.observedAt,
+      ageMinutes:normalized.ageMinutes,
+      rawStation:rawGlodowo
     };
 
-    const tempFields=Object.keys(rawGlodowoBeforeValidation||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=rawGlodowoBeforeValidation[k];return o;},{});
-    console.log("IMGW Głodowo diagnostyka:",{
-      kod_stacji:glodowo.kod_stacji,
-      nazwa:glodowo.nazwa_stacji,
-      temperatura:(glodowo.temperatura_powietrza ?? glodowo.temperatura),
-      temperatura_data:(glodowo.temperatura_powietrza_data ?? glodowo.temperatura_data),
-      tempFields,
-      rawAge,
-      ageMinutes,
-      dist:distRounded,
-      distOK,
-      tempOK,
-      ageOK,
-      stale_fields:imgwValidation.stale_fields,
-      rawStation:glodowo
-    });
-
-    const usableTemp=Number.isFinite(temp)&&tempFresh;
-    const usableHumidity=Number.isFinite(parseFloat(glodowo.wilgotnosc_wzgledna))&&humidityFresh;
-    const usableWind=Number.isFinite(parseFloat(glodowo.wiatr_srednia_predkosc))&&windFresh;
-    const usableWindDir=Number.isFinite(parseFloat(glodowo.wiatr_kierunek))&&windDirFresh;
-    const anyUsable=usableTemp||usableHumidity||usableWind||usableWindDir;
-
-    if(dist<=30){
-      const normalized={
-        ...glodowo,
-        id_stacji:"252190030",
-        stacja:glodowo.nazwa_stacji||"Głodowo",
-        name:"Głodowo",
-        lat:52.8306,
-        lng:19.2356,
-        dist:Math.round(dist*10)/10,
-        temperatura:usableTemp?temp:null,
-        wilgotnosc_wzgledna:usableHumidity?parseFloat(glodowo.wilgotnosc_wzgledna):null,
-        wilgotnosc_wzgledna_data:glodowo.wilgotnosc_wzgledna_data||null,
-        tempAgeMinutes:ageMinutes,
-        humidityAgeMinutes:humidityAgeMinutes,
-        windAgeMinutes:windAgeMinutes,
-        windDirAgeMinutes:windDirAgeMinutes,
-        wilgotnosc_wzgledna_ageMinutes:humidityAgeMinutes,
-        predkosc_wiatru:usableWind?parseFloat(glodowo.wiatr_srednia_predkosc):null,
-        predkosc_wiatru_data:glodowo.wiatr_srednia_predkosc_data||null,
-        predkosc_wiatru_ageMinutes:windAgeMinutes,
-        kierunek_wiatru:usableWindDir?parseFloat(glodowo.wiatr_kierunek):null,
-        kierunek_wiatru_data:glodowo.wiatr_kierunek_data||null,
-        kierunek_wiatru_ageMinutes:windDirAgeMinutes,
-        cisnienie:null,
-        temperatura_gruntu:parseFloat(glodowo.temperatura_gruntu),
-        temperatura_gruntu_data:glodowo.temperatura_gruntu_data||null,
-        opad_10min:rain10.value,
-        opad_10min_data:glodowo.opad_10min_data||null,
-        opad10minAgeMinutes:rain10.ageMinutes,
-        opad10minFresh:rain10.isFresh,
-        opad10minStale:!rain10.isFresh,
-        opad10minIgnored:!rain10.isFresh,
-        poryw_wiatru:parseFloat(glodowo.wiatr_predkosc_maksymalna),
-        poryw_wiatru_data:glodowo.wiatr_predkosc_maksymalna_data||null,
-        porywWiatruAgeMinutes:(fieldAge(parseImgwMeteoTimestamp(glodowo.wiatr_predkosc_maksymalna_data))??windAgeMinutes),
-        porywWiatruFresh:(Number.isFinite(parseFloat(glodowo.wiatr_predkosc_maksymalna))&&((fieldAge(parseImgwMeteoTimestamp(glodowo.wiatr_predkosc_maksymalna_data))??windAgeMinutes)<=20)),
-        // Ogólny czas stacji = najświeższy użyty parametr, niekoniecznie temperatura.
-        observedAt:latestObservedAt,
-        fetchedAt,
-        ageMinutes:latestAgeMinutes,
-        latestObservedAt,
-        latestAgeMinutes,
-        isFresh:anyUsable,
-        tempFresh:usableTemp,
-        humidityFresh:usableHumidity,
-        windFresh:usableWind,
-        windDirFresh:usableWindDir,
-        sourceType:"IMGW_METEO"
+    if(dist<=30 && anyUsable){
+      S.imgwDiag={
+        ...S.imgwDiag,
+        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary} → ACCEPTED`,
+        used:true,
+        reason:null
       };
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:anyUsable?"użyto Głodowa":"Głodowo znalezione — brak świeżych pól",used:anyUsable,found:true};
-      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km), T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}°`);
+      window.__AURA_IMGW_DIAG=S.imgwDiag;
+      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}° (fresh: ${normalized.freshFields.join(",")})`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      const rejectReason=dist>30?"za daleko":"nieznany";
-      if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields:__tempFields,candidateTemps:__candidateTemps,keys:__allFields,rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
+      const rejectReason=dist>30?"za daleko (>30 km)":!anyUsable?`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`:"nieznany";
+      S.imgwDiag={
+        ...S.imgwDiag,
+        status:`IMGW Głodowo: ${diagSummary} → REJECTED (${rejectReason}) → Active Ensemble`,
+        used:false,
+        reason:rejectReason
+      };
+      window.__AURA_IMGW_DIAG=S.imgwDiag;
+      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,freshFields:normalized.freshFields,staleFields:normalized.staleFields});
     }
-  }else if(S.imgwDiag){
-    S.imgwDiag={...S.imgwDiag,status:"Głodowo nie znalezione",found:false,used:false};
+  }else{
+    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:meteoAll?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false,reason:"brak stacji 252190030 w danych"};
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
   }
 
-  if(!glodowo) {
-    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:Array.isArray(meteoAll)?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false};
-    console.warn("IMGW Głodowo: stacja 252190030 nie została znaleziona w feedzie METEO",{meteoAvailable:Array.isArray(meteoAll),meteoCount:Array.isArray(meteoAll)?meteoAll.length:0});
-  }
-
-  if(!meteoAll||!Array.isArray(meteoAll)||meteoAll.length===0)return null;
+  if(!all||!Array.isArray(all)||all.length===0)return null;
 
   const results=[];
-  meteoAll.forEach(s=>{
+  all.forEach(s=>{
     const known=IMGW_STATIONS.find(k=>{
       const nameMatch=s.stacja&&(
         s.stacja.toLowerCase()===k.name.toLowerCase()||
@@ -1648,7 +1440,7 @@ function ensembleArray(records,path,indexer){
   const vals=records.map(indexer).filter(Number.isFinite);
   return ensembleFinite(vals);
 }
-function buildOfflineEnsemble(modelResults,ensembleMode="IMGW_OFFLINE"){
+function buildOfflineEnsemble(modelResults){
   const records=modelResults.filter(r=>OFFLINE_ENSEMBLE_MODELS.includes(r.model)&&r.data);
   if(!records.length)return null;
   const longestHourly=records.reduce((a,r)=>(r.data?.hourly?.time?.length||0)>(a.data?.hourly?.time?.length||0)?r:a,records[0]);
@@ -1706,7 +1498,7 @@ function buildOfflineEnsemble(modelResults,ensembleMode="IMGW_OFFLINE"){
   const cloudNow=ensembleFinite(records.map(r=>Number(r.data?.current?.cloud_cover)));
   base.__auraEnsemble={
     active:true,
-    mode:ensembleMode,
+    mode:"IMGW_OFFLINE",
     models:records.map(r=>r.model),
     modelCount:records.length,
     cloudCoverConsensus:cloudNow,
@@ -1929,7 +1721,7 @@ function correctMinutelyPrecipitation(slots, imgwData){
     Number.isFinite(stationPrecip) &&
     stationPrecip<=0 &&
     Number.isFinite(stationDist) &&
-    stationDist<=5 &&
+    stationDist<=30 &&
     (!Number.isFinite(stationAge)||stationAge<=30);
 
   return slots.map(slot=>{
@@ -1953,270 +1745,25 @@ function correctMinutelyPrecipitation(slots, imgwData){
   });
 }
 
-function enforceForecastPrecipitationConsensus(data,modelRecords,nowcast=[]){
-  if(!data?.hourly?.time||!Array.isArray(modelRecords))return null;
-  const h=data.hourly;
-  const ci=currentHourIndex(data,new Date());
-  let correctedCount=0;
-  const decisions=[];
-
-  const minutelyConfirmsAt=(time)=>{
-    const target=Date.parse(String(time));
-    if(!Number.isFinite(target)||!Array.isArray(nowcast))return false;
-    const nearby=nowcast.filter(x=>{
-      const t=Date.parse(String(x?.t));
-      return Number.isFinite(t)&&Math.abs(t-target)<=30*60000&&Number(x?.mm)>0.05;
-    });
-    return nearby.length>=2;
-  };
-
-  for(let i=Math.max(ci+1,0);i<h.time.length;i++){
-    const time=h.time[i];
-    const raw=Number(h.precipitation?.[i]);
-    if(!Number.isFinite(raw)||raw<=0||raw>0.4)continue;
-
-    let support=0;
-    const supportingModels=[];
-    for(const rec of modelRecords){
-      const mh=rec?.data?.hourly;
-      const mi=findHourIndexByTime(mh?.time,time);
-      const mm=mi>=0?Number(mh?.precipitation?.[mi]):NaN;
-      if(Number.isFinite(mm)&&mm>0.05){
-        support++;
-        supportingModels.push(rec.model||rec.name||"model");
-      }
-    }
-
-    const minutelyConfirmed=minutelyConfirmsAt(time);
-    const accepted=support>=2||minutelyConfirmed;
-
-    decisions.push({
-      time,
-      rawMm:raw,
-      modelSupport:support,
-      supportingModels,
-      minutelyConfirmed,
-      accepted
-    });
-
-    if(!accepted){
-      // Brak potwierdzenia nie oznacza automatycznie 0 mm.
-      // Mikroopad pozostaje informacją prognostyczną; tylko nie tworzy zdarzenia.
-      if(Array.isArray(h.precipitation_probability)){
-        const pop=Number(h.precipitation_probability[i]);
-        if(Number.isFinite(pop))h.precipitation_probability[i]=clamp(pop,0,100);
-      }
-    }
-  }
-
-  h.__auraForecastPrecipitationConsensus={
-    applied:correctedCount>0,
-    correctedCount,
-    policy:"micro-opad <=0.4 mm/h wymaga potwierdzenia przez >=2 modele albo minutely",
-    decisions:decisions.slice(0,24)
-  };
-  return h.__auraForecastPrecipitationConsensus;
-}
-
 function correctHourlyPrecipitation(hourlyData,imgwData){
-  // WAŻNE: mutujemy TEN SAM obiekt hourly, który pochodzi z Open-Meteo.
-  // Nie tworzymy kopii, żeby żaden renderer nie mógł przypadkiem dostać surowej tablicy.
-  if(!hourlyData||!Array.isArray(hourlyData.time))return hourlyData;
-
-  const stationPrecip=Number(imgwData?.opad_10min);
-  const stationAge=Number(imgwData?.opad10minAgeMinutes);
-  const stationDist=Number(imgwData?.dist);
-
-  const stationDry=
-    imgwData?.opad10minFresh===true &&
-    Number.isFinite(stationPrecip) &&
-    stationPrecip<=0 &&
-    Number.isFinite(stationDist) &&
-    stationDist<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
-
-  if(!stationDry)return hourlyData;
-
-  let correctedCount=0;
-  const nowIdx=currentHourIndex({hourly:hourlyData},new Date());
-
-  for(let i=Math.max(0,nowIdx);i<hourlyData.time.length;i++){
-    const precipitation=Number(hourlyData.precipitation?.[i]);
-    const rain=Number(hourlyData.rain?.[i]);
-    const showers=Number(hourlyData.showers?.[i]);
-    const snowfall=Number(hourlyData.snowfall?.[i]);
-    const candidates=[precipitation,rain,showers,snowfall].filter(Number.isFinite);
-    const precipValue=candidates.length?Math.max(...candidates):null;
-
-    // Czyścimy wyłącznie śladowe 0–0.4 mm/h. Realnego opadu >0.4 mm/h
-    // świeże IMGW nie może automatycznie wyzerować.
-    if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
-    // Nie kasujemy mikroopadu z prognozy. Ten etap odpowiada za stan
-    // bieżący oparty o świeże IMGW; przyszły mikroopad jest oceniany
-    // osobno przez consensus/event engine.
-    correctedCount++;
-  }
-
-  hourlyData.__auraHourlyPrecipitationCorrection={
-    applied:correctedCount>0,
-    correctedCount,
-    reason:"IMGW_Glodowo_0mm",
-    stationDistanceKm:stationDist,
-    stationAgeMinutes:Number.isFinite(stationAge)?stationAge:null,
-    thresholdMm:0.4,
-    probabilityCap:15,
-    mutatedInPlace:true
-  };
+  // Czyste dane z modeli Open-Meteo bez sztucznego zerowania opadów
   return hourlyData;
 }
 
-// KANONICZNA GRANICA FUZJI — po tym punkcie current/hourly/daily są już
-// stanem Aury. Renderery nie mogą korzystać z osobnych surowych tablic modelu.
+// KANONICZNA GRANICA FUZJI — czysty przepływ z modeli bez sztucznego zerowania opadów
 function applyCanonicalWeatherFusion(data,imgwData){
   if(!data?.current)return {applied:false,reason:"brak current"};
-
-  const cur=data.current;
-  const hourly=data.hourly;
-  const daily=data.daily;
-  const stationPrecip=Number(imgwData?.opad_10min);
-  const stationAge=Number(imgwData?.opad10minAgeMinutes);
-  const stationDist=Number(imgwData?.dist);
-
-  const stationDry=
-    imgwData?.opad10minFresh===true &&
-    Number.isFinite(stationPrecip) &&
-    stationPrecip<=0 &&
-    Number.isFinite(stationDist) &&
-    stationDist<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
-
-  if(!stationDry){
-    data.__auraCanonicalFusion={applied:false,reason:"IMGW brak świeżego 0 mm"};
-    return data.__auraCanonicalFusion;
-  }
-
-  // 1) TERAZ — świeże 0 mm z Głodowa jest twardym dowodem braku opadu.
-  cur.precipitation=0;
-  cur.rain=0;
-  cur.showers=0;
-  cur.snowfall=0;
-
-  // Jeżeli bieżący kod jest opadowy, przeliczamy go z już sfuzowanego cloud_cover.
-  if(isRainCode(cur.weather_code)){
-    const cloud=Number(cur.cloud_cover);
-    cur.weather_code=Number.isFinite(cloud)
-      ?(cloud<=20?0:cloud<=40?2:cloud<=70?3:3)
-      :0;
-  }
-
-  // 2) NAJBLIŻSZE 6 GODZIN — mikroopad i odpowiadający mu POP są czyszczone
-  // bez tworzenia kopii tablic. Dzięki temu każdy komponent widzi ten sam stan.
-  if(hourly?.time?.length){
-    const ci=currentHourIndex(data,new Date());
-    // Mikroopad <=0.4 mm jest artefaktem krótkoterminowym, który nie może
-    // wracać na dalszych kolumnach 48h po tym, jak filtr uznał go za fałszywy.
-    // Nie kasujemy realnych opadów >0.4 mm.
-    const end=hourly.time.length;
-    for(let i=ci;i<end;i++){
-      const vals=[
-        Number(hourly.precipitation?.[i]),
-        Number(hourly.rain?.[i]),
-        Number(hourly.showers?.[i]),
-        Number(hourly.snowfall?.[i])
-      ].filter(Number.isFinite);
-      const mm=vals.length?Math.max(...vals):0;
-
-      if(mm>0&&mm<=0.4){
-        // Mikroopad pozostaje w osi prognostycznej. Świeże 0 mm z IMGW
-        // opisuje stan TERAZ, ale nie zeruje automatycznie przyszłej prognozy.
-        // Kwalifikacja zdarzenia odbywa się osobno w buildCanonicalPrecipitation().
-      }
-    }
-
-    // Twarda korekta bieżącego zachmurzenia: przy świeżym suchym Głodowie
-    // i braku potwierdzonego opadu nie pozwalamy modelowi utrzymać 70–100%.
-    // 40% jest granicą "częściowego zachmurzenia" dla stanu wizualnego.
-    const currentCloud=Number(cur.cloud_cover);
-    const currentCode=Number(cur.weather_code);
-    if(Number.isFinite(currentCloud)&&!isRainCode(currentCode)){
-      cur.cloud_cover=Math.min(currentCloud,40);
-    }
-
-    // Ta sama kanoniczna wartość trafia do najbliższych godzin, ale tylko
-    // tam, gdzie model sam nie przewiduje rzeczywistego opadu >0.4 mm/h.
-    for(let i=ci;i<end;i++){
-      const mm=Math.max(
-        Number(hourly.precipitation?.[i])||0,
-        Number(hourly.rain?.[i])||0,
-        Number(hourly.showers?.[i])||0,
-        Number(hourly.snowfall?.[i])||0
-      );
-      if(mm<=0.4&&Array.isArray(hourly.precipitation_probability)){
-        const p=Number(hourly.precipitation_probability[i]);
-        if(Number.isFinite(p))hourly.precipitation_probability[i]=Math.min(p,15);
-      }
-      if(mm<=0.4&&Array.isArray(hourly.weather_code)&&isRainCode(Number(hourly.weather_code[i]))){
-        const c=Number(hourly.cloud_cover?.[i]);
-        hourly.weather_code[i]=Number.isFinite(c)
-          ?(c<=20?0:c<=70?2:3)
-          :0;
-      }
-      if(mm<=0.4&&Array.isArray(hourly.cloud_cover)){
-        const c=Number(hourly.cloud_cover[i]);
-        if(Number.isFinite(c))hourly.cloud_cover[i]=Math.min(c,40);
-      }
-      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_low)){
-        const c=Number(hourly.cloud_cover_low[i]);
-        if(Number.isFinite(c))hourly.cloud_cover_low[i]=Math.min(c,40);
-      }
-      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_mid)){
-        const c=Number(hourly.cloud_cover_mid[i]);
-        if(Number.isFinite(c))hourly.cloud_cover_mid[i]=Math.min(c,40);
-      }
-      if(mm<=0.4&&Array.isArray(hourly.cloud_cover_high)){
-        const c=Number(hourly.cloud_cover_high[i]);
-        if(Number.isFinite(c))hourly.cloud_cover_high[i]=Math.min(c,40);
-      }
-    }
-  }
-
-  // 3) DZISIAJ — dzienny kafel nie może pokazywać "nieprzemakalnych butów"
-  // tylko dlatego, że model zsumował śladowe 0–0.4 mm.
-  if(daily?.time?.length){
-    const todayIndex=0;
-    const dayMm=Number(daily.precipitation_sum?.[todayIndex]);
-    if(Number.isFinite(dayMm)&&dayMm<=0.4){
-      if(Array.isArray(daily.precipitation_sum))daily.precipitation_sum[todayIndex]=0;
-      if(Array.isArray(daily.precipitation_probability_max)){
-        const p=Number(daily.precipitation_probability_max[todayIndex]);
-        if(Number.isFinite(p))daily.precipitation_probability_max[todayIndex]=Math.min(p,15);
-      }
-      if(Array.isArray(daily.weather_code)&&isRainCode(Number(daily.weather_code[todayIndex]))){
-        daily.weather_code[todayIndex]=isRainCode(Number(cur.weather_code))
-          ?2
-          :Number(cur.weather_code)||0;
-      }
-    }
-  }
-
   data.__auraCanonicalFusion={
-    applied:true,
-    mutatedInPlace:true,
-    station:"Głodowo",
-    stationDistanceKm:stationDist,
-    stationAgeMinutes:Number.isFinite(stationAge)?stationAge:null,
-    currentCloud:Number(cur.cloud_cover),
-    currentPrecipitation:Number(cur.precipitation),
-    hourlyWindowHours:6,
-    microPrecipThresholdMm:0.4,
-    popCap:15
+    applied:false,
+    reason:"raw_model_flow",
+    station:"Głodowo"
   };
   return data.__auraCanonicalFusion;
 }
 
 async function apiMinutely(lat,lng){
   try{
-    const r=await auraFetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code,visibility&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{cache:"no-store",signal:AbortSignal.timeout(8000)});
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&minutely_15=precipitation,rain,weather_code,visibility&hourly=precipitation,precipitation_probability&forecast_days=2&past_minutely_15=1&timezone=auto`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)return null;
     const d=await r.json();
     const t=d.minutely_15?.time,p=d.minutely_15?.precipitation,rain=d.minutely_15?.rain,code=d.minutely_15?.weather_code,visibility=d.minutely_15?.visibility;
@@ -2256,7 +1803,7 @@ async function apiMinutely(lat,lng){
 // Jakość powietrza + pyłki (Open-Meteo Air Quality)
 async function apiAir(lat,lng){
   try{
-    const r=await auraFetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=european_aqi,pm10,pm2_5,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,ragweed_pollen&timezone=auto`,{cache:"no-store",signal:AbortSignal.timeout(8000)});
+    const r=await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=european_aqi,pm10,pm2_5,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,ragweed_pollen&timezone=auto`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)return null;
     const d=await r.json();
     return d.current||null;
@@ -2395,19 +1942,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,netDiag:[]};
-
-function auraFetch(input,init={}){
-  const started=performance.now();
-  const url=typeof input==="string"?input:(input?.url||String(input));
-  const endpoint=String(url).replace(/([?&](?:ts|_aura_ts|timestamp)=)[^&]*/gi,"$1<ts>");
-  const rec={id:Math.random().toString(36).slice(2,8),startedAt:Date.now(),endpoint,method:String(init?.method||"GET").toUpperCase(),status:null,ok:false,durationMs:null,error:null};
-  S.netDiag=Array.isArray(S.netDiag)?S.netDiag:[];
-  S.netDiag.push(rec);
-  if(S.netDiag.length>80)S.netDiag.splice(0,S.netDiag.length-80);
-  const mark=(patch)=>Object.assign(rec,patch,{durationMs:Math.round(performance.now()-started)});
-  return window.fetch(input,init).then(res=>{mark({status:res.status,ok:res.ok});return res;},err=>{mark({status:null,ok:false,error:String(err?.message||err)});throw err;});
-}
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
@@ -2417,333 +1952,190 @@ const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"sho
 // To jest estymacja wizualna, a nie zamiennik surowego cloud_cover.
 // Low/mid/high opisują warstwy; promieniowanie i UV są sygnałami kontrolnymi.
 // ═══════════════════════════════════════════════
-function classifyPrecipitationSeries(slots){
-  const xs=(Array.isArray(slots)?slots:[])
-    .map(x=>({...x,ts:Date.parse(String(x?.t)),mm:Number(x?.mm)}))
-    .filter(x=>Number.isFinite(x.ts)&&Number.isFinite(x.mm)&&x.ts>=Date.now())
-    .sort((a,b)=>a.ts-b.ts);
-  if(!xs.length)return {type:"none",label:"Brak opadu",durationMin:0,intermittent:false,totalMm:0,peakMmH:0};
+function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
+  if(!data?.hourly?.time) return;
 
-  const wet=xs.filter(x=>x.mm>0.05);
-  if(!wet.length)return {type:"none",label:"Brak opadu",durationMin:0,intermittent:false,totalMm:0,peakMmH:0};
+  const nowMs = Date.now();
+  const hourly = data.hourly;
+  const ci = currentHourIndex(data, new Date(nowMs));
 
-  const first=wet[0], last=wet[wet.length-1];
-  const durationMin=Math.max(15,Math.round((last.ts-first.ts)/60000)+15);
-  const gaps=[];
-  for(let i=1;i<wet.length;i++)gaps.push(Math.round((wet[i].ts-wet[i-1].ts)/60000));
-  const intermittent=gaps.some(g=>g>=30);
-  const totalMm=wet.reduce((s,x)=>s+x.mm,0);
-  const peakMmH=Math.max(...wet.map(x=>x.mm*4));
-
-  const code=Number(first.code);
-  let type="rain",label="Deszcz";
-  if(isStormCode(code)||wet.some(x=>isStormCode(x.code))){
-    type="storm";label="Burza z opadem";
-  }else if(isSnowCode(code)||wet.some(x=>isSnowCode(x.code))){
-    const t=Number(S.data?.current?.temperature_2m);
-    if(Number.isFinite(t)&&t<=1){
-      type="snow";label="Śnieg";
-    }else{
-      type="sleet";label="Deszcz ze śniegiem";
-    }
-  }else if(peakMmH<0.4){
-    type="drizzle";label="Mżawka / pojedyncze krople";
-  }else if(peakMmH<2.5){
-    type=intermittent?"showers_intermittent":"rain_light";
-    label=intermittent?"Przelotny słaby deszcz":"Słaby deszcz";
-  }else if(peakMmH<7.6){
-    type=intermittent?"showers_intermittent":"rain_moderate";
-    label=intermittent?"Przelotny deszcz":"Umiarkowany deszcz";
-  }else{
-    type=intermittent?"showers_heavy":"rain_heavy";
-    label=intermittent?"Przelotne silne opady":"Silny deszcz";
-  }
-
-  if(intermittent&&!/Burza|Śnieg|ze śniegiem/.test(label)&&type!=="drizzle"){
-    label=label.replace(/^Słaby deszcz$/,"Przelotny słaby deszcz")
-      .replace(/^Umiarkowany deszcz$/,"Przelotny deszcz")
-      .replace(/^Silny deszcz$/,"Przelotne silne opady");
-  }
-
-  return {type,label,durationMin,intermittent,totalMm:+totalMm.toFixed(2),peakMmH:+peakMmH.toFixed(2)};
-}
-
-function buildCanonicalPrecipitation(data,nowcast){
-  const hourly=data?.hourly||{};
-  const now=Date.now();
-
-  // KANONICZNA INTERPRETACJA OPADU:
-  // - 15-min nowcast jest nadrzędny w najbliższych 2 h,
-  // - pojedyncza kropla / ślad nie tworzy zdarzenia "deszcz",
-  // - najbliższe 45 min wymagają potwierdzenia co najmniej 2 slotami
-  //   minutely_15,
-  // - godzinowy mikroopad <=0.4 mm/h nie tworzy nextEvent sam z siebie,
-  // - wartości POP pozostają osobną informacją i nie są utożsamiane z opadem.
-  const MINUTE_TRACE=0.05;
-  const EVENT_MM=0.15;
-  const HOURLY_EVENT_MM=0.4;
-  const NEAR_MS=45*60*1000;
-
-  const minutely=Array.isArray(nowcast)
-    ?nowcast.map(x=>({
-      t:x?.t,
-      mm:Number(x?.mm),
-      pop:Number(x?.pop),
-      code:Number(x?.code),
-      source:"minutely_15"
-    }))
-      .filter(x=>Number.isFinite(Date.parse(String(x.t)))&&Number.isFinite(x.mm)&&x.mm>=0)
-      .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)))
-    :[];
-
-  const rawFutureMinutely=minutely.filter(x=>Date.parse(String(x.t))>=now);
-
-  // 15-minutowy model ICON-D2 nie może samodzielnie nadpisać aktywnego
-  // forecastu godzinowego. Szczególnie ważne jest zachowanie fizycznej
-  // spójności: opad z jednego okna 15 min nie może być większy od całego
-  // opadu przypisanego do tej samej godziny w kanonicznym hourly.
-  //
-  // Przykład błędu, który to odcina:
-  // minutely = 0.20 mm, hourly = 0.07 mm -> 0.20 mm > 0.07 mm,
-  // więc slot nie może być pokazany jako rzeczywisty opad.
-  const futureMinutely=rawFutureMinutely.filter(x=>{
-    const slotMm=Number(x?.mm);
-    const hourlyMm=Number(x?.hourlyMm);
-    if(!Number.isFinite(slotMm)||slotMm<=MINUTE_TRACE)return true;
-    if(!Number.isFinite(hourlyMm))return false;
-    return hourlyMm+0.001>=slotMm;
-  });
-
-  const rejectedMinutely=rawFutureMinutely.filter(x=>{
-    const slotMm=Number(x?.mm);
-    const hourlyMm=Number(x?.hourlyMm);
-    return Number.isFinite(slotMm)&&slotMm>MINUTE_TRACE&&
-      Number.isFinite(hourlyMm)&&hourlyMm+0.001<slotMm;
-  });
-
-  const nearMinutely=futureMinutely.filter(x=>{
-    const t=Date.parse(String(x.t));
-    return t<=now+NEAR_MS&&x.mm>MINUTE_TRACE;
-  });
-
-  // Zdarzenie minutely musi mieć realny sygnał w co najmniej dwóch slotach
-  // albo jeden slot o wyraźniejszym natężeniu. To odcina pojedyncze krople.
-  let minutelyEvent=null;
-  for(let i=0;i<futureMinutely.length;i++){
-    const first=futureMinutely[i];
-    const firstTs=Date.parse(String(first.t));
-    if(firstTs<now)continue;
-
-    const window=futureMinutely.filter(x=>{
-      const t=Date.parse(String(x.t));
-      return t>=firstTs&&t<=firstTs+45*60*1000&&x.mm>MINUTE_TRACE;
+  // 1. Synthesise minutely 15-min data into hourly arrays when available
+  if(Array.isArray(minutely) && minutely.length > 0){
+    const hourlyMap = new Map();
+    minutely.forEach(slot => {
+      if(!slot || !slot.t) return;
+      const d = new Date(slot.t);
+      if(!Number.isFinite(d.getTime())) return;
+      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      if(!hourlyMap.has(key)) hourlyMap.set(key, { mm: 0, maxPop: 0, count: 0, codes: [] });
+      const entry = hourlyMap.get(key);
+      const slotMm = Number(slot.mm ?? slot.rain ?? 0);
+      const slotPop = Number(slot.pop ?? 0);
+      if(Number.isFinite(slotMm)) entry.mm += Math.max(0, slotMm);
+      if(Number.isFinite(slotPop)) entry.maxPop = Math.max(entry.maxPop, slotPop);
+      if(slot.code != null) entry.codes.push(Number(slot.code));
+      entry.count++;
     });
-    const total=window.reduce((s,x)=>s+x.mm,0);
-    const peak=window.reduce((m,x)=>Math.max(m,x.mm),0);
 
-    if(peak>=EVENT_MM||(window.length>=2&&total>=EVENT_MM)){
-      minutelyEvent={
-        ...first,
-        mm:+Math.max(peak,total).toFixed(2),
-        startsAt:first.t,
-        kind:"rain",
-        confidence:window.length>=2?"minutely_confirmed":"minutely_strong",
-        supportingSlots:window.length
-      };
-      break;
+    hourly.time.forEach((ht, idx) => {
+      const d = new Date(ht);
+      if(!Number.isFinite(d.getTime())) return;
+      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      if(hourlyMap.has(key)){
+        const entry = hourlyMap.get(key);
+        hourly.precipitation[idx] = +entry.mm.toFixed(2);
+        hourly.precipitation_probability[idx] = Math.round(entry.maxPop);
+
+        if(entry.mm <= 0.05){
+          if(isRainCode(hourly.weather_code[idx])){
+            const cloud = Number(hourly.cloud_cover?.[idx] ?? 0);
+            hourly.weather_code[idx] = cloud <= 20 ? 0 : cloud <= 70 ? 2 : 3;
+          }
+        } else {
+          if(!isRainCode(hourly.weather_code[idx])){
+            hourly.weather_code[idx] = entry.codes.find(c => isRainCode(c)) || 61;
+          }
+        }
+      }
+    });
+  }
+
+  // 2. Strict rule: pr <= 0.05 -> non-rain weather_code; pr > 0.05 -> rain weather_code
+  for(let i = 0; i < hourly.time.length; i++){
+    const pr = Number(hourly.precipitation?.[i] ?? 0);
+    const code = Number(hourly.weather_code?.[i] ?? 0);
+    if(pr <= 0.05 && isRainCode(code)){
+      const cloud = Number(hourly.cloud_cover?.[i] ?? 0);
+      hourly.weather_code[i] = cloud <= 20 ? 0 : cloud <= 70 ? 2 : 3;
+    } else if(pr > 0.05 && !isRainCode(code)){
+      hourly.weather_code[i] = 61;
     }
   }
 
-  const hourlyEvents=[];
-  if(Array.isArray(hourly.time)){
-    for(let i=0;i<hourly.time.length;i++){
-      const t=Date.parse(String(hourly.time[i]));
-      const mm=Number(hourly.precipitation?.[i]);
-      const pop=Number(hourly.precipitation_probability?.[i]);
-      const code=Number(hourly.weather_code?.[i]);
-      if(!Number.isFinite(t)||t<now||!Number.isFinite(mm)||mm<=0.05)continue;
+  // 3. Update current hour ("Teraz", ci)
+  if(data.current){
+    const curPr = Number(hourly.precipitation[ci] ?? 0);
+    const curCode = Number(hourly.weather_code[ci] ?? 0);
+    const curPop = Number(hourly.precipitation_probability[ci] ?? 0);
 
-      const near=t<=now+NEAR_MS;
-      const nearConfirmed=near&&nearMinutely.length>=2;
-
-      // Najbliższe 45 min: sam hourly nie wystarcza.
-      if(near&&!nearConfirmed)continue;
-
-      // Po 45 min mikroopad <=0.4 mm/h pozostaje informacją prognostyczną,
-      // ale nie staje się automatycznie zdarzeniem deszczowym.
-      if(!near&&mm<=HOURLY_EVENT_MM)continue;
-
-      hourlyEvents.push({
-        t:hourly.time[i],
-        mm,
-        pop:Number.isFinite(pop)?pop:null,
-        code:Number.isFinite(code)?code:null,
-        source:"hourly",
-        startsAt:hourly.time[i],
-        kind:"rain",
-        confidence:nearConfirmed?"minutely+hourly":"hourly_consensus"
-      });
-    }
+    data.current.precipitation = curPr;
+    data.current.weather_code = curCode;
+    if(Number.isFinite(curPop)) data.current.precipitation_probability = curPop;
   }
 
-  // Wspólna oś zdarzeń. Minutely ma pierwszeństwo tylko wtedy, gdy samo
-  // spełnia warunek realnego zdarzenia. Nie pozwalamy, aby 0.2–0.3 mm/h
-  // z hourly utworzyło fałszywy "deszcz o 13:00".
-  const events=[...(minutelyEvent?[minutelyEvent]:[]),...hourlyEvents]
-    .filter(e=>Date.parse(String(e.t))>now)
-    .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)));
+  // 4. Update daily totals (Dziś, index 0)
+  if(data.daily?.time?.length){
+    const nowDate = new Date(nowMs);
+    const nowStr = `${nowDate.getFullYear()}-${pad(nowDate.getMonth()+1)}-${pad(nowDate.getDate())}`;
+    let todaySum = 0;
+    let todayMaxPop = 0;
+    let hasTodayHours = false;
 
-  // Event musi odpowiadać widocznemu slotowi 15-min >0.05 mm.
-  const next=events.find(e=>{
-    const ts=Date.parse(String(e?.startsAt||e?.t));
-    return Number.isFinite(ts)&&futureMinutely.some(x=>
-      Date.parse(String(x?.t))===ts&&Number(x?.mm)>0.05
-    );
-  })||null;
-  const current=Number(data?.current?.precipitation);
-  const classification=classifyPrecipitationSeries(futureMinutely);
+    hourly.time.forEach((ht, idx) => {
+      if(String(ht).slice(0, 10) === nowStr){
+        hasTodayHours = true;
+        todaySum += Number(hourly.precipitation?.[idx] ?? 0);
+        todayMaxPop = Math.max(todayMaxPop, Number(hourly.precipitation_probability?.[idx] ?? 0));
+      }
+    });
 
-  return {
-    current:Number.isFinite(current)?Math.max(0,current):0,
-    classification,
-    nextEvent:next?{...next,classification}:null,
-    source:next?.source||(
-      futureMinutely.length?"minutely_15":"hourly"
-    ),
-    // Renderery 15-min dostają pełną oś, ale nie mogą traktować śladu
-    // jako automatycznego zdarzenia deszczowego.
-    slots:futureMinutely.slice(0,17),
-    future:futureMinutely.slice(0,17),
-    minutely:futureMinutely.slice(0,17),
-    events:events.slice(0,32),
-    diagnostics:{
-      nearWindowMinutes:45,
-      traceThresholdMm:MINUTE_TRACE,
-      eventThresholdMm:EVENT_MM,
-      hourlyEventThresholdMm:HOURLY_EVENT_MM,
-      nearMinutelySlots:nearMinutely.length,
-      minutelyEvent:!!minutelyEvent,
-      rawFutureMinutelySlots:rawFutureMinutely.length,
-      rejectedMinutelySlots:rejectedMinutely.length,
-      rejectedMinutely:rejectedMinutely.slice(0,16).map(x=>({
-        t:x.t,mm:x.mm,hourlyMm:x.hourlyMm,pop:x.pop,reason:"15min_mm_gt_hourly_mm"
-      }))
-    },
-    committedAt:Date.now()
-  };
+    if(hasTodayHours){
+      data.daily.precipitation_sum[0] = +todaySum.toFixed(1);
+      data.daily.precipitation_probability_max[0] = Math.round(todayMaxPop);
+      if(todaySum <= 0.05 && isRainCode(data.daily.weather_code?.[0])){
+        data.daily.weather_code[0] = 2;
+      } else if(todaySum > 0.05 && !isRainCode(data.daily.weather_code?.[0])){
+        data.daily.weather_code[0] = 61;
+      }
+    }
+  }
 }
+
 function computeCtx(){
   const {data}=S;const {current,hourly,daily}=data;
-  const canonical=S.canonicalWeather||{current,hourly,daily};
+  syncUnifiedPrecipitationEngine(data,S.minutely,S.imgwData);
+
   const now=new Date();
-  // Ten sam kanoniczny indeks co w fuzji i historii prognozy.
   const ci=currentHourIndex(data,now);
   const g=a=>a?.[ci];
   const sun=sunInfo(daily,now);
   const isDay=current.is_day!=null?current.is_day===1:sun.day;
-  // Pomiar ze stacji (jeśli zastosowano) siedzi w current — bierzemy go w pierwszej kolejności
-  const T=canonical.current?.temperature_2m??current.temperature_2m??g(hourly.temperature_2m)??15;
-  const hum=Math.round(canonical.current?.relative_humidity_2m??current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
-  const wind=Math.round(canonical.current?.wind_speed_10m??current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
-  const canonicalFeels=Number(canonical.current?.apparent_temperature);
-  const feels=Number.isFinite(canonicalFeels)?canonicalFeels:(discomfortIndex(T,hum,wind).value??T);
+  const T=current.temperature_2m??g(hourly.temperature_2m)??15;
+  const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
+  const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
+  const feels=discomfortIndex(T,hum,wind).value??T;
   const stationGust=stationFreshGustKmH(S.imgwData);
   const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
-  // SUROWE DANE: zachmurzenie jest bezpośrednio wartością cloud_cover dostawcy.
-  const modelConsensus=consensusCloudCover(S.modelCompareNow||[]);
   const opti=optiCloudFromModels(S.modelCompareRaw||[]);
   const cloud=toFiniteNumber(current.cloud_cover??g(hourly.cloud_cover));
-  const precipTimeline=canonical.precipitation||unifiedPrecipitationTimeline();
+
+  const precipTimeline=unifiedPrecipitationTimeline();
   const hourlyNowCode=getHourlyCode(hourly,ci);
   const timelineCurrent=precipTimeline?.current||precipTimeline?.slots?.[0]||null;
-  const timelineNowMmRaw=Number(timelineCurrent?.mm??precipTimeline?.current);
-  const stationNowMmForCtx=stationFreshPrecipMm(S.imgwData);
-  const timelineNowMm=stationNowMmForCtx!==null?stationNowMmForCtx:timelineNowMmRaw;
-  // Jedno źródło prawdy dla najbliższego opadu: event wyznaczony po finalnej fuzji.
-  // Termin opadu jest ważny tylko wtedy, gdy faktycznie leży w przyszłości.
-  // Stary event z cache nie może po zmianie godziny nadal wyświetlać "opad o 12:00".
-  const candidateRainTime=precipTimeline?.nextEvent?.startsAt||null;
-  const candidateRainTs=candidateRainTime?Date.parse(String(candidateRainTime)):NaN;
-  const firstRainTime=Number.isFinite(candidateRainTs)&&candidateRainTs>Date.now()
-    ?candidateRainTime:null;
+  const timelineNowMm=Number(timelineCurrent?.mm);
+
+  // Jedna kanoniczna godzina pierwszego przyszłego opadu (w oknie nowcastu: do 4 godzin)
+  let firstRainTime = null;
+  const nowMs = now.getTime();
+  const NOWCAST_HORIZON_MS = 4 * 3600 * 1000;
+  if(precipTimeline?.slots?.length){
+    const sortedSlots = [...precipTimeline.slots].sort((a,b) => (new Date(a?.t).getTime()||0) - (new Date(b?.t).getTime()||0));
+    const futureRainSlot = sortedSlots.find(x => {
+      const slotMs = x?.t ? new Date(x.t).getTime() : NaN;
+      return Number.isFinite(slotMs) && slotMs > nowMs && slotMs <= nowMs + NOWCAST_HORIZON_MS && Number(x.mm) > 0.05;
+    });
+    if(futureRainSlot) firstRainTime = futureRainSlot.t;
+  }
+  if(!firstRainTime && hourly?.time?.length){
+    for(let i = 0; i < hourly.time.length; i++){
+      const ht = new Date(hourly.time[i]).getTime();
+      if(!Number.isFinite(ht) || ht <= nowMs) continue;
+      if(ht > nowMs + NOWCAST_HORIZON_MS) break;
+      if(Number(hourly.precipitation?.[i] ?? 0) > 0.05){
+        firstRainTime = new Date(hourly.time[i]);
+        break;
+      }
+    }
+  }
+
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
-  // Ghost-drizzle guard: kod 51 + śladowy modelowy opad nie może oznaczać
-  // "Mżawka", jeśli świeży pomiar IMGW nie potwierdza opadu.
-  const stationDrizzleGuard=(()=>{
-    const st=S.imgwData||{};
-    const mm=Number(st.opad_10min);
-    const age=Number(st.opad10minAgeMinutes);
-    const fresh=st.opad10minFresh===true&&Number.isFinite(age)&&age<=30;
-    const near=Number.isFinite(Number(st.dist))&&Number(st.dist)<=45;
-    const modelMm=Number.isFinite(timelineNowMm)?timelineNowMm:Number(current.precipitation??current.rain??0);
-    const drizzleCode=[51,53,55].includes(Number(rawCurrentCode))||[51,53,55].includes(Number(hourlyNowCode));
-    return near&&fresh&&Number.isFinite(mm)&&mm<=0&&drizzleCode&&modelMm>=0&&modelMm<0.2;
-  })();
-  // Jeden kanoniczny stan "Teraz" dla nagłówka, banera i pierwszego kafelka.
-  // Świeży pomiar IMGW opadu jest nadrzędnym dowodem dla stanu TERAZ.
-  // Nie wolno pozwolić, aby surowy hourly.weather_code=61 ponownie oznaczył
-  // bieżący stan jako deszcz, gdy stacja raportuje 0 mm.
-  const stationNowMm=stationFreshPrecipMm(S.imgwData);
-  const stationNowValid=stationNowMm!==null;
-  // Bez świeżego pomiaru IMGW sam model/minutely nie może oznaczać
-  // "pada teraz". Do stanu TERAZ dopuszczamy tylko niezależne potwierdzenie
-  // z obserwacji stacyjnej albo z przeszłego/bieżącego slotu nowcastu.
-  const fusionRainConfirmed=S.cloudSource?.fusion?.precipitationConfirmed===true;
-  // Nieaktualna stacja IMGW nie może być zastępowana przez fusion jako dowód
-  // bieżącego deszczu. Fusion może nadal zasilać prognozę, ale "Teraz" wymaga
-  // świeżej obserwacji stacyjnej albo jawnie potwierdzonego bieżącego slotu nowcastu.
-  const rainNowConfirmed=stationNowValid
-    ?stationNowMm>0.05
-    :false;
-  let currentStateCode;
-  if(rainNowConfirmed){
-    currentStateCode=61;
-  }else{
-    const c=Number(cloud);
-    currentStateCode=Number.isFinite(c)
-      ?(c<=20?0:c<=70?2:3)
-      :2;
-  }
-  if(stationDrizzleGuard){
-    const c=Number(cloud);
-    currentStateCode=Number.isFinite(c)
-      ?(c<=20?0:c<=70?2:3)
-      :2;
-  }
+  const stationPrecip = stationFreshPrecipMm(S.imgwData);
+  const isRainingActive = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode) ||
+    (Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
+    (stationPrecip !== null && stationPrecip > 0.05) ||
+    (Number.isFinite(current.precipitation) && current.precipitation > 0.05);
+
+  let currentStateCode = isRainingActive
+    ? (isRainCode(hourlyNowCode) ? hourlyNowCode : (isRainCode(rawCurrentCode) ? rawCurrentCode : 61))
+    : (cloud <= 20 ? 0 : cloud <= 70 ? 2 : 3);
+
   const code=currentStateCode;
-  const precip=+(current.precipitation??current.rain??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
+  const precip=+(current.precipitation??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
   const pop=g(hourly.precipitation_probability)??0;
   const uv=+(current.uv_index??g(hourly.uv_index)??0)||0;
   const uvClear=+(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)??0)||0;
   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
   const uvClearMax=+(daily.uv_index_clear_sky_max?.[0]??uvClear??uvMax)||0;
   const rad=g(hourly.shortwave_radiation)??uv*80;
-  // cloud jest już surową wartością dostawcy — bez transformacji.
   const dew=dewPoint(T,hum);
-  // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
   const stImgw=S.imgwData;
   const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
-  // Bieżące visibility > 0 z API jest źródłem prawdy dla kafelka.
   const apiVisibilityNow=Number(data.__auraApiCurrentVisibility);
   const visMeters=Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0
     ?apiVisibilityNow
     :(current.visibility??g(hourly.visibility));
   const visKm=visMeters!=null?visMeters/1000:null;
   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
+
   return{
     ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvClear,uvMax,uvClearMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
-    currentState:{code:currentStateCode,pop:Number(pop)||0,mm:rainNowConfirmed
-      ?(stationNowValid?Math.max(0,Number(stationNowMm)||0):Math.max(0,Number(precip)||0))
-      :0},
+    currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
     timeline:precipTimeline,
     firstRainTime,
-    // Piętra chmur pokazujemy jako udział widocznego nieba: żadne piętro nie może przekroczyć total cloud_cover.
-    // Open-Meteo podaje low/mid/high jako niezależne pola, więc surowe 100% warstwy przy total 46%
-    // nie może być prezentowane użytkownikowi jako 100%.
     low:(g(hourly.cloud_cover_low)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_low)),Number(cloud)):g(hourly.cloud_cover_low),
     mid:(g(hourly.cloud_cover_mid)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_mid)),Number(cloud)):g(hourly.cloud_cover_mid),
     high:(g(hourly.cloud_cover_high)!=null&&Number.isFinite(Number(cloud)))?Math.min(Number(g(hourly.cloud_cover_high)),Number(cloud)):g(hourly.cloud_cover_high),
@@ -2754,92 +2146,13 @@ function computeCtx(){
   };
 }
 
-function umbrellaRainAlertAllowed(X){
-  const EVENT_MM=0.15;
-  const TRACE_MM=0.1;
-  const TRACE_POP=15;
-  const now=Date.now();
-  const precipitation=S.canonicalWeather?.precipitation||X?.timeline||null;
-  const classification=precipitation?.nextEvent?.classification||precipitation?.classification||null;
-
-  // Alert parasolowy musi używać dokładnie tej samej klasyfikacji,
-  // którą widzą kafelki. Mżawka / pojedyncze krople nie są zdarzeniem.
-  if(!classification||classification.type==="none"||classification.type==="drizzle")return false;
-
-  const slots=(Array.isArray(precipitation?.minutely)?precipitation.minutely:
-    Array.isArray(precipitation?.slots)?precipitation.slots:[])
-    .map(x=>({
-      t:Date.parse(String(x?.t)),
-      mm:Number(x?.mm),
-      pop:Number(x?.pop)
-    }))
-    .filter(x=>Number.isFinite(x.t)&&x.t>=now&&Number.isFinite(x.mm)&&x.mm>=0)
-    .sort((a,b)=>a.t-b.t);
-
-  const nextTs=Date.parse(String(
-    precipitation?.nextEvent?.startsAt||X?.firstRainTime||""
-  ));
-
-  // Jeżeli kanoniczna oś nie ma zdarzenia, alert nie może powstać
-  // tylko na podstawie samego POP.
-  if(!Number.isFinite(nextTs))return false;
-
-  const eventSlots=slots.filter(x=>x.t>=nextTs&&x.t<=nextTs+45*60000);
-  const minutelySupporting=eventSlots.filter(x=>x.mm>0.05);
-  const minutelyMm=Math.max(
-    ...eventSlots.map(x=>x.mm),
-    eventSlots.reduce((s,x)=>s+x.mm,0),
-    0
-  );
-  const minutelyConfirmed=minutelySupporting.length>=2&&minutelyMm>=EVENT_MM;
-
-  // Alternatywne potwierdzenie: co najmniej dwa niezależne modele
-  // wskazują opad dla tego samego zdarzenia i przekraczają próg.
-  const models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
-  let modelConfirmed=0;
-  for(const model of models){
-    const h=model?.data?.hourly;
-    if(!Array.isArray(h?.time))continue;
-    let best=-1,bestDelta=Infinity;
-    for(let i=0;i<h.time.length;i++){
-      const ts=Date.parse(String(h.time[i]));
-      const d=Math.abs(ts-nextTs);
-      if(Number.isFinite(ts)&&d<=15*60000&&d<bestDelta){
-        best=i;bestDelta=d;
-      }
-    }
-    if(best<0)continue;
-    const mm=Number(h.precipitation?.[best]);
-    if(Number.isFinite(mm)&&mm>=EVENT_MM)modelConfirmed++;
-  }
-
-  const support=minutelyConfirmed||modelConfirmed>=2;
-  if(!support)return false;
-
-  // 2–15% + 0 mm / <0,1 mm = brak alertu.
-  // POP śladowy nie może sam podbić zdarzenia do "Weź parasol".
-  const eventPop=Math.max(
-    ...eventSlots.map(x=>Number.isFinite(x.pop)?x.pop:0),
-    Number(X?.pop)||0,
-    Number(precipitation?.nextEvent?.pop)||0
-  );
-  const eventMm=Math.max(
-    ...eventSlots.map(x=>Number(x.mm)||0),
-    Number(precipitation?.nextEvent?.mm)||0
-  );
-  if(eventPop<=TRACE_POP&&eventMm<TRACE_MM)return false;
-  if(eventMm<EVENT_MM&&!modelConfirmed)return false;
-
-  return true;
-}
-
 function getAlerts(X){
   const A=[],{hourly}=S.data;
   if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
   if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
   else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
-  const futureRainTs=X.firstRainTime?Date.parse(String(X.firstRainTime)):NaN;
-  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(futureRainTs)&&futureRainTs>Date.now()&&umbrellaRainAlertAllowed(X)){
+  const frMs = X.firstRainTime ? new Date(X.firstRainTime).getTime() : NaN;
+  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(frMs)&&frMs>Date.now()&&frMs<=Date.now()+4*3600*1000){
     A.push({c:"info",t:`Prognoza opadów około ${hhmm(X.firstRainTime)}. Weź parasol.`});
   }
   if(X.T<=0)A.push({c:"info",t:"Temperatura poniżej zera, możliwe oblodzenie."});
@@ -2903,21 +2216,19 @@ function isPrecipCode(code){
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
 function currentRainMm(X){
-  // "Teraz" nie może być wyciągane z przyszłego minutely_15.
-  // Używamy wyłącznie potwierdzonego stanu kanonicznego.
+  const timelineMm=currentTimelineMm(X);
+  if(timelineMm!==null)return timelineMm;
   const stationPrecip=stationFreshPrecipMm(S.imgwData);
-  if(stationPrecip!==null)return Math.max(0,stationPrecip);
-  const confirmed=S.cloudSource?.fusion?.precipitationConfirmed===true;
-  if(!confirmed)return 0;
+  if(stationPrecip!==null)return stationPrecip;
+  if(isSnowCode(X?.code))return 0;
   const mm=Number(X?.precip);
-  return Number.isFinite(mm)&&mm>0.05?mm:0;
+  return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
-  const station=S.imgwData||{};
-  const stationMm=stationFreshPrecipMm(station);
-  if(stationMm!==null)return stationMm>0.05;
-  return S.cloudSource?.fusion?.precipitationConfirmed===true &&
-    Number(X?.precip)>0.05;
+  const code=X?.currentState?.code??X?.code??0;
+  if(isRainCode(code))return true;
+  const mm=currentRainMm(X);
+  return Number.isFinite(mm)&&mm>0.05;
 }
 
 function heroHTML(X){
@@ -2925,8 +2236,6 @@ function heroHTML(X){
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
   else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
-  else if(S.imgwStatus==="ONLINE_STALE")chips.push(`<span class="chip imgw-status-chip">${mini("sat")}<span class="chip-online">IMGW Online</span><span class="chip-sep"> — </span><span class="chip-stale">Głodowo, pomiar nieaktualny</span><span class="chip-sep">; </span><span class="chip-ensemble">Active Ensemble</span></span>`);
-  else if(S.imgwStatus==="ONLINE")chips.push(`<span class="chip ok">${mini("sat")}IMGW Online — Głodowo</span>`);
   else if(S.imgwData){
     const im=S.imgwData,stale=im.isFresh===false;
     const age=im.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek pomiaru nieznany";
@@ -2936,7 +2245,6 @@ function heroHTML(X){
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
-  // Nagłówek korzysta z dokładnie tego samego stanu "Teraz" co pierwszy kafelek.
   const heroCode=X.currentState?.code??X.code;
   const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
   return`<div id="s-hero">
@@ -2984,7 +2292,7 @@ function unifiedPrecipitationTimeline(){
       const mm=Number(x.mm??x.rain??0);
       return {t,mm:Number.isFinite(mm)?Math.max(0,mm):0,pop:Number.isFinite(Number(x.pop))?Number(x.pop):null,code:Number.isFinite(Number(x.code))?Number(x.code):null};
     }).sort((a,b)=>a.t-b.t);
-    const current=slots.find(x=>x.t.getTime()<=nowMs&&nowMs<x.t.getTime()+15*60000)||null;
+    const current=slots.find(x=>x.t.getTime()<=nowMs&&nowMs<x.t.getTime()+15*60000)||slots[0]||null;
     const future=slots.filter(x=>x.t.getTime()>=nowMs);
     const hourly=new Map();
     slots.forEach(x=>{
@@ -3000,20 +2308,31 @@ function unifiedPrecipitationTimeline(){
   const {hourly}=S.data||{};
   if(!hourly?.time?.length)return null;
   const ci=currentHourIndex(S.data,new Date());
+  const nowMs=Date.now();
+  const slots=[];
   const hours=[];
   for(let i=ci;i<Math.min(ci+25,hourly.time.length);i++){
-    hours.push({
-      t:new Date(hourly.time[i]),
-      mm:Math.max(0,Number(hourly.precipitation?.[i]??0)||0),
-      pop:Math.max(0,Number(hourly.precipitation_probability?.[i]??0)||0),
-      code:Number.isFinite(Number(hourly.weather_code?.[i]))?Number(hourly.weather_code[i]):null,
-      slots:4
-    });
+    const ht=new Date(hourly.time[i]);
+    const hMm=Math.max(0,Number(hourly.precipitation?.[i]??0)||0);
+    const hPop=Math.max(0,Number(hourly.precipitation_probability?.[i]??0)||0);
+    const hCode=Number.isFinite(Number(hourly.weather_code?.[i]))?Number(hourly.weather_code[i]):null;
+    hours.push({t:ht,mm:hMm,pop:hPop,code:hCode,slots:4});
+
+    if(i<ci+4){
+      const slotMm=+(hMm/4).toFixed(3);
+      for(let k=0;k<4;k++){
+        const st=new Date(ht.getTime()+k*15*60000);
+        slots.push({t:st,mm:slotMm,pop:hPop,code:hCode});
+      }
+    }
   }
-  return {source:"hourly",slots:[],current:null,future:[],hours};
+  const current=slots.find(x=>x.t.getTime()<=nowMs&&nowMs<x.t.getTime()+15*60000)||slots[0]||null;
+  const future=slots.filter(x=>x.t.getTime()>=nowMs);
+  return {source:"hourly_derived",slots,current,future,hours};
 }
+
 function currentTimelineMm(X){
-  const firstSlot=X?.timeline?.slots?.[0]||X?.timeline?.current||null;
+  const firstSlot=X?.timeline?.current||(X?.timeline?.future&&X?.timeline?.future[0])||X?.timeline?.slots?.[0]||null;
   if(!firstSlot)return null;
   const rawSource=firstSlot.mm??firstSlot.precipitation??0;
   const rawMm=String(rawSource)
@@ -3022,28 +2341,19 @@ function currentTimelineMm(X){
   const mmVal=parseFloat(rawMm);
   return Number.isFinite(mmVal)?Math.max(0,mmVal):0;
 }
+
 function nowcastHTML(X){
   const stateCode=X.currentState?.code??X.code;
-  const stationNowMm=stationFreshPrecipMm(S.imgwData);
-  const stateMm=stationNowMm!==null?stationNowMm:Number(X.currentState?.mm);
-  const statePop=Number(X.currentState?.pop);
-  const statePrecip=Number(X.precip);
   const snow=isSnowCode(stateCode);
   const storm=isStormCode(stateCode);
   let sum,sub="",bars="",ax="";
-  if(X?.timeline){
-    const future=X?.timeline?.future||[];
-    const firstMm=currentTimelineMm(X);
-    const activeNow=Number.isFinite(stateMm)&&stateMm>0.05;
-    // Dla TERAZ liczy się wyłącznie potwierdzony stan kanoniczny.
-    // Przyszłe sloty minutely służą do prognozy, nie do stwierdzenia,
-    // że deszcz już pada.
-    const stateRain=activeNow||isRainCode(stateCode);
-    const canonicalNext= S.canonicalWeather?.precipitation?.nextEvent||null;
-    const firstRainTime=canonicalNext?.startsAt||X.firstRainTime||null;
-    const firstRain=firstRainTime?{t:firstRainTime,source:canonicalNext?.source||null,mm:canonicalNext?.mm??null,classification:canonicalNext?.classification||null}:null;
+  if(X?.timeline?.slots?.length){
+    const activeNow=isRainingNow(X);
+    const stateRain=activeNow;
+    const frMs=X.firstRainTime?new Date(X.firstRainTime).getTime():NaN;
+    const firstRainTime=(Number.isFinite(frMs)&&frMs>Date.now()&&frMs<=Date.now()+4*3600*1000)?X.firstRainTime:null;
+    const firstRain=firstRainTime?{t:firstRainTime}:null;
     const rainUntil=activeNow?rainUntilTime(X):null;
-    const precipClass=canonicalNext?.classification||S.canonicalWeather?.precipitation?.classification||null;
     const endLabel=rainUntil?hhmm(rainUntil):null;
     const startTime=!activeNow&&firstRainTime?hhmm(firstRainTime):null;
 
@@ -3053,58 +2363,26 @@ function nowcastHTML(X){
       sum=endLabel?"Śnieg pada teraz i może potrwać do około "+endLabel+".":"Śnieg pada teraz.";
     }else if(stateRain){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
-    }else if(firstRain){      const classLabel=precipClass?.label&&precipClass.type!=="none"?precipClass.label:"Opady";
-      sum=endLabel?classLabel+" około "+startTime+" i mogą potrwać do około "+endLabel+".":classLabel+" około "+startTime+".";
+    }else if(firstRain){
+      sum=endLabel?"Opady zaczną się około "+startTime+" i potrwają do około "+endLabel+".":"Opady zaczną się około "+startTime+".";
     }else{
-      // Oś 15-minutowa nie pokazuje opadu — nie pobieramy zastępczej godziny z modelu.
       sum="Brak opadów w najbliższych godzinach";
     }
 
-    // 1) Jedno źródło prawdy: renderer 15-min nie może czytać surowego S.minutely,
-    // gdy istnieje już kanoniczna klasyfikacja opadu.
-    const canonicalPrecip=S.canonicalWeather?.precipitation||null;
-    const canonicalClass=canonicalPrecip?.classification||null;
-    const canonicalSlots=Array.isArray(canonicalPrecip?.slots)?canonicalPrecip.slots:null;
-    const renderSlots=canonicalSlots?.length?canonicalSlots:(X.timeline.slots||[]);
-
-    // 2) Klasyfikacja kanoniczna decyduje, czy w ogóle wolno pokazać opad.
-    // "none" i "drizzle" nie mogą generować słupków ani fałszywych wartości mm/POP.
-    const canonicalEventVisible=!!canonicalPrecip?.nextEvent &&
-      canonicalClass?.type!=="none" &&
-      canonicalClass?.type!=="drizzle";
-    // DISPLAY ≠ EVENT: dodatni zaakceptowany mikroopad ma być widoczny,
-    // nawet gdy nie kwalifikuje się jeszcze jako zdarzenie deszczowe.
-    const canonicalRainVisible=renderSlots.some(x=>Number(x?.mm)>0);
-
-    const v=renderSlots.map(x=>{
-      const rawMm=Number(x?.mm)||0;
-      return (canonicalRainVisible?rawMm:0)*4;
-    });
+    const v=X.timeline.slots.map(x=>x.mm*4);
     const peak=v.length?Math.max(...v):0;
     if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne")+" ("+fnum(peak,1)+" mm/h)";
-
-    // 3) Przy braku kanonicznego zdarzenia pokazujemy dokładnie 0 mm i 0%.
-    // Nie zmieniamy danych źródłowych — tylko wartości prezentowane przez ten renderer.
-    bars=renderSlots.map(x=>{
-      const rawMm=Number(x?.mm)||0;
-      const mm=canonicalRainVisible?rawMm:0;
-      const rawPop=Number(x?.pop);
-      const pop=canonicalRainVisible
-        ?(Number.isFinite(rawPop)?Math.round(clamp(rawPop,0,100))+"%":"–")
-        :"0%";
-      const traceRain=mm>0&&mm<0.15;
-      const activeRain=
-        canonicalEventVisible && (
-          isRainCode(stateCode) ||
-          (Number.isFinite(stateMm)&&stateMm>0.05) ||
-          (Number.isFinite(statePrecip)&&statePrecip>0.05)
-        );
+    bars=X.timeline.slots.map(x=>{
+      const pop=x.pop==null?"–":Math.round(x.pop)+"%";
+      const mm=Number(x.mm)||0;
+      const traceRain=mm>=0.01&&mm<0.15;
+      const activeRain=activeNow;
       const label=traceRain
-        ? fnum(mm,2)+" mm"
+        ? "< 0,1 mm"
         : mm<0.005
           ? "0"
           : fnum(mm,2)+" mm";
-      const displayMm=mm;
+      const displayMm=traceRain&&activeRain?0.08:mm;
       const barH=Math.round(clamp(displayMm,0,1)*54+4);
       return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
@@ -3124,7 +2402,6 @@ function rainUntilTime(X){
   const rawSlots=Array.isArray(X?.timeline?.slots)?X.timeline.slots:[];
   if(!rawSlots.length)return null;
 
-  // Zawsze skanujemy chronologicznie od bieżącego slotu [0].
   const slots=[...rawSlots].sort((a,b)=>{
     const at=new Date(a?.t).getTime();
     const bt=new Date(b?.t).getTime();
@@ -3135,7 +2412,6 @@ function rainUntilTime(X){
   const firstMm=Number(first?.mm);
   if(!Number.isFinite(firstMm)||firstMm<=0.05)return null;
 
-  // Pierwszy suchy slot (<0.05 mm) kończy bieżący ciąg opadu.
   for(let i=1;i<slots.length;i++){
     const mm=Number(slots[i]?.mm);
     if(!Number.isFinite(mm)||mm<0.05){
@@ -3145,7 +2421,6 @@ function rainUntilTime(X){
     }
   }
 
-  // Cały dostępny zakres pozostaje mokry.
   const last=slots[slots.length-1]?.t;
   const lastDate=last instanceof Date?last:new Date(last);
   return Number.isFinite(lastDate.getTime())
@@ -3158,85 +2433,28 @@ function isDayAt(iso){
   if(di>=0&&daily.sunrise?.[di]&&daily.sunset?.[di])return t>=new Date(daily.sunrise[di])&&t<new Date(daily.sunset[di]);
   const h=t.getHours();return h>=6&&h<19;
 }
-function minuteRainEvidenceForHour(hourlyData, idx){
-  // Renderer 48h nie może omijać fuzji przez surowe S.minutely.
-  if(S.canonicalWeatherFusion?.applied===true)return false;
-  const startMs=Date.parse(hourlyData?.time?.[idx]);
-  if(!Number.isFinite(startMs))return false;
-  const endMs=startMs+60*60000;
-  const mins=Array.isArray(S.minutely)?S.minutely:[];
-  return mins.some(x=>{
-    const t=Date.parse(x?.t);
-    const mm=Number(x?.mm??x?.rain??0);
-    return Number.isFinite(t)&&t>=startMs&&t<endMs&&Number.isFinite(mm)&&mm>0.005;
-  });
-}
 
-function hourlyRainEvidence(hourlyData, idx){
+function getHourlyCode(hourlyData,idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
-  const currentIdx=currentHourIndex(S.data||{hourly:hourlyData},new Date());
-  const currentState=S.X?.currentState;
-  // Dla bieżącej godziny meteogram musi używać dokładnie tego samego stanu
-  // co hero i pierwszy kafelek godzinowy. Surowy hourly/minutely nie może
-  // samodzielnie zapalić paska, gdy stan kanoniczny mówi "sucho".
-  if(idx===currentIdx&&currentState){
-    const mm=Number(currentState.mm??0);
-    const code=Number(currentState.code??0);
-    return Number.isFinite(mm)&&mm>0.05&&isPrecipCode(code);
-  }
-  // Po zastosowaniu fuzji opad jest oceniany WYŁĄCZNIE z przefiltrowanego hourly.
-  // Nie wolno przywracać słupka przez surowy minutely ani przez stare POP.
-  if(S.canonicalWeatherFusion?.applied===true)return Number.isFinite(pr)&&pr>0;
-  return (Number.isFinite(pr)&&pr>=0.2)||minuteRainEvidenceForHour(hourlyData,idx);
-}
-
-function getHourlyCode(hourlyData, idx) {
-  const currentIdx=currentHourIndex(S.data||{hourly:hourlyData},new Date());
-  const canonicalCurrentCode=idx===currentIdx?Number(S.X?.currentState?.code):NaN;
-  // Bieżąca godzina ma identyczny kod jak hero/stan kanoniczny.
-  if(idx===currentIdx&&Number.isFinite(canonicalCurrentCode))return canonicalCurrentCode;
-  const rawPop=Number(hourlyData?.precipitation_probability?.[idx]??0);
-  const rawPopSafe=Number.isFinite(rawPop)?clamp(rawPop,0,100):0;
-  // POP pochodzi wyłącznie z kanonicznej tablicy hourly. Gemini nie uczestniczy w meteorologii Aury.
-  const pop=rawPopSafe;
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
-  const rainEvidence=hourlyRainEvidence(hourlyData,idx);
-  const minuteEvidence=minuteRainEvidenceForHour(hourlyData,idx);
-  const finalMm=Number(hourlyData?.precipitation?.[idx]??0);
-
-  // OPAD MA JEDNO ŹRÓDŁO PRAWDY: finalna ilość opadu.
-  // Sam weather_code/POP nie może wyświetlić deszczu, gdy Aura ma 0 mm.
-  // To jest ważne także wtedy, gdy świeży pomiar IMGW nie był dostępny
-  // i S.canonicalWeatherFusion.applied pozostaje false.
-  if(Number.isFinite(finalMm)&&finalMm<=0.05){
-    return pop>=50 ? (cloud>70?3:2) : (cloud<=20?0:cloud<=70?2:3);
+  if(pr<=0.05){
+    if(rawCode===45||rawCode===48)return rawCode;
+    if(isPrecipCode(rawCode)){
+      return cloud<=20?0:cloud<=70?2:3;
+    }
+    if(rawCode>=0&&rawCode<=3)return rawCode;
+    return cloud<=20?0:cloud<=70?2:3;
   }
-
-  // Po finalnej kanonizacji ilość opadu nadal jest nadrzędna.
-  if(S.canonicalWeatherFusion?.applied===true){
-    if(finalMm>0.05&&isPrecipCode(rawCode))return rawCode;
-    return pop>=50 ? (cloud>70?3:2) : (cloud<=20?0:cloud<=70?2:3);
-  }
-
-  if(isPrecipCode(rawCode)&&(rainEvidence||minuteEvidence))return rawCode;
-  if(minuteEvidence&&finalMm>0.05)return 61;
-  if(finalMm>0.05&&isPrecipCode(rawCode))return rawCode;
-  if(pop>=50)return cloud>70?3:2;
-  if(cloud<=20)return 0;
-  if(cloud<=70)return 2;
-  return 3;
+  if(isPrecipCode(rawCode))return rawCode;
+  return 61;
 }
 
 function canonicalHourlyForRender(){
-  // Twarda granica renderera: używamy dokładnie tej samej referencji,
-  // którą zamknął lockFusionState po fuzji. Fallback do S.data.hourly
-  // jest tylko dla starego cache, który nie ma jeszcze blokady.
   return S.fusionLockedHourly||S.data?.hourly||null;
 }
 
 function hourlyHTML(X){
-  // Renderer godzinowy NIE wybiera już sam źródła danych.
   const hourly=canonicalHourlyForRender();let out="";
   if(!hourly?.time?.length)return "";
   const currentIdx=Number.isFinite(Number(X.ci))?Number(X.ci):currentHourIndex(S.data,new Date());
@@ -3251,21 +2469,16 @@ function hourlyHTML(X){
       ?Number(rawTemp)
       :(Number.isFinite(Number(X.T))?Number(X.T):0);
 
-    // Pierwszy kafelek i nagłówek korzystają z tego samego kanonicznego stanu "Teraz".
     const code=i===0
       ?(X.currentState?.code??getHourlyCode(hourly,idx))
       :getHourlyCode(hourly,idx);
-    const finalMm=Number(hourly.precipitation?.[idx]??0);
-    const rawPop=Number(hourly.precipitation_probability?.[idx]??0);
-    const pop=Number.isFinite(finalMm)&&finalMm>0.05
-      ?clamp(rawPop,0,100)
-      :0;
-    const safeIso=hourly.time?.[idx]||t.toISOString();
+    const pr=Number(hourly.precipitation?.[idx]??0);
+    const pop=Number(hourly.precipitation_probability?.[idx]??0);
+    const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
 
-    // "deszcz" wymaga faktycznego opadu w finalnej tablicy.
-    const rainNow=pop>=20&&isRainCode(code)&&Number.isFinite(finalMm)&&finalMm>0.05;
+    const rainNow=i===0?isRainCode(code):(pr>0.05&&isRainCode(code));
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=20?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=15?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
   }
 
   return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span></div><div class="hstrip">${out}</div></section>`;
@@ -3283,17 +2496,26 @@ function smoothPath(pts){
 }
 // Meteogram 48h: temperatura, wiatr, opady w jednym wykresie
 function meteogramHTML(X){
-  // 48h musi czytać dokładnie tę samą referencję co widok godzinowy.
   const hourly=canonicalHourlyForRender();
   if(!hourly?.time?.length)return"";
-  const N=Math.min(48,hourly.time.length-X.ci);if(N<8)return"";
+  const currentIdx=Number.isFinite(Number(X.ci))?Number(X.ci):currentHourIndex(S.data,new Date());
+  const N=Math.min(48,hourly.time.length-currentIdx);if(N<8)return"";
   const pts=[];
+  const currentIsRain=isRainCode(X?.currentState?.code);
+  const currentMm=Number(X?.currentState?.mm??0);
   for(let i=0;i<N;i++){
-    const idx=X.ci+i;
+    const idx=currentIdx+i;
+    let rawPr=+(hourly.precipitation?.[idx]??0);
+    const hourlyCode=getHourlyCode(hourly,idx);
+    const hourlyIsRain=isRainCode(hourlyCode);
+    let pr=(hourlyIsRain&&rawPr>0.05)?rawPr:0;
+    if(i===0){
+      pr=currentIsRain ? (currentMm > 0.05 ? currentMm : Math.max(0.1, rawPr)) : 0;
+    }
     pts.push({
       t:new Date(hourly.time[idx]),
       temp:i===0?X.T:+(hourly.temperature_2m[idx]??X.T),
-      pr:+(hourly.precipitation?.[idx]??0),
+      pr,
       pop:+(hourly.precipitation_probability?.[idx]??0),
       wind:i===0?X.wind:hourly.wind_speed_10m?.[idx],
       gust:i===0?X.gusts:hourly.wind_gusts_10m?.[idx]
@@ -3302,56 +2524,26 @@ function meteogramHTML(X){
   const maxPr=Math.max(.5,...pts.map(p=>p.pr));
   const cells=pts.map((p,i)=>{
     const day=i===0||p.t.toDateString()!==pts[i-1].t.toDateString();
-    const rain=hourlyRainEvidence(hourly,X.ci+i);
-    const displayPr=rain&&Number.isFinite(p.pr)&&p.pr>0?p.pr:0;
-    const bar=Math.round(clamp(displayPr/maxPr,0,1)*38);
+    const displayPr=Number.isFinite(p.pr)&&p.pr>0.05?p.pr:0;
+    const bar=displayPr>0?Math.round(clamp(displayPr/maxPr,0,1)*38):0;
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
-    const displayMm=rain&&Number.isFinite(p.pr)&&p.pr>0?p.pr:0;
-    const pop=displayMm>0&&Number.isFinite(p.pop)?Math.round(clamp(p.pop,0,100)):0;
+    const pop=Math.round(p.pop);
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
       <div class="mg-rain">
-        <span class="mg-rainbar ${rain?"on":""}" style="height:${Math.max(3,bar)}px"></span>
-        <small>${rain?fnum(p.pr,1)+" mm":"0 mm"}</small>
+        <span class="mg-rainbar ${displayPr>0?"on":""}" style="height:${Math.max(displayPr>0?3:0,bar)}px"></span>
+        <small>${displayPr>0?fnum(displayPr,1)+" mm":"0 mm"}</small>
         <em>${pop}%</em>
       </div>
       <span class="mg-wind tn">${wind}${gust} km/h</span>
     </div>`;
   }).join("");
-  return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Prognoza na 48 godzin</span></div>
+  return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div>
     <div class="mg-grid">${cells}</div>
-    <div class="note">Każda kolumna przedstawia 1 godzinę · temperatura · opad · prawdopodobieństwo opadu · wiatr / porywy. Przewiń w bok.</div>
+    <div class="note">Każda kolumna = 1 godzina · temperatura · opad z poprzedniej godziny · szansa dla poprzedniej godziny · wiatr / porywy. Przewiń w bok.</div>
   </section>`;
-}
-
-function canonicalDayPrecipitation(hourly,dayIso,isToday=false){
-  // Jedno źródło prawdy dla 10-dniówki: ta sama oczyszczona oś hourly.
-  // DLA DZISIAJ liczymy wyłącznie czas od TERAZ — opad z minionych godzin
-  // nie może wrócić do kafelka "Dziś".
-  // WAŻNE: próg 0.15 mm NIE jest progiem wyświetlania.
-  // Mikroopad (np. 0.07 mm) pozostaje widoczny; próg zdarzenia jest
-  // używany osobno przez logikę alertów/klasyfikacji opadu.
-  if(!hourly?.time?.length||!dayIso)return{mm:0,pop:0,hasRain:false};
-  const now=Date.now();
-  let mm=0,pop=0,hasRain=false;
-  for(let k=0;k<hourly.time.length;k++){
-    const raw=String(hourly.time[k]||"");
-    const ts=Date.parse(raw);
-    if(!Number.isFinite(ts)||!raw.startsWith(dayIso))continue;
-    if(isToday&&ts<now-15*60*1000)continue;
-    const v=Number(hourly.precipitation?.[k]??0);
-    const p=Number(hourly.precipitation_probability?.[k]??0);
-    if(Number.isFinite(v)&&v>0){
-      // Każdy dodatni, zaakceptowany opad jest częścią sumy prezentowanej.
-      mm+=v;
-      if(Number.isFinite(p))pop=Math.max(pop,clamp(p,0,100));
-      // hasRain pozostaje semantyką ZDARZENIA, nie prezentacji mikroopadu.
-      if(v>=0.15)hasRain=true;
-    }
-  }
-  return{mm,pop,hasRain};
 }
 
 function dailyRows(){
@@ -3361,10 +2553,9 @@ function dailyRows(){
   const gmin=Math.min(...idxs.map(i=>daily.temperature_2m_min[i])),gmax=Math.max(...idxs.map(i=>daily.temperature_2m_max[i])),span=Math.max(1,gmax-gmin);
   return idxs.map(i=>{
     const mn=daily.temperature_2m_min[i],mx=daily.temperature_2m_max[i];
-    const dayIso=String(daily.time?.[i]||"").slice(0,10);
-    const canonicalDay=canonicalDayPrecipitation(hourly,dayIso,i===0);
-    const dayPrecip=canonicalDay.mm;
-    const pop=canonicalDay.mm>0?canonicalDay.pop:0;
+    const dayPrecip=Number(daily.precipitation_sum?.[i]??0);
+    const pop=Number(daily.precipitation_probability_max?.[i]??0);
+    const dailyCode=i===0&&X?.currentState?.code!=null?X.currentState.code:(daily.weather_code?.[i]??0);
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3374,15 +2565,12 @@ function dailyRows(){
       const dateStr=daily.time[i];let hs="";
       hourly.time.forEach((t,k)=>{
         if(!t.startsWith(dateStr))return;
-        const hm=Number(hourly.precipitation?.[k]??0);
-        const rawP=Number(hourly.precipitation_probability?.[k]??0);
-        const p=Number.isFinite(hm)&&hm>0?Math.round(clamp(rawP,0,100)):0;
-        const code=getHourlyCode(hourly,k);
-        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(code,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
+        const p=hourly.precipitation_probability?.[k]??0;
+        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
       const kv=[];
       {
-        const p=Number.isFinite(dayPrecip)?dayPrecip:null;
+        const p=toFiniteNumber(daily.precipitation_sum?.[i]);
         kv.push(p===null?"Opady — mm":`Opady ${fnum(p,1)} mm`);
       }
       if(daily.uv_index_max?.[i]!=null)kv.push(`UV maks. ${fnum(daily.uv_index_max[i],1)}`);
@@ -3393,7 +2581,7 @@ function dailyRows(){
     }
     return`<button class="drow" data-act="day" data-i="${i}" aria-expanded="${open}">
       <span class="dname">${label}</span>
-      <span class="dic">${ico(canonicalDay.hasRain?(daily.weather_code?.[i]??0):0,true,30)}<i class="tn">${pop>=20?pop+"%":""}</i></span>
+      <span class="dic">${ico(dailyCode,true,30)}<i class="tn">${pop>=20?pop+"%":""}</i></span>
       <span class="dmin tn">${Math.round(mn)}°</span>
       <span class="dbar"><b style="left:${left}%;width:${width}%;background:linear-gradient(90deg,${tempColor(mn)},${tempColor(mx)})"></b>${dot}</span>
       <span class="dmax tn">${Math.round(mx)}°</span></button>${exp}`;
@@ -3508,7 +2696,16 @@ function wVis(X){
   const om=Number(X?.visKm);
   const waOk=Number.isFinite(wa)&&wa>=0;
   const omOk=Number.isFinite(om)&&om>=0;
-  const km=waOk?wa:omOk?Math.min(10,om):null;
+  let km=waOk?wa:omOk?om:null;
+
+  const currentCode=Number(X?.code);
+  const currentPrecip=Number(X?.precip??0);
+  const hasFog=isFogVisibilityCode(currentCode)||stationFogObserved(S.imgwData);
+  const hasPrecip=isPrecipCode(currentCode)||(Number.isFinite(currentPrecip)&&currentPrecip>0.05);
+
+  if(km!==null&&!hasFog&&!hasPrecip&&km<10){
+    km=10;
+  }
   const value=km==null?"–":fnum(km,1);
   const source=waOk?"WeatherAPI · vis_km":omOk?"Open-Meteo · visibility":"Brak pomiaru";
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small></div><div class="ws">${source}</div></div>`;
@@ -3519,21 +2716,14 @@ function wLayers(X){
 }
 function wRain(X){
   let next="";
-  const p=S.canonicalWeather?.precipitation||null;
-  const activeMm=Number.isFinite(Number(p?.current))?Number(p.current):currentTimelineMm(X);
+  const activeMm=currentTimelineMm(X);
   const active=activeMm!==null&&activeMm>0.05;
-  const nextEvent=p?.nextEvent||null;
-  const dayIso=new Date().toISOString().slice(0,10);
-  const day=canonicalDayPrecipitation(S.data?.hourly,dayIso,true);
-  // Mikroopad jest danymi prognostycznymi, nie "brakiem opadu".
-  // Kafelek "Opady dziś" musi być spójny z prognozą godzinową:
-  // jeśli zaakceptowana oś hourly ma np. 0.07 mm i 21% POP,
-  // nie wolno tutaj pokazywać 0.0 mm i 0%.
-  const rainToday=Number.isFinite(day.mm)?Math.max(0,day.mm):0;
-  const popToday=rainToday>0&&Number.isFinite(day.pop)?clamp(day.pop,0,100):0;
-  if(active)next="Pada teraz.";
-  else if(nextEvent?.startsAt)next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";
-  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(rainToday,1)}<small>mm</small></div><div class="ws">Maks. prawdopodobieństwo opadu: ${popToday}%. ${next||"Brak prognozowanego opadu w ciągu najbliższych 24 godz."}</div></div>`;
+  if(active){
+    next="Pada teraz.";
+  }else if(X?.firstRainTime&&new Date(X.firstRainTime).getTime()>Date.now()){
+    next="Najbliższy opad ok. "+hhmm(X.firstRainTime)+".";
+  }
+  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
 
 function wSun(X){
@@ -3567,10 +2757,10 @@ function oknoHTML(){
   const o=oknoStats();
   let body;
   if(o){
-    body=`<div class="stg"><div><small>Trafność prognoz</small><b class="tn">${o.acc==null?"–":o.acc+"%"}</b></div><div><small>Twoje obserwacje</small><b class="tn">${o.count}</b></div></div>`;
+    body=`<div class="stg"><div><small>Trafność prognozy</small><b class="tn">${o.acc==null?"–":o.acc+"%"}</b></div><div><small>Twoje obserwacje</small><b class="tn">${o.count}</b></div></div>`;
     if(o.bias!=null)body+=`<div class="note">Model średnio ${o.bias>0?"zawyża":"zaniża"} temperaturę o ${fnum(Math.abs(o.bias),1)}° względem Twojego termometru (${o.biasN} pomiarów).</div>`;
-  }else body=`<div class="say" style="font-size:15px;font-weight:400;margin:0">Powiedz, co widzisz za oknem. Aplikacja porówna to z prognozą i z pomiarem ze stacji, a z czasem pokaże, któremu źródłu ufać.</div>`;
-  return`<section class="card"><div class="ch">${mini("window")}<span class="grow">Prognoza kontra okno</span></div>${body}<a class="btn pri wide" style="margin-top:14px" href="okno.html">Sprawdź za oknem</a></section>`;
+  }else body=`<div class="say" style="font-size:15px;font-weight:400;margin:0">Powiedz, co widzisz za oknem. Aplikacja porówna to z prognozą i z pomiarem ze stacji, a z czasem pokaże, komu ufać.</div>`;
+  return`<section class="card"><div class="ch">${mini("window")}<span class="grow">Prognoza kontra okno</span></div>${body}<a class="btn pri wide" style="margin-top:14px" href="okno.html">Sprawdź zza okna</a></section>`;
 }
 
 function modelsHTML(){
@@ -3601,41 +2791,25 @@ function modelsHTML(){
 
 function stationHTML(){
   const im=S.imgwData;if(!im)return"";
-  const cim=S.canonicalWeather?.imgw||{};
-  const fields=cim.fields||{};
-  const num=v=>{const n=parseFloat(String(v??"").replace(",","."));return Number.isFinite(n)?n:null;};
-  const fieldTime=value=>{const ts=parseImgwMeteoTimestamp(value);return Number.isFinite(ts)?hhmm(ts):"brak";};
-  const valueWithUnit=(value,unit="")=>value==null?"brak":`${value}${unit}`;
   const rows=[
-    ["Temperatura",valueWithUnit(num(im.temperatura),"°C"),num(im.temperatura)!=null],
-    ["Wilgotność",valueWithUnit(num(im.wilgotnosc_wzgledna),"%"),num(im.wilgotnosc_wzgledna)!=null],
-    ["Wiatr",valueWithUnit(im.predkosc_wiatru!=null?Math.round(num(im.predkosc_wiatru)*3.6):null," km/h"),num(im.predkosc_wiatru)!=null],
-    ["Porywy",valueWithUnit(im.poryw_wiatru!=null?Math.round(num(im.poryw_wiatru)*3.6):null," km/h"),num(im.poryw_wiatru)!=null],
-    ["Kierunek",im.kierunek_wiatru!=null?valueWithUnit(num(im.kierunek_wiatru),"°"):"brak",num(im.kierunek_wiatru)!=null],
-    ["Ciśnienie",valueWithUnit(num(im.cisnienie)," hPa"),num(im.cisnienie)!=null&&num(im.cisnienie)>0],
-    ["Opad 10 min",valueWithUnit(num(im.opad_10min)," mm"),num(im.opad_10min)!=null],
+    ["Temperatura",im.temperatura!=null?`${im.temperatura}°C`:"—",im.temperatura!=null],
+    ["Wilgotność",im.wilgotnosc_wzgledna!=null?`${im.wilgotnosc_wzgledna}%`:"—",im.wilgotnosc_wzgledna!=null],
+    ["Wiatr",im.predkosc_wiatru!=null?`${Math.round(parseFloat(im.predkosc_wiatru)*3.6)} km/h`:"—",im.predkosc_wiatru!=null],
+    ["Porywy",im.poryw_wiatru!=null?`${Math.round(parseFloat(im.poryw_wiatru)*3.6)} km/h`:"—",im.poryw_wiatru!=null],
+    ["Kierunek",im.kierunek_wiatru!=null?`${im.kierunek_wiatru}°`:"—",im.kierunek_wiatru!=null],
+    ["Ciśnienie",im.cisnienie!=null?`${im.cisnienie} hPa`:"—",im.cisnienie!=null],
+    ["Opad 10 min",im.opad_10min!=null?`${im.opad_10min} mm`:"—",im.opad_10min!=null],
   ].filter(r=>r[2]);
-  const stale=im.isFresh===false||[im.tempFresh,im.humidityFresh,im.windFresh,im.windDirFresh,im.opad10minFresh].some(v=>v===false);
-  const timeRows=[
-    ["Temperatura",fields.temperature||im.temperatura_data],
-    ["Wilgotność",fields.humidity||im.wilgotnosc_wzgledna_data],
-    ["Wiatr",fields.wind||im.predkosc_wiatru_data],
-    ["Kierunek",fields.windDirection||im.kierunek_wiatru_data],
-    ["Opad 10 min",fields.precipitation10min||im.opad_10min_data]
-  ];
-  const timeRowsHtml=timeRows.map(([label,value])=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span>${label}</span><b class="tn">${fieldTime(value)}</b></div>`).join("");
-  const latestText=im.latestObservedAt!=null?hhmm(im.latestObservedAt):"brak";
-  const latestAge=im.latestAgeMinutes!=null?`, ${fmtAge(im.latestAgeMinutes)}`:"";
-  return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
+  const stale=im.isFresh===false;
+  const sourceTitle=im.sourceLabel||(im.sourceType==="IMGW_METEO_SNAPSHOT"?"Stacja IMGW Głodowo (snapshot)":"Stacja IMGW Głodowo");
+  return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">${esc(sourceTitle)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
-    <div class="note" style="margin-top:12px">Czasy poszczególnych pomiarów IMGW</div>
-    <div class="note" style="margin-top:4px">${timeRowsHtml}</div>
-    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Ostatni timestamp odebrany z IMGW: ${latestText}${latestAge}. Wiek jest liczony względem czasu pobrania; pola starsze niż TTL nie są używane.</div>`:""}
-    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; brak pomiaru nie jest zamieniany na zero."}</div></section>`;
+    ${im.observedAt!=null?`<div class="note">Najnowszy pomiar ze stacji z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Dane pobrano o ${hhmm(im.fetchedAt)}.</div>`:""}
+    <div class="note">${stale?`Pomiary stacji są starsze niż ${IMGW_MAX_FIELD_AGE_MINUTES} min, więc aplikacja korzysta z Active Ensemble. `:im.dist>80?"Stacja jest poza zasięgiem fuzji 45 km, więc jej pomiar jest tylko informacyjny. ":"Świeże pomiary stacji (TTL 120 min) są łączone z modelem fizycznym dla dostępnych parametrów. "}</div></section>`;
 }
 
 function assistantHTML(X){
-  const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0,X?.currentState??null);
+  const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0,X);
   return`<section class="card"><div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div><div class="say">${esc(adv.a)}</div>
     <div class="arow"><div><small>Ubiór</small>${esc(adv.cl)}</div></div><div class="arow"><div><small>Pomysł na dzień</small>${esc(adv.ac)}</div></div></section>`;
 }
@@ -3660,7 +2834,7 @@ async function startRadar(){
   const slot=$("#radar-slot");if(slot)slot.innerHTML=`<div class="radar-ph"><div>Ładowanie radaru…</div></div>`;
   try{
     await loadLeaflet();
-    const r=await auraFetch("https://api.rainviewer.com/public/weather-maps.json",{signal:AbortSignal.timeout(9000)});
+    const r=await fetch("https://api.rainviewer.com/public/weather-maps.json",{signal:AbortSignal.timeout(9000)});
     if(!r.ok)throw new Error("rainviewer "+r.status);
     const j=await r.json();
     RV.host=j.host||"https://tilecache.rainviewer.com";
@@ -3708,6 +2882,8 @@ function softUpdate(){
   set("s-alerts",alertsHTML(X));
   set("s-nowcast",nowcastHTML(X));
   set("s-hourly",hourlyHTML(X));
+  set("s-meteogram",meteogramHTML(X));
+  set("s-daily",dailyRows());
   set("s-air",airHTML());
   set("s-models",modelsHTML());
   const widgets=document.getElementById("s-widgets");if(widgets)widgets.innerHTML=widgetsInnerHTML(X);
@@ -3717,33 +2893,21 @@ function softUpdate(){
 function imgwDiagHTML(){
   const d=S.imgwDiag;
   if(!d)return "";
-  const tone=d.used?"ok":(d.status==="pobieranie"||d.status==="pobieranie-live"?"warn":"bad");
-  const source=d.liveSource==="IMGW METEO"?"IMGW LIVE · pobrano bezpośrednio":(d.liveSource==="snapshot-fallback"?"IMGW — awaryjny snapshot":"IMGW");
-  const measurementTs=parseImgwMeteoTimestamp(d.timestamp);
-  const measurementAge=measurementTs!=null?Math.max(0,Math.round((Date.now()-measurementTs)/60000)):null;
-  const fetchedTs=d.liveSource==="IMGW METEO"?Number(d.liveFetchedAt):Number(d.snapshotFetchedAt);
+  const tone=d.used?"ok":(d.status==="pobieranie"?"warn":"bad");
   const details=[
-    "Źródło: "+source,
-    d.station?"Stacja: "+(d.found?"Głodowo":"brak"):null,
-    d.temperature!=null?"T: "+d.temperature+"°C":null,
-    d.timestamp?"Pomiar: "+String(d.timestamp)+(measurementAge!=null?" · "+measurementAge+" min temu":""):null,
-    Number.isFinite(fetchedTs)&&fetchedTs>0?"Pobrano: "+new Date(fetchedTs).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null,
-    d.snapshotAgeMinutes!=null&&d.liveSource==="snapshot-fallback"?"Snapshot ma: "+d.snapshotAgeMinutes+" min":null,
+    d.count!=null?"Feed METEO: "+d.count+" stacji":null,
+    d.station?"Stacja: "+esc(d.station)+(d.found?" [OK]":" [brak]"):null,
+    d.sourceLabel?"Źródło: "+esc(d.sourceLabel):null,
     d.dist!=null?"odległość: "+d.dist+" km":null,
-    measurementAge!=null?(measurementAge<=30?"pomiar: ŚWIEŻY":measurementAge<=120?"pomiar: STARY, UŻYWALNY":"pomiar: PRZETERMINOWANY"):null,
-    d.reason?"powód: "+d.reason:null,
-    d.error?"błąd: "+d.error:null
+    d.diagSummary?esc(d.diagSummary):null,
+    d.reason?"powód: "+esc(d.reason):null,
+    d.error?"błąd: "+esc(d.error):null
   ].filter(Boolean).join(" · ");
-  const rawTemp=d.rawTempFields||d.tempFields||{};
-  const candidates=d.candidateTemps||[];
-  const rawTempText=Object.entries(rawTemp).map(x=>x[0]+"="+String(x[1])).join(" · ");
-  const candidateText=candidates.map(x=>x.key+"="+String(x.value)+" → "+x.num).join(" · ");
+  const rawStation=d.rawStation||d.normalized||{};
   return "<div class=\"note\" style=\"margin:0 2px 12px;padding:9px 11px;border:1px solid var(--line);border-radius:14px;background:rgba(8,15,32,.25)\">"+
-    "<span class=\"dot\" style=\"display:inline-block;margin-right:7px;vertical-align:middle;color:var(---"+tone+")\"></span><b>IMGW METEO: "+esc(d.status||"brak danych")+"</b>"+
-    (details?"<br><span style=\"opacity:.72\">"+esc(details)+"</span>":"")+
-    (rawTempText?"<br><span style=\"display:block;margin-top:6px;font-size:11px;line-height:1.45;word-break:break-word\"><b>Pola temp:</b> "+esc(rawTempText)+"</span>":"")+
-    (candidateText?"<br><span style=\"display:block;margin-top:4px;font-size:11px;line-height:1.45;word-break:break-word\"><b>Kandydaci:</b> "+esc(candidateText)+"</span>":"")+
-    (d.rawKeys?"<br><details style=\"margin-top:6px;font-size:11px\"><summary>Cały rekord Głodowa — kliknij</summary><pre style=\"white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin-top:6px\">"+esc(JSON.stringify(d.rawStation||{},null,2))+"</pre></details>":"")+
+    "<span class=\"dot\" style=\"display:inline-block;margin-right:7px;vertical-align:middle;color:var(---"+tone+")\"></span><b>IMGW: "+esc(d.status||"brak danych")+"</b>"+
+    (details?"<br><span style=\"opacity:.85;font-size:11px\">"+details+"</span>":"")+
+    (d.rawStation?"<br><details style=\"margin-top:6px;font-size:11px\"><summary>Szczegóły rekordu IMGW Głodowo — kliknij</summary><pre style=\"white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin-top:6px\">"+esc(JSON.stringify(rawStation,null,2))+"</pre></details>":"")+
     "</div>";
 }
 function weatherHTML(){
@@ -3757,7 +2921,7 @@ function weatherHTML(){
     <div id="s-nowcast">${nowcastHTML(X)}</div>
     <div id="s-hourly">${hourlyHTML(X)}</div>
     ${assistantHTML(X)}
-    ${meteogramHTML(X)}
+    <div id="s-meteogram">${meteogramHTML(X)}</div>
     ${dailyHTML()}
     ${radarHTML()}
     ${widgetsHTML(X)}
@@ -3823,10 +2987,8 @@ function runLiveDataQualityGuard(){
     if(drop>=4&&precip>=1.5&&Number.isFinite(lag)&&Math.abs(lag)>1.5)
       add("ERROR_FRONT_LAG","error","Front: spadek >=4°C/h + opad >=1.5 mm, ale Aura Final pozostaje >1.5°C od modelu.",r.step);
   }
-  // IMGW Hybrid nie jest źródłem punktowej prognozy w tej wersji Aury.
-  // Nie zgłaszamy tego jako błąd źródła IMGW — bieżące obserwacje METEO
-  // z Głodowa są niezależnym, prawidłowym źródłem danych.
-  // Celowo brak tutaj WARN_MISSING_IMGW_FORECAST.
+  if(d.imgwForecastAvailable===false)
+    add("WARN_MISSING_IMGW_FORECAST","warn","Brak godzinowego feedu IMGW Hybrid; prognoza używa modelu i obserwacji stacji.",null);
   if(d.ghostPrecipitation)
     add("WARN_GHOST_PRECIPITATION","warn","Wykryto brak opadu w realnym pomiarze stacyjnym - zmniejsz wagę opadu z modelu dla bieżącej godziny.",0);
   if(d.ghostVisibilityDrop)
@@ -3845,177 +3007,18 @@ function runLiveDataQualityGuard(){
   S.liveHealth={capturedAt:Date.now(),status:alerts.some(a=>a.severity==="critical"||a.severity==="error")?"ERROR":alerts.length?"WARN":"OK",alerts};
   return S.liveHealth;
 }
-function diagnosticAgeMinutes(ts){
-  const t=Date.parse(String(ts||""));
-  return Number.isFinite(t)?Math.max(0,(Date.now()-t)/60000):null;
-}
-function diagnosticAgeStatus(age,maxFresh=30,maxUsable=180){
-  if(!Number.isFinite(age))return {status:"BRAK CZASU",icon:"⚫"};
-  if(age<=maxFresh)return {status:"ŚWIEŻE",icon:"🟢"};
-  if(age<=maxUsable)return {status:"STARE, UŻYWALNE",icon:"🟡"};
-  return {status:"PRZETERMINOWANE",icon:"🔴"};
-}
-function buildIMGWDiagnosticDetails(){
-  // Diagnostyka stacji musi opierać się na NAJNOWSZYM faktycznym pomiarze,
-  // a nie automatycznie na temperaturze. Każde pole zachowuje własny timestamp.
-  const diag=S.imgwDiag||{};
-  const d=S.imgwData||diag.rawStation||diag.rawGlodowo||{};
-  const raw=diag.rawGlodowo||null;
-  const fields=[
-    ["Temperatura",d.temperatura_powietrza??d.temperatura??raw?.temperature,d.temperatura_powietrza_data??d.temperatura_data??raw?.temperatureAt,d.tempFresh],
-    ["Wilgotność",d.wilgotnosc_wzgledna??raw?.humidity,d.wilgotnosc_wzgledna_data??raw?.humidityAt,d.humidityFresh],
-    ["Wiatr",d.wiatr_srednia_predkosc??d.predkosc_wiatru??raw?.wind,d.wiatr_srednia_predkosc_data??d.predkosc_wiatru_data??raw?.windAt,d.windFresh],
-    ["Kierunek wiatru",d.wiatr_kierunek??d.kierunek_wiatru,d.wiatr_kierunek_data??d.kierunek_wiatru_data,d.windDirFresh],
-    ["Poryw",d.wiatr_predkosc_maksymalna??d.poryw_wiatru,d.wiatr_predkosc_maksymalna_data??d.poryw_wiatru_data,d.porywWiatruFresh],
-    ["Opad 10 min",d.opad_10min??raw?.rain10,d.opad_10min_data??raw?.rain10At,d.opad10minFresh]
-  ];
-
-  // Bierzemy najnowszy rzeczywisty timestamp spośród wszystkich pól,
-  // niezależnie od tego, czy dane pole jest już poza TTL. Dzięki temu raport
-  // nie pokaże np. temperatury 12:10 jako wieku całej stacji, gdy wilgotność,
-  // wiatr i opad mają pomiar 13:00.
-  const parsedFields=fields.map(([name,value,timestamp,fresh])=>({
-    name,value,timestamp,
-    observedAt:parseImgwMeteoTimestamp(timestamp),
-    fresh
-  })).filter(x=>Number.isFinite(x.observedAt));
-  const latest=parsedFields.length
-    ?parsedFields.reduce((a,b)=>b.observedAt>a.observedAt?b:a)
-    :null;
-  const obs=latest?.timestamp||d.latestObservedAt||d.observedAt||null;
-  const age=latest
-    ?diagnosticAgeMinutes(latest.timestamp)
-    :diagnosticAgeMinutes(d.latestObservedAt||d.observedAt||null);
-
-  const rawFields=raw?[
-    ["temperature",raw.temperatureAt],
-    ["humidity",raw.humidityAt],
-    ["wind",raw.windAt],
-    ["rain10",raw.rain10At]
-  ].map(([key,timestamp])=>({key,timestamp,observedAt:parseImgwMeteoTimestamp(timestamp)}))
-   .filter(x=>Number.isFinite(x.observedAt)):[];
-  const rawLatest=rawFields.length
-    ?rawFields.reduce((a,b)=>b.observedAt>a.observedAt?b:a)
-    :null;
-  const rawAge=rawLatest?diagnosticAgeMinutes(rawLatest.timestamp):null;
-
-  return {
-    snapshotFetchedAt:diag.snapshotFetchedAt??null,
-    snapshotFetchedAtISO:Number.isFinite(Number(diag.snapshotFetchedAt))?new Date(Number(diag.snapshotFetchedAt)).toISOString():null,
-    snapshotAgeMinutes:diagnosticAgeMinutes(diag.snapshotFetchedAt),
-    stationFound:diag.found===true||!!raw,
-    stationUsed:S.imgwData?.sourceType==="IMGW_METEO"&&S.imgwData?.isFresh===true,
-    selectionStatus:diag.status??null,
-    selectionReason:diag.reason??(S.imgwData?.isFresh===false?"Głodowo znaleziona, ale brak świeżych pól ≤120 min":null),
-    stationCode:diag.stationCode??raw?.code??d.kod_stacji??d.id_stacji??null,
-    stationName:diag.station??raw?.name??d.nazwa_stacji??d.stacja??null,
-    rawGlodowo:raw?{
-      code:raw.code??null,name:raw.name??null,lat:raw.lat??null,lng:raw.lng??null,
-      temperature:raw.temperature??null,temperatureAt:raw.temperatureAt??null,
-      temperatureAgeMinutes:raw.temperatureAt?diagnosticAgeMinutes(raw.temperatureAt):null,
-      humidity:raw.humidity??null,humidityAt:raw.humidityAt??null,
-      humidityAgeMinutes:raw.humidityAt?diagnosticAgeMinutes(raw.humidityAt):null,
-      wind:raw.wind??null,windAt:raw.windAt??null,
-      windAgeMinutes:raw.windAt?diagnosticAgeMinutes(raw.windAt):null,
-      rain10:raw.rain10??null,rain10At:raw.rain10At??null,
-      rain10AgeMinutes:raw.rain10At?diagnosticAgeMinutes(raw.rain10At):null,
-      latestObservedAt:rawLatest?.timestamp||null,
-      latestAgeMinutes:rawAge
-    }:null,
-    stationObservedAt:obs,
-    stationAgeMinutes:age,
-    stationStatus:diagnosticAgeStatus(age),
-    latestObservedAt:obs,
-    latestAgeMinutes:age,
-    latestField:latest?.name||null,
-    fields:fields.map(([name,value,timestamp,fresh])=>{
-      const a=diagnosticAgeMinutes(timestamp);
-      const rawField=raw&&name==="Temperatura"?raw.temperature:null;
-      return{
-        name,
-        value:value??null,
-        rawValue:rawField??value??null,
-        timestamp:timestamp||null,
-        ageMinutes:a,
-        status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status
-      };
-    })
-  };
-}
-function buildModelNetworkDiagnostics(){
-  const net=Array.isArray(S.netDiag)?S.netDiag:[],models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
-  const defs=[
-    {name:"ICON-EU",id:"icon_eu"},
-    {name:"ECMWF",id:"ecmwf_ifs025"},
-    {name:"GFS",id:"gfs_seamless"}
-  ];
-  return defs.map(({name,id})=>{
-    const model=models.find(m=>{
-      const mid=String(m?.model||m?.name||"").toLowerCase().replace(/[^a-z0-9_]/g,"");
-      return mid===id.replace(/[^a-z0-9_]/g,"")||
-        (id==="icon_eu"&&mid.includes("icon_eu"))||
-        (id==="ecmwf_ifs025"&&mid.includes("ecmwf_ifs025"))||
-        (id==="gfs_seamless"&&mid.includes("gfs_seamless"));
-    });
-    // Każdy model musi być powiązany wyłącznie z własnym requestem
-    // forecast. Nigdy nie używamy ostatniego globalnego requestu Open-Meteo,
-    // bo po nim może wystąpić Air Quality, minutely albo inny endpoint.
-    const rows=net.filter(x=>{
-      const endpoint=String(x?.endpoint||"");
-      return /api\.open-meteo\.com\/v1\/forecast(?:\?|$)/i.test(endpoint)&&
-        new RegExp("(?:[?&])models="+id+"(?:&|$)","i").test(endpoint);
-    });
-    const row=rows[rows.length-1]||null;
-    const currentTime=model?.data?.current?.time||null;
-    const age=diagnosticAgeMinutes(currentTime);
-    let status="BRAK ODPOWIEDZI";
-    if(row?.error)status=/timeout/i.test(row.error)?"TIMEOUT":"BŁĄD SIECI";
-    else if(row&&!row.ok)status="HTTP "+row.status;
-    else if(model?.data&&Number.isFinite(age)&&age>180)status="STARE DANE";
-    else if(model?.data)status="OK";
-    return{
-      model:name,
-      modelId:id,
-      request:{
-        endpoint:row?.endpoint||null,
-        httpStatus:row?.status??null,
-        ok:row?.ok??false,
-        durationMs:row?.durationMs??null,
-        error:row?.error??null
-      },
-      data:{currentTime,ageMinutes:age,hasData:!!model?.data},
-      status
-    };
-  });
-}
 function pipelineInspectorHTML(){
-  const d=S.pipelineDiag||{}, img=S.imgwData||{}, cur=S.data?.current||{}, net=Array.isArray(S.netDiag)?S.netDiag:[];
-  const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]};
+  const d=S.pipelineDiag, rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data):[];
+  const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]}, img=S.imgwData||{}, cur=S.data?.current||{};
   const fmt=v=>v==null||v===""?"—":(Number.isFinite(Number(v))?fnum(Number(v),1):esc(String(v)));
-  const age=v=>v==null?"—":fnum(v,0)+" min";
-  const statusDot=(ok)=>ok?"<span style=\"color:var(--ok)\">● OK</span>":"<span style=\"color:var(--bad)\">● BŁĄD</span>";
-  const endpointRows=net.slice().reverse().map(x=>"<tr><td>"+esc(x.endpoint)+"</td><td>"+esc(x.method)+"</td><td>"+(x.status==null?"—":x.status)+"</td><td>"+statusDot(x.ok)+"</td><td>"+(x.durationMs==null?"—":x.durationMs+" ms")+"</td><td>"+(x.error?esc(x.error):"—")+"</td></tr>").join("");
-  const stations=(S.imgwDiag?.nearbyStations||[]).map(st=>"<tr><td>"+esc(st.name)+"</td><td>"+esc(st.id)+"</td><td>"+fmt(st.distanceKm)+" km</td><td>"+fmt(st.temperature)+"</td><td>"+esc(st.temperatureAt||"—")+"</td><td>"+fmt(st.humidity)+"</td><td>"+esc(st.rain10At||"—")+"</td></tr>").join("");
-  const fields=[
-    ["Temperatura",img.temperatura_powietrza??img.temperatura,img.temperatura_powietrza_data??img.temperatura_data,img.tempFresh],
-    ["Wilgotność",img.wilgotnosc_wzgledna,img.wilgotnosc_wzgledna_data,img.humidityFresh],
-    ["Wiatr",img.wiatr_srednia_predkosc,img.wiatr_srednia_predkosc_data,img.windFresh],
-    ["Kierunek",img.wiatr_kierunek,img.wiatr_kierunek_data,img.windDirFresh],
-    ["Poryw",img.wiatr_predkosc_maksymalna,img.wiatr_predkosc_maksymalna_data,img.porywWiatruFresh],
-    ["Opad 10 min",img.opad_10min,img.opad_10min_data,img.opad10minFresh]
-  ];
-  const fieldRows=fields.map(f=>"<tr><td><b>"+f[0]+"</b></td><td>"+fmt(f[1])+"</td><td>"+esc(f[2]||"—")+"</td><td>"+(f[3]===true?"<span style=\"color:var(--ok)\">FRESH</span>":f[3]===false?"<span style=\"color:var(--warn)\">STALE</span>":"—")+"</td></tr>").join("");
+  const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v))+"%":"—";
+  const modelRows=rawModels.map(r=>{const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];return {model:r.model||r.name||"—",temp:x.temperature_2m,hum:x.relative_humidity_2m,wind:x.wind_speed_10m,cloud:x.cloud_cover,low:x.cloud_cover_low??g("cloud_cover_low"),mid:x.cloud_cover_mid??g("cloud_cover_mid"),high:x.cloud_cover_high??g("cloud_cover_high"),precip:x.precipitation,code:x.weather_code};});
+  const consensus=consensusCloudCover(S.modelCompareNow||[]);
+  const rows=[["Temperatura","°C",img.temperatura,cur.temperature_2m,S.X?.T],["Wilgotność","%",img.wilgotnosc_wzgledna,cur.relative_humidity_2m,S.X?.hum],["Wiatr","km/h",Number.isFinite(Number(img.predkosc_wiatru))?Number(img.predkosc_wiatru)*3.6:null,cur.wind_speed_10m,S.X?.wind],["Porywy","km/h",stationFreshGustKmH(img),cur.wind_gusts_10m,S.X?.gusts],["Ciśnienie","hPa",img.cisnienie,cur.pressure_msl,S.X?.press],["Opad 10 min","mm",img.opad_10min,null,currentRainMm(S.X||{})]];
+  const sourceTable="<div style=\"overflow:auto\"><table style=\"width:100%;min-width:720px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Parametr</th><th>IMGW Głodowo</th><th>Open-Meteo RAW</th><th>Aura</th><th>Różnica Aura−IMGW</th></tr></thead><tbody>"+rows.map(r=>{const imgwValue=Number(r[2]), auraValue=Number(r[4]); const diff=Number.isFinite(imgwValue)&&Number.isFinite(auraValue)?auraValue-imgwValue:null;return "<tr><td><b>"+r[0]+"</b></td><td class=\"tn\">"+fmt(r[2])+(r[2]!=null?" "+r[1]:"")+"</td><td class=\"tn\">"+fmt(r[3])+(r[3]!=null?" "+r[1]:"")+"</td><td class=\"tn\"><b>"+fmt(r[4])+(r[4]!=null?" "+r[1]:"")+"</b></td><td class=\"tn\">"+(diff==null?"—":(diff>0?"+":"")+fnum(diff,1)+" "+r[1])+"</td></tr>";}).join("")+"</tbody></table></div>";
+  const modelTable=modelRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">Open-Meteo — surowe modele, bieżący slot</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>T</th><th>RH</th><th>Wiatr</th><th>Chmury</th><th>Low</th><th>Mid</th><th>High</th><th>Opad</th><th>WMO</th></tr></thead><tbody>"+modelRows.map(m=>"<tr><td>"+esc(m.model)+"</td><td>"+fmt(m.temp)+"°</td><td>"+fmt(m.hum)+"%</td><td>"+fmt(m.wind)+" km/h</td><td><b>"+pct(m.cloud)+"</b></td><td>"+pct(m.low)+"</td><td>"+pct(m.mid)+"</td><td>"+pct(m.high)+"</td><td>"+fmt(m.precip)+"</td><td>"+fmt(m.code)+"</td></tr>").join("")+"</tbody></table></div><div class=\"note\">Konsensus zachmurzenia: <b>"+(consensus==null?"—":Math.round(consensus)+"%")+"</b> · Aura: <b>"+(S.X?.cloud==null?"—":Math.round(S.X.cloud)+"%")+"</b></div>":"<div class=\"note\">Brak surowych danych Open-Meteo.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
-  const imgwDetails=buildIMGWDiagnosticDetails(), modelStatuses=buildModelNetworkDiagnostics();
-  return "<h3>🔬 Pełna diagnostyka Aury</h3><div class=\"sd\">Połączenia → stacje → modele → fuzja → stan końcowy. Każdy wpis pokazuje faktyczny wynik zapytania.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych problemów jakości danych.</div>")+
-  "<div class=\"card\" style=\"margin-top:10px\"><div class=\"ch\">📡 Połączenia</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Endpoint</th><th>Metoda</th><th>HTTP</th><th>Status</th><th>Czas</th><th>Błąd</th></tr></thead><tbody>"+(endpointRows||"<tr><td colspan=6>Brak wykonanych zapytań.</td></tr>")+"</tbody></table></div></div>"+
-  "<div class=\"card\"><div class=\"ch\">🕐 IMGW — timestamp i wiek danych</div><div class=\"raw\" style=\"max-height:260px\">"+esc(JSON.stringify(imgwDetails,null,2))+"</div></div>"+
-  "<div class=\"card\"><div class=\"ch\">🧠 Open-Meteo — status modeli</div><div class=\"raw\" style=\"max-height:320px\">"+esc(JSON.stringify(modelStatuses,null,2))+"</div></div>"+
-  "<div class=\"card\"><div class=\"ch\">📡 IMGW Głodowo</div><div class=\"note\"><b>"+esc(img.stacja||"Głodowo")+"</b> · "+fmt(img.dist)+" km · ostatni użyty pomiar: "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+age(img.ageMinutes)+" · feed: "+esc(S.imgwStatus||"—")+"</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:620px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Czas</th><th>Świeżość</th></tr></thead><tbody>"+fieldRows+"</tbody></table></div><div class=\"note\">Feed: "+fmt(S.imgwDiag?.count||S.imgwDiag?.stationCount)+" stacji · znaleziono Głodowo: "+(S.imgwDiag?.found?"TAK":"NIE")+" · snapshot: "+(S.imgwDiag?.snapshotFresh?"FRESH":"STALE/BRAK")+"</div></div>"+
-  "<div class=\"card\"><div class=\"ch\">🛰️ Najbliższe stacje IMGW METEO</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Stacja</th><th>Kod</th><th>Odległość</th><th>T</th><th>Czas T</th><th>RH</th><th>Czas opadu</th></tr></thead><tbody>"+(stations||"<tr><td colspan=7>Brak listy stacji.</td></tr>")+"</tbody></table></div></div>"+
-  "<div class=\"card\"><div class=\"ch\">🌦️ Stan końcowy Aury</div><div class=\"note\">Temperatura: <b>"+fmt(cur.temperature_2m)+"°C</b> · odczuwalna: <b>"+fmt(cur.apparent_temperature)+"°C</b> · RH: <b>"+fmt(cur.relative_humidity_2m)+"%</b> · wiatr: <b>"+fmt(cur.wind_speed_10m)+" km/h</b> · chmury: <b>"+fmt(cur.cloud_cover)+"%</b> · opad: <b>"+fmt(cur.precipitation)+" mm</b></div><div class=\"note\">Źródło chmur: "+esc(S.cloudSource?.model||S.cloudSource?.source||"—")+" · tryb: "+esc(S.sourceMode||"—")+" · fuzja: "+esc(d.bridgeSource||"—")+"</div></div>"+
-  "<div class=\"card\"><div class=\"ch\">🧪 Modele Open-Meteo</div><div class=\"note\">Liczba odpowiedzi: "+net.filter(x=>/open-meteo\.com/.test(x.endpoint)&&x.ok).length+" · aktywny model: "+esc(activeModel.id)+"</div><div class=\"raw\" style=\"max-height:180px\">"+esc(JSON.stringify((S.modelCompareRaw||[]).map(x=>({model:x.model,status:x.data?"OK":"BRAK",current:x.data?.current||null})),null,2))+"</div></div>"+
-  "<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież wszystko</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj pełny raport</button></div>";
+  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+sourceTable+modelTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
 function pipelineDiagnosticsText(){
@@ -4047,11 +3050,7 @@ function pipelineDiagnosticsText(){
     source:S.cloudSource||null
   };
   return JSON.stringify({
-    generatedAt:new Date().toISOString(),
-    status:S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"?"IMGW online → Głodowo brak świeżych pól → Active Ensemble":S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
-    network:S.netDiag||[],
-    imgwDataAge:buildIMGWDiagnosticDetails(),
-    openMeteoModelStatus:buildModelNetworkDiagnostics(),
+    status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
     miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},
     aura,
     stacja_IMGW:S.imgwData||null,
@@ -4060,7 +3059,8 @@ function pipelineDiagnosticsText(){
     satelliteCloud:S.satelliteCloud||null,
     pipeline:S.pipelineDiag||null,
     liveHealth:S.liveHealth||null
-  },null,2);}
+  },null,2);
+}
 
 function openRawSheet(){
   const rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
@@ -4246,8 +3246,8 @@ function correctWeatherFusion(data,imgwData,cloudFusion){
   const stationFresh=imgwData.opad10minFresh===true &&
     Number.isFinite(stationPrecip) &&
     stationPrecip>=0 &&
-    Number(imgwData.dist)<=5 &&
-    (!Number.isFinite(stationAge)||stationAge<=30);
+    Number(imgwData.dist)<=30 &&
+    (!Number.isFinite(stationAge)||stationAge<=IMGW_MAX_FIELD_AGE_MINUTES);
 
   let precipitationApplied=false;
   let cloudApplied=false;
@@ -4372,20 +3372,6 @@ function applyForecastBridge(data,fusion,modelData){
       target.wind_speed_10m[targetIdx]=+(step===0&&Number.isFinite(data.current.wind_speed_10m)
         ?data.current.wind_speed_10m:corrected).toFixed(1);
     }
-
-    // Odczuwalna godzinowa musi być liczona z tej samej temperatury,
-    // wilgotności i wiatru, które właśnie zostały skorygowane powyżej.
-    // Nie zostawiamy surowego apparent_temperature z Open-Meteo,
-    // bo wtedy kafelki godzinowe mogą pokazywać inną odczuwalną niż T/RH/wiatr.
-    if(Array.isArray(target.apparent_temperature)){
-      const finalT=Number(target.temperature_2m?.[targetIdx]);
-      const finalH=Number(target.relative_humidity_2m?.[targetIdx]);
-      const finalW=Number(target.wind_speed_10m?.[targetIdx]);
-      if(Number.isFinite(finalT)&&Number.isFinite(finalH)&&Number.isFinite(finalW)){
-        const feels=discomfortIndex(finalT,finalH,finalW).value;
-        if(Number.isFinite(feels))target.apparent_temperature[targetIdx]=feels;
-      }
-    }
   }
 }
 
@@ -4398,9 +3384,6 @@ function syncDailyExtremes(data){
   const di=data.daily.time.findIndex(d=>String(d).slice(0,10)===today);
   if(di<0)return;
 
-  // Daily Tmin/Tmax są częścią tego samego snapshotu co current/hourly.
-  // Nie zachowujemy już surowych ekstremów Open-Meteo, bo mogą pochodzić
-  // z innego stanu niż finalnie skorygowane godziny.
   const vals=[];
   const curT=Number(data.current?.temperature_2m);
   if(Number.isFinite(curT))vals.push(curT);
@@ -4412,15 +3395,23 @@ function syncDailyExtremes(data){
   }
   if(!vals.length)return;
 
-  data.daily.temperature_2m_max[di]=+Math.max(...vals).toFixed(1);
-  data.daily.temperature_2m_min[di]=+Math.min(...vals).toFixed(1);
+  const observedMax=Math.max(...vals);
+  const observedMin=Math.min(...vals);
+  const oldMax=Number(data.daily.temperature_2m_max?.[di]);
+  const oldMin=Number(data.daily.temperature_2m_min?.[di]);
 
-  data.daily.__auraDailyExtremes={
-    date:today,
-    min:data.daily.temperature_2m_min[di],
-    max:data.daily.temperature_2m_max[di],
-    source:"final canonical hourly/current"
-  };
+  if(Number.isFinite(observedMax)){
+    data.daily.temperature_2m_max[di]=Number.isFinite(oldMax)
+      ?Math.max(oldMax,observedMax):observedMax;
+  }
+  if(Number.isFinite(observedMin)){
+    data.daily.temperature_2m_min[di]=Number.isFinite(oldMin)
+      ?Math.min(oldMin,observedMin):observedMin;
+  }
+
+  // Zachowujemy dziesiętne, ale nie wprowadzamy sztucznego zaokrąglenia do 0.5°C.
+  data.daily.temperature_2m_max[di]=+Number(data.daily.temperature_2m_max[di]).toFixed(1);
+  data.daily.temperature_2m_min[di]=+Number(data.daily.temperature_2m_min[di]).toFixed(1);
 }
 
 // Widoczność z modelu jest sanityzowana godzinowo. Niska wartość może być
@@ -4435,7 +3426,7 @@ function isDrizzleVisibilityCode(code){
   return c>=51&&c<=57;
 }
 function stationFreshPrecipMm(imgwData){
-  if(!imgwData||Number(imgwData.dist)>5||imgwData.opad10minFresh!==true)return null;
+  if(!imgwData||Number(imgwData.dist)>30||imgwData.opad10minFresh!==true)return null;
   const mm=Number(imgwData.opad_10min);
   return Number.isFinite(mm)&&mm>=0?mm:null;
 }
@@ -4444,7 +3435,7 @@ function stationHasFreshNoPrecip(imgwData){
   return mm!==null&&mm<=0;
 }
 function stationFreshGustKmH(imgwData){
-  if(!imgwData||Number(imgwData.dist)>5||imgwData.porywWiatruFresh!==true)return null;
+  if(!imgwData||Number(imgwData.dist)>30||imgwData.porywWiatruFresh!==true)return null;
   const ms=Number(imgwData.poryw_wiatru);
   return Number.isFinite(ms)&&ms>=0?ms*3.6:null;
 }
@@ -4464,25 +3455,41 @@ function sanitizeVisibility(data,imgwData){
     return n!==null&&n>=0?n:null;
   };
 
-  // WIDOCZNOŚĆ = wyłącznie surowa wartość z API.
-  // Żadnych estymacji z RH/chmur/opadu i żadnego nadpisywania wartością IMGW.
+  const currentCode=Number(data.current?.weather_code);
+  const currentPrecip=Number(data.current?.precipitation??data.current?.rain??0);
+  const hasFog=isFogVisibilityCode(currentCode)||stationFogObserved(imgwData);
+  const hasPrecip=isPrecipCode(currentCode)||(Number.isFinite(currentPrecip)&&currentPrecip>0.05)||(stationFreshPrecipMm(imgwData)??0)>0.05;
+  const isClearOrDry=!hasFog&&!hasPrecip;
+
   if(data.current){
     const apiCurrent=Number(data.__auraApiCurrentVisibility);
     const directCurrent=Number(data.current.visibility);
     const directRoot=Number(data.visibility);
-    const apiValue=Number.isFinite(apiCurrent)&&apiCurrent>0
+    let apiValue=Number.isFinite(apiCurrent)&&apiCurrent>0
       ?apiCurrent
       :Number.isFinite(directCurrent)&&directCurrent>0
         ?directCurrent
         :Number.isFinite(directRoot)&&directRoot>0
           ?directRoot
           :null;
-    if(apiValue!==null)data.current.visibility=apiValue;
+
+    if(apiValue!==null){
+      if(isClearOrDry&&apiValue<10000)apiValue=10000;
+      data.current.visibility=apiValue;
+    }
   }
 
   if(Array.isArray(data.hourly?.visibility)){
     for(let i=0;i<data.hourly.visibility.length;i++){
-      data.hourly.visibility[i]=clean(data.hourly.visibility[i]);
+      let hv=clean(data.hourly.visibility[i]);
+      if(hv!==null){
+        const hCode=Number(data.hourly.weather_code?.[i]);
+        const hPrecip=Number(data.hourly.precipitation?.[i]);
+        const hFog=isFogVisibilityCode(hCode);
+        const hPrecipActive=isPrecipCode(hCode)||(Number.isFinite(hPrecip)&&hPrecip>0.05);
+        if(!hFog&&!hPrecipActive&&hv<10000)hv=10000;
+        data.hourly.visibility[i]=hv;
+      }
     }
   }
 
@@ -4492,6 +3499,11 @@ function sanitizeVisibility(data,imgwData){
     forcedCurrentVisibility:false,
     stationVisibilityAvailable:false
   };
+}
+
+function sanitizePrecipitationConsistency(data,imgwData){
+  // Brak sztucznego zerowania opadów – zachowujemy czyste, surowe dane z modeli
+  return;
 }
 
 // ═══════════════════════════════════════════════
@@ -4617,7 +3629,7 @@ function lockFusionState(token,lat,lng,data,imgwData){
     stationDry:!!(
       imgwData?.opad10minFresh===true &&
       Number(imgwData?.opad_10min)===0 &&
-      Number(imgwData?.dist)<=5
+      Number(imgwData?.dist)<=30
     )
   };
   // Renderer dostaje referencję do już skorygowanego obiektu. Nie kopiujemy
@@ -4669,8 +3681,6 @@ async function loadWCore(lat,lng,name,isRef,token){
   document.title="Aura – "+city;
 
   let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
-  // Nowcast jest częścią kanonicznego stanu i musi być dostępny poza try.
-  let fusionNowcast=[];
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
     const [weatherResult,imgwResult,cloudResult,satelliteResult,minutelyResult]=await Promise.allSettled([
@@ -4684,12 +3694,12 @@ async function loadWCore(lat,lng,name,isRef,token){
     // Nie wolno jej dalej przetwarzać ani renderować.
     if(token!==LOAD_SEQ)return;
     const rawNowcast=minutelyResult.status==="fulfilled"?(minutelyResult.value||[]):[];
-    fusionNowcast=correctMinutelyPrecipitation(
-      rawNowcast,
-      imgwResult.status==="fulfilled"
-        ?(imgwResult.value?.best||imgwResult.value||{})
-        :null
-    );
+  const fusionNowcast=correctMinutelyPrecipitation(
+    rawNowcast,
+    imgwResult.status==="fulfilled"
+      ?(imgwResult.value?.best||imgwResult.value||{})
+      :null
+  );
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
@@ -4738,55 +3748,30 @@ async function loadWCore(lat,lng,name,isRef,token){
     // IMGW status musi opierać się na faktycznej dostępności źródła,
     // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
     // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
-    // ONLINE oznacza faktycznie użyte świeże dane IMGW, a nie sam fakt,
-    // że wcześniejszy request snapshotu ustawił flagę diagnostyczną.
-    // findNearestIMGW zwraca best.sourceType=IMGW_METEO tylko wtedy,
-    // gdy Głodowo ma co najmniej jeden świeży użyteczny parametr.
-    const imgwBestStation=imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||null)
-      :null;
-    // ONLINE oznacza, że findNearestIMGW faktycznie zwróciło lokalną stację
-    // METEO z użytecznym pomiarem. Nie uzależniamy statusu od dodatkowej
-    // flagi isFresh, bo świeżość pól jest liczona osobno dla każdego parametru.
-    // Transport IMGW i świeżość pomiaru to dwie różne rzeczy.
-    // Głodowo jest znalezione i feed METEO działa, ale pomiar może być za stary
-    // do fuzji "TERAZ". Nie pokazujemy wtedy fałszywego "IMGW Offline".
-    const imgwStationFound=!!(
-      imgwBestStation &&
-      imgwBestStation.sourceType==="IMGW_METEO"
-    );
-    const imgwUsableStation=!!(
-      imgwStationFound &&
-      imgwBestStation.isFresh!==false &&
-      Number.isFinite(Number(imgwBestStation.latestAgeMinutes??imgwBestStation.ageMinutes)) &&
-      Number(imgwBestStation.latestAgeMinutes??imgwBestStation.ageMinutes)<=120
-    );
-    const imgwTransportAvailable=!!(
-      imgwStationFound ||
-      S.imgwDiag?.found===true
-    );
-    const imgwFeedOffline=!imgwTransportAvailable;
+    const imgwFeedOffline=
+      imgwResult.status!=="fulfilled" ||
+      !imgwResult.value ||
+      S.imgwDiag?.status==="niedostępne" ||
+      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
     const imgwOffline=imgwFeedOffline;
-    const imgwStale=imgwTransportAvailable&&!imgwUsableStation;
-    const ensembleRequired=imgwOffline||imgwStale;
-    S.imgwStatus=imgwFeedOffline?"OFFLINE":imgwStale?"ONLINE_STALE":"ONLINE";
+    S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
     // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
     // ICON-EU, a jeśli go nie ma — ECMWF IFS.
-    const rawCloudSource=ensembleRequired
+    const rawCloudSource=imgwOffline
       ?(cloudCompare.find(r=>r.model==="icon_eu"&&Number.isFinite(Number(r.data?.current?.cloud_cover)))
         ||cloudCompare.find(r=>r.model==="ecmwf_ifs025"&&Number.isFinite(Number(r.data?.current?.cloud_cover))))
       :null;
     const rawCloudCover=rawCloudSource?Number(rawCloudSource.data.current.cloud_cover):null;
-    const offlineEnsemble=ensembleRequired?buildOfflineEnsemble(cloudCompare,imgwStale?"IMGW_ONLINE_STARE":"IMGW_OFFLINE"):null;
-    if(ensembleRequired&&offlineEnsemble){
+    const offlineEnsemble=imgwOffline?buildOfflineEnsemble(cloudCompare):null;
+    if(imgwOffline&&offlineEnsemble){
       data=offlineEnsemble;
       // Przywracamy wyłącznie surowe cloud_cover wybranego modelu.
       if(Number.isFinite(rawCloudCover)){
         data.current=data.current||{};
         data.current.cloud_cover=rawCloudCover;
       }
-      S.sourceMode=imgwStale?"IMGW_ONLINE_STARE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE";
+      S.sourceMode="IMGW_OFFLINE_ENSEMBLE";
       S.ensemble=offlineEnsemble.__auraEnsemble;
     }else{
       S.sourceMode=imgwOffline?"IMGW_OFFLINE_NO_ENSEMBLE":"IMGW_ONLINE";
@@ -4830,13 +3815,6 @@ async function loadWCore(lat,lng,name,isRef,token){
           data.current.snowfall=0;
         }
       }
-      if(Number.isFinite(Number(cloudFusion.weatherCode))){
-        data.current.weather_code=Number(cloudFusion.weatherCode);
-        const ciNow=currentHourIndex(data,new Date());
-        if(Array.isArray(data.hourly?.weather_code)&&ciNow>=0&&ciNow<data.hourly.weather_code.length){
-          data.hourly.weather_code[ciNow]=Number(cloudFusion.weatherCode);
-        }
-      }
       S.cloudSource={
         type:"weather-fusion",
         value:mainCloud,
@@ -4856,9 +3834,6 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
-      // Jedno źródło prawdy dla całego UI: diagnostyka, fuzja, status i kafelki
-      // muszą dostać dokładnie tę samą stację, którą zwrócił findNearestIMGW().
-      S.imgwData=imgwData||null;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
@@ -4931,7 +3906,7 @@ async function loadWCore(lat,lng,name,isRef,token){
           const stationPrecipAge=Number(imgwData.opad10minAgeMinutes);
           const stationPrecipFresh=imgwData.opad10minFresh===true;
           const ghostPrecipitation=
-            Number(imgwData.dist)<=5 &&
+            Number(imgwData.dist)<=30 &&
             stationPrecipFresh &&
             Number.isFinite(stationPrecip10) &&
             stationPrecip10<=0 &&
@@ -5020,10 +3995,11 @@ async function loadWCore(lat,lng,name,isRef,token){
           const rh=Number(data.current.relative_humidity_2m);
           const windMs=Math.max(0,Number(data.current.wind_speed_10m||0)/3.6);
           if(Number.isFinite(rh)){
-            // Odczuwalna musi używać tego samego, finalnego wiatru.
-            // Wcześniej próbowaliśmy przekazywać wiatr przez S.X.wind,
-            // ale discomfortIndex() przyjmuje go jako trzeci argument.
-            const newFeels=discomfortIndex(t,rh,windMs*3.6).value;
+            const previousWind=S.X?.wind;
+            S.X=S.X||{};
+            S.X.wind=windMs*3.6;
+            const newFeels=discomfortIndex(t,rh).value;
+            if(Number.isFinite(previousWind))S.X.wind=previousWind;
             data.current.apparent_temperature=Number.isFinite(newFeels)?Math.round(newFeels*10)/10:t;
           }else{
             data.current.apparent_temperature=t;
@@ -5053,13 +4029,14 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   // IMGW Offline musi pozostawić diagnostykę żywą nawet wtedy, gdy nie ma
   // żadnej obserwacji stacyjnej do fuzji.
-  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"||S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"){
+  if(S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"){
     const ci=currentHourIndex(data,new Date());
     const rows=[];
     for(let step=0;step<=3;step++){
       const idx=ci+step;
       if(idx>=data.hourly.time.length)break;
-      rows.push({        step,
+      rows.push({
+        step,
         time:data.hourly.time[idx],
         imgwStation:null,
         imgwModel:null,
@@ -5077,31 +4054,18 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     const activeEnsembleModels=S.ensemble?.models||[];
     const modelNames=activeEnsembleModels.map(m=>m==="icon_eu"?"ICON-EU":m==="ecmwf_ifs025"?"ECMWF IFS":m==="gfs_seamless"?"GFS":m);
-    const imgwDiagDetails=buildIMGWDiagnosticDetails();
     S.pipelineDiag={
       capturedAt:Date.now(),
       uiCurrentHour:ci,
       fusionCurrentHour:ci,
-      station:S.imgwDiag?.found===true?"Głodowo — pomiar nieświeży":"IMGW niedostępne",
-      stationAgeMinutes:Number.isFinite(Number(imgwDiagDetails?.stationAgeMinutes))
-        ?Number(imgwDiagDetails.stationAgeMinutes):null,
-      stationDistanceKm:Number.isFinite(Number(S.imgwDiag?.dist))?Number(S.imgwDiag.dist):null,
+      station:"IMGW Offline",
+      stationAgeMinutes:null,
+      stationDistanceKm:null,
       imgwForecastAvailable:false,
-      imgwForecastNote:(S.imgwDiag?.found===true
-        ?"IMGW online, Głodowo znalezione, ale brak świeżych pól ≤120 min → Active Ensemble: "
-        :"IMGW niedostępne → Active Ensemble: ")+modelNames.join(" + "),
-      status:(S.imgwDiag?.found===true
-        ?"IMGW online → Głodowo brak świeżych pól → Active Ensemble"
-        :"IMGW Offline → Active Ensemble"),
-      stationFreshnessStatus:Number.isFinite(Number(imgwDiagDetails?.stationAgeMinutes))
-        ?(Number(imgwDiagDetails.stationAgeMinutes)<=30
-          ?"ŚWIEŻE"
-          :Number(imgwDiagDetails.stationAgeMinutes)<=120
-            ?"STARE, UŻYWALNE"
-            :"PRZETERMINOWANE")
-        :"BRAK POMIARU",
-      sourceMode:S.sourceMode==="IMGW_ONLINE_STARE_ENSEMBLE"?"IMGW_ONLINE_STARE_ENSEMBLE":"IMGW_OFFLINE_ENSEMBLE",
-      imgwStatus:S.imgwDiag?.found===true?"ONLINE_STALE":"OFFLINE",
+      imgwForecastNote:"IMGW Offline → Active Ensemble: "+modelNames.join(" + "),
+      status:"IMGW Offline → Active Ensemble",
+      sourceMode:"IMGW_OFFLINE_ENSEMBLE",
+      imgwStatus:"OFFLINE",
       activeEnsemble:modelNames,
       ensembleCloudConsensus:Number.isFinite(Number(S.ensemble?.cloudCoverConsensus))?S.ensemble.cloudCoverConsensus:null,
       rows,
@@ -5177,121 +4141,15 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
   // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
-  // Przyszły mikro-opad z jednego modelu nie może samodzielnie tworzyć deszczu w UI.
-  const forecastPrecipitationConsensus=enforceForecastPrecipitationConsensus(
-    data,
-    cloudCompare,
-    fusionNowcast
-  );
   correctHourlyPrecipitation(data.hourly,imgwData);
   const canonicalFusion=applyCanonicalWeatherFusion(data,imgwData);
   S.canonicalWeatherFusion=canonicalFusion;
-
-  // Dopiero po ostatniej fuzji godzinowej synchronizujemy Tmin/Tmax.
-  // Dzięki temu karta dzienna i wykres godzinowy czytają identyczny stan.
-  syncDailyExtremes(data);
+  sanitizePrecipitationConsistency(data,imgwData);
 
   S.pipelineDiag=S.pipelineDiag||{};
-  // Pipeline musi pokazywać dokładnie ten sam, już skorygowany opad,
-  // który trafił do kanonicznego stanu i UI. T0 bierze wartość z current,
-  // kolejne sloty z poprawionej tablicy hourly.
-  if(Array.isArray(S.pipelineDiag.rows)&&Array.isArray(data?.hourly?.time)){
-    const ci=currentHourIndex(data,new Date());
-    S.pipelineDiag.rows=S.pipelineDiag.rows.map((row,step)=>{
-      const idx=ci+step;
-      if(idx<0||idx>=data.hourly.time.length)return row;
-      const precip=step===0
-        ?Number(data.current?.precipitation)
-        :Number(data.hourly.precipitation?.[idx]);
-      const temp=Number(data.hourly.temperature_2m?.[idx]);
-      return {
-        ...row,
-        time:data.hourly.time[idx],
-        openMeteo:Number.isFinite(temp)?temp:row.openMeteo,
-        auraFinal:Number.isFinite(temp)?temp:row.auraFinal,
-        precipitation:Number.isFinite(precip)?Math.max(0,precip):0,
-        precipitationModelWeight:1
-      };
-    });
-    const first=S.pipelineDiag.rows[0];
-    if(first){
-      first.auraFinal=Number.isFinite(Number(data.current?.temperature_2m))
-        ?Number(data.current.temperature_2m):first.auraFinal;
-      first.precipitation=Number.isFinite(Number(data.current?.precipitation))
-        ?Math.max(0,Number(data.current.precipitation)):first.precipitation;
-    }
-  }
   S.pipelineDiag.canonicalWeatherFusion=canonicalFusion;
   S.pipelineDiag.hourlyPrecipitationCorrection=
     data.hourly?.__auraHourlyPrecipitationCorrection||null;
-  const precipDiag=forecastPrecipitationConsensus||data.hourly?.__auraForecastPrecipitationConsensus||null;
-  if(precipDiag){
-    const decisions=Array.isArray(precipDiag.decisions)?precipDiag.decisions:[];
-    precipDiag.evaluatedCount=decisions.length;
-    precipDiag.acceptedCount=decisions.filter(d=>d?.accepted===true).length;
-    precipDiag.rejectedCount=decisions.filter(d=>d?.accepted===false).length;
-    precipDiag.minutelyConfirmedCount=decisions.filter(d=>d?.minutelyConfirmed===true).length;
-    precipDiag.correctedCount=Number(precipDiag.correctedCount)||0;
-    precipDiag.applied=precipDiag.acceptedCount>0||precipDiag.correctedCount>0;
-  }
-  S.pipelineDiag.forecastPrecipitationConsensus=precipDiag;
-
-  const canonicalPrecipTrace=buildCanonicalPrecipitation(data,fusionNowcast);
-  const traceSlots=Array.isArray(canonicalPrecipTrace?.slots)?canonicalPrecipTrace.slots:[];
-  const positiveSlots=traceSlots.filter(x=>Number(x?.mm)>0);
-  const eventSlots=traceSlots.filter(x=>Number(x?.mm)>=0.15);
-  S.pipelineDiag.precipitationTrace={
-    currentMm:Number.isFinite(Number(data.current?.precipitation))?Number(data.current.precipitation):0,
-    positiveSlotCount:positiveSlots.length,
-    eventSlotCount:eventSlots.length,
-    firstPositive:positiveSlots[0]||null,
-    nextEvent:canonicalPrecipTrace?.nextEvent||null,
-    source:"canonicalWeather.precipitation",
-    semantics:{displayPositiveMm:true,eventThresholdMm:0.15,strongEventThresholdMm:0.4}
-  };
-
-  const consistencyIssues=[];
-  for(let i=0;i<Math.min(traceSlots.length,data.hourly?.time?.length||0);i++){
-    const raw=Number(data.hourly?.precipitation?.[i]);
-    const canonical=Number(traceSlots[i]?.mm);
-    if(Number.isFinite(raw)&&Number.isFinite(canonical)&&Math.abs(raw-canonical)>0.001){
-      consistencyIssues.push({time:data.hourly.time[i],hourlyMm:raw,canonicalMm:canonical});
-    }
-  }
-  S.pipelineDiag.renderConsistency={
-    checkedSlots:Math.min(traceSlots.length,data.hourly?.time?.length||0),
-    mismatchCount:consistencyIssues.length,
-    issues:consistencyIssues.slice(0,20),
-    status:consistencyIssues.length?"MISMATCH":"OK"
-  };
-
-  // CANONICAL WEATHER STATE: jeden stan prezentacyjny po wszystkich mutacjach.
-  S.canonicalWeather={
-    version:1,
-    committedAt:Date.now(),
-    current:data.current,
-    hourly:data.hourly,
-    daily:data.daily,
-    precipitation:{
-      ...buildCanonicalPrecipitation(data,fusionNowcast),
-      currentRain:Number.isFinite(Number(data.current?.rain))?Number(data.current.rain):0
-    },
-    imgw:{
-      station:imgwData?.stacja||imgwData?.name||null,
-      fetchedAt:imgwData?.fetchedAt??null,
-      observedAt:imgwData?.observedAt??null,
-      latestObservedAt:imgwData?.latestObservedAt??null,
-      latestAgeMinutes:imgwData?.latestAgeMinutes??imgwData?.ageMinutes??null,
-      fields:{
-        temperature:imgwData?.temperatura_data??null,
-        humidity:imgwData?.wilgotnosc_wzgledna_data??null,
-        wind:imgwData?.predkosc_wiatru_data??null,
-        windDirection:imgwData?.kierunek_wiatru_data??null,
-        precipitation10min:imgwData?.opad_10min_data??null
-      }
-    }
-  };
-  S.fusionLockedHourly=S.canonicalWeather.hourly;
 
   // GRANICA ATOMOWEGO COMMITU:
   // po tej chwili wynik fuzji jest własnością bieżącej generacji.
@@ -5332,9 +4190,6 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.isFusionLocked=true;
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
-
-  // Snapshoty zewnętrzne są diagnostyczne; nie uczestniczą w kanonicznym stanie pogody.
-  S.weatherapi=null;
 
   if(isDemo)return;
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
