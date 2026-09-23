@@ -1479,6 +1479,8 @@ async function findNearestIMGW(lat,lng){
       if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:"Głodowo odrzucone",used:false,found:true,reason:rejectReason,rawAge,distOK,tempOK,ageOK,tempFields:__tempFields,candidateTemps:__candidateTemps,keys:__allFields,rawStation:glodowo}; window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,temp,ageMinutes,rawAge,distOK,tempOK,ageOK});
     }
+  }else if(S.imgwDiag){
+    S.imgwDiag={...S.imgwDiag,status:"Głodowo nie znalezione",found:false,used:false};
   }
 
   if(!glodowo) {
