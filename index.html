@@ -4354,6 +4354,21 @@ document.addEventListener("visibilitychange",()=>{
   render();
   // po odtworzeniu z cache od razu odświeżamy w tle
   if(S.phase==="weather"&&S.lat!=null)loadW(S.lat,S.lng,S.city,true);
+
+  // Automatyczne wykrywanie nowego wdrożenia na GitHub Pages i wymuszenie świeżej wersji
+  (async function checkBuildUpdate(){
+    try{
+      const r=await fetch("./build-version.json?ts="+Date.now(),{cache:"no-store"});
+      if(!r.ok)return;
+      const v=await r.json();
+      const metaBuild=document.querySelector('meta[name="aura-build"]')?.content;
+      if(metaBuild&&v.buildId&&metaBuild!==v.buildId){
+        try{localStorage.removeItem("aura_v7");}catch{}
+        window.location.reload();
+      }
+    }catch{}
+  })();
+
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then(reg => {
       reg.onupdatefound = () => {
