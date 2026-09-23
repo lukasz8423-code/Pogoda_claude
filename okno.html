@@ -203,57 +203,38 @@ async function fetchIMGWAll(){
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function findNearestIMGW(lat,lng){
-  const all=await fetchIMGWAll();
-  if(!all||!Array.isArray(all)||all.length===0)return null;
-
-  const results=[];
-  all.forEach(s=>{
-    // Dopasuj dane API do wspolrzednych ze slownika
-    const known=IMGW_STATIONS.find(k=>{
-      const nameMatch=s.stacja&&(
-        s.stacja.toLowerCase()===k.name.toLowerCase()||
-        s.stacja.toLowerCase().includes(k.name.toLowerCase())||
-        k.name.toLowerCase().includes(s.stacja.toLowerCase())
-      );
-      const idMatch=s.id_stacji&&(s.id_stacji===k.id||s.id_stacji.includes(k.id)||k.id.includes(s.id_stacji));
-      return nameMatch||idMatch;
-    });
-    if(!known)return;
-    const dist=stationDist(lat,lng,known.lat,known.lng);
-    results.push({
-      ...s,
-      ...known,
-      dist:Math.round(dist*10)/10
-    });
+  // Jedno źródło IMGW dla całej Aury: zatwierdzony snapshot METEO.
+  // Nie używamy osobnego SYNOP ani własnej listy stacji, żeby "Zza okna"
+  // nie miało innej wersji danych niż główna aplikacja.
+  const r=await fetch("./imgw-meteo.json?ts="+Date.now(),{
+    cache:"no-store",
+    signal:AbortSignal.timeout(8000)
   });
-
-  // Sortuj od najblizszej
-  results.sort((a,b)=>a.dist-b.dist);
-
-  if(results.length===0)return null;
-
-  const best=results[0];
-  console.log(`Najblizsa stacja IMGW: ${best.stacja||best.name} (${best.dist} km)`);
-  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
-
-  // Sprawdz swiezosc danych - IMGW aktualizuje co godzine
-  // pole data_pomiaru = "2026-08-07", godzina_pomiaru = "10"
-  let ageMinutes = null;
-  if(best.data_pomiaru && best.godzina_pomiaru!=null){
-    try{
-      const obsDate = new Date(`${best.data_pomiaru}T${String(best.godzina_pomiaru).padStart(2,"0")}:00:00`);
-      ageMinutes = Math.round((Date.now()-obsDate.getTime())/60000);
-    }catch(e){}
-  }
-  best.ageMinutes = ageMinutes;
-  // Jesli dane starsze niz 3h - traktuj jako nieaktualne, nie uzywaj do nadpisywania
-  best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
-
-  // Zwroc najblizsa stacje + liste wszystkich w promieniu 100km
-  return {
-    best,
-    nearby:results.filter(r=>r.dist<=100).slice(0,5)
-  };
+  if(!r.ok)throw new Error("IMGW snapshot HTTP "+r.status);
+  const payload=await r.json();
+  const all=Array.isArray(payload?.data)?payload.data:[];
+  const rows=all.map(s=>{
+    const slat=Number(s?.lat),slng=Number(s?.lon??s?.lng);
+    if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
+    const temp=Number(s?.temperatura_powietrza??s?.temperatura);
+    const windMs=Number(s?.predkosc_wiatru??s?.wiatr_srednia_predkosc);
+    const observed=s?.temperatura_powietrza_data??s?.temperatura_data??null;
+    const ts=observed?Date.parse(String(observed)):NaN;
+    const ageMinutes=Number.isFinite(ts)?Math.max(0,Math.round((Date.now()-ts)/60000)):null;
+    return {
+      ...s,
+      lat:slat,lng:slng,
+      stacja:s?.nazwa_stacji??s?.stacja??s?.nazwa??"IMGW",
+      dist:Math.round(stationDist(lat,lng,slat,slng)*10)/10,
+      temperatura:Number.isFinite(temp)?temp:null,
+      predkosc_wiatru:Number.isFinite(windMs)?windMs:null,
+      ageMinutes,
+      isFresh:ageMinutes==null||ageMinutes<180
+    };
+  }).filter(Boolean).sort((x,y)=>x.dist-y.dist);
+  if(!rows.length)return null;
+  const best=rows[0];
+  return {best,nearby:rows.filter(x=>x.dist<=100).slice(0,5),snapshotFetchedAt:payload?.fetchedAt??null};
 }
 
 // ═══════════════════════════════════════════════
