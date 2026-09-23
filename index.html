@@ -1940,21 +1940,12 @@ function enforceForecastPrecipitationConsensus(data,modelRecords,nowcast=[]){
     });
 
     if(!accepted){
-      if(Array.isArray(h.precipitation))h.precipitation[i]=0;
-      if(Array.isArray(h.rain))h.rain[i]=0;
-      if(Array.isArray(h.showers))h.showers[i]=0;
-      if(Array.isArray(h.snowfall))h.snowfall[i]=0;
+      // Brak potwierdzenia nie oznacza automatycznie 0 mm.
+      // Mikroopad pozostaje informacją prognostyczną; tylko nie tworzy zdarzenia.
       if(Array.isArray(h.precipitation_probability)){
         const pop=Number(h.precipitation_probability[i]);
-        if(Number.isFinite(pop))h.precipitation_probability[i]=Math.min(pop,15);
+        if(Number.isFinite(pop))h.precipitation_probability[i]=clamp(pop,0,100);
       }
-      if(Array.isArray(h.weather_code)&&isRainCode(Number(h.weather_code[i]))){
-        const cloud=Number(h.cloud_cover?.[i]);
-        h.weather_code[i]=Number.isFinite(cloud)
-          ?(cloud<=20?0:cloud<=70?2:3)
-          :0;
-      }
-      correctedCount++;
     }
   }
 
