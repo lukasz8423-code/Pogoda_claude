@@ -6186,9 +6186,14 @@ document.addEventListener("visibilitychange",()=>{
       if(!r.ok)return;
       const v=await r.json();
       const metaBuild=document.querySelector('meta[name="aura-build"]')?.content;
-      if(metaBuild&&v.buildId&&metaBuild!==v.buildId){
+      const buildKey = v.buildId || v.commit || "";
+      const lastReload = sessionStorage.getItem("aura_last_reload_build");
+      
+      if (lastReload === buildKey) return;
+
+      if(metaBuild && buildKey && metaBuild !== buildKey && !window.location.search.includes("b=")){
+        sessionStorage.setItem("aura_last_reload_build", buildKey);
         try{
-          localStorage.removeItem("aura_v7");
           if('caches' in window){
             const keys=await caches.keys();
             await Promise.all(keys.map(k=>caches.delete(k)));
