@@ -718,28 +718,33 @@ function pad(n){return String(n).padStart(2,"0");}
 
 
 // Temperatura na słońcu i w cieniu
-// Na podstawie promieniowania słonecznego, wiatru i wilgotności
-function calcSunShadeTemp(tempC, radiation, windKmh, humidity){
+// Na podstawie temperatury powietrza, temperatury odczuwalnej, promieniowania słonecznego, wiatru i wilgotności
+function calcSunShadeTemp(tempC, feelsC, radiation, windKmh, humidity){
   const windMs = Math.max(0, (Number(windKmh) || 0) / 3.6);
   const rad = Math.max(0, Number(radiation) || 0);
   const hum = Math.min(100, Math.max(0, Number(humidity) || 50));
   const t = Number.isFinite(Number(tempC)) ? Number(tempC) : 0;
-
-  // Temperatura w cieniu = oficjalna temperatura powietrza 2m (klatka Stevenson screen mierzy w cieniu)
-  const shadeTemp = Math.round(t * 10) / 10;
+  const f = Number.isFinite(Number(feelsC)) ? Number(feelsC) : t;
 
   // Efekt promieniowania słonecznego na człowieka / ciało nasłonecznione (W/m² -> °C)
-  // Przy 1000 W/m² czystego nieba przyrost wynosi ok. 10-12°C w bezwietrznym powietrzu.
   const baseDelta = (rad / 1000) * 10 * (1 - hum / 250);
 
-  // Wiatr chłodzi konwekcyjnie — odprowadza ciepło z nasłonecznionej powierzchni,
-  // co tłumi naddatek radiacyjny (współczynnik konwekcji rośnie z pierwiastkiem prędkości wiatru).
+  // Wiatr chłodzi konwekcyjnie — odprowadza ciepło z nasłonecznionej powierzchni
   const windDamping = 1 + 0.35 * Math.sqrt(windMs);
   const solarGain = Math.max(0, baseDelta / windDamping);
 
-  const sunTemp = Math.round((t + solarGain) * 10) / 10;
+  const shadeFeels = Math.round(f * 10) / 10;
+  const sunFeels = Math.round((f + solarGain) * 10) / 10;
+  const shadeAir = Math.round(t * 10) / 10;
+  const sunAir = Math.round((t + solarGain) * 10) / 10;
 
-  return { sun: sunTemp, shade: shadeTemp };
+  return { 
+    sun: sunFeels, 
+    shade: shadeFeels, 
+    airShade: shadeAir, 
+    airSun: sunAir, 
+    gain: Math.round(solarGain * 10) / 10 
+  };
 }
 
 
@@ -4137,8 +4142,13 @@ function wRain(X){
 
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
-  const sh=calcSunShadeTemp(X.T,X.rad,X.wind,X.hum);
-  return`<div id="w-sun" class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
+  const sh=calcSunShadeTemp(X.T, X.feels, X.rad, X.wind, X.hum);
+  const diff = Math.abs(sh.shade - sh.airShade);
+  const shadeTxt = diff >= 1.0 
+    ? `W cieniu odczuwalna <b>${fnum(sh.shade,1)}°C</b> (powietrze <b>${fnum(sh.airShade,1)}°C</b>)`
+    : `W cieniu <b>${fnum(sh.airShade,1)}°C</b>`;
+  const gainTxt = sh.gain > 0 ? ` Słońce dogrzewa o +${fnum(sh.gain,1)}°C.` : "";
+  return`<div id="w-sun" class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${fnum(sh.sun,1)}° <small>odczuwalna na słońcu</small></div><div class="ws">${shadeTxt}. Promieniowanie ${Math.round(X.rad)} W/m².${gainTxt}</div></div>`;
 }
 function wThreats(X){
   const thr = detectThreats(X);
