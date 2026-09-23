@@ -1043,58 +1043,104 @@ async function fetchIMGWAll(){
 
 // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
 async function fetchIMGWMeteoAll(){
-  // KANONICZNE ŹRÓDŁO LIVE: najpierw próbujemy bezpośredniego feedu IMGW METEO.
-  // Snapshot GitHub Pages jest dopiero awaryjnym transportem/cache'em.
-  // Dzięki temu świeży feed IMGW nie może zostać zablokowany przez poprawny
-  // technicznie, ale stary snapshot.
-  S.imgwDiag={...(S.imgwDiag||{}),status:"pobieranie-live",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null}; window.__AURA_IMGW_DIAG=S.imgwDiag;
-  // GitHub Pages nie uruchamia serwera Node, więc przeglądarka nie może
-  // polegać na bezpośrednim CORS do IMGW. Pages dostaje świeży snapshot
-  // IMGW z GitHub Actions i ten sam-origin plik jest źródłem dla Aury.
+  // GitHub Pages nie ma backendu Node. Bezpośredni fetch do IMGW METEO
+  // kończył się w przeglądarce na CORS/Failed to fetch, więc nie może być
+  // kanonicznym transportem Aury.
+  //
+  // Kanoniczny transport dla Pages:
+  // GitHub Actions pobiera IMGW METEO i zapisuje imgw-meteo.json co 10 min.
+  // Ten plik jest same-origin i zawiera dokładny czas pobrania oraz
+  // osobne timestampy każdego pola stacji.
+  S.imgwDiag={
+    ...(S.imgwDiag||{}),
+    status:"pobieranie-snapshotu",
+    count:null,
+    found:false,
+    used:false,
+    error:null,
+    station:null,
+    temperature:null,
+    timestamp:null,
+    ageMinutes:null,
+    dist:null,
+    reason:null,
+    liveSource:"same-origin IMGW snapshot"
+  };
+  window.__AURA_IMGW_DIAG=S.imgwDiag;
+
   try{
-    // IMGW METEO bywa podawane przez warstwę pośrednią/CDN. Samo
-    // cache:"no-store" nie gwarantuje, że po drodze nie zostanie zwrócona
-    // poprzednia odpowiedź. Dodajemy jawny cache-buster do każdego odczytu.
-    const liveUrl="https://danepubliczne.imgw.pl/api/data/meteo/?_aura_ts="+Date.now();
-    const r=await auraFetch(liveUrl,{
-      mode:"cors",cache:"no-store",headers:{Accept:"application/json","Cache-Control":"no-cache"},signal:AbortSignal.timeout(12000)
+    const url="./imgw-meteo.json?ts="+Date.now();
+    const started=Date.now();
+    const r=await auraFetch(url,{
+      cache:"no-store",
+      headers:{"Accept":"application/json"},
+      signal:AbortSignal.timeout(8000)
     });
     if(!r.ok)throw new Error("HTTP "+r.status);
-    const list=await r.json();
-    if(!Array.isArray(list))throw new Error("IMGW METEO zwróciło nieprawidłowy format");
+
+    const payload=await r.json();
+    const list=Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.data)?payload.data:null);
+
+    if(!Array.isArray(list)||list.length===0){
+      throw new Error("IMGW snapshot ma pusty lub nieprawidłowy format");
+    }
+
     const station=list.find(s=>{
       const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
-      const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
-      const slat=Number(s?.lat),slon=Number(s?.lon??s?.lng);
-      const coordinateMatch=Number.isFinite(slat)&&Number.isFinite(slon)
-        &&stationDist(slat,slon,52.8306,19.2356)<=1.5;
-      return code==="252190030"||name==="głodowo"||name==="glodowo"||coordinateMatch;
+      return code==="252190030";
     });
+
+    const fetchedAt=Number(payload?.fetchedAt)||null;
+    const snapshotAgeMinutes=Number.isFinite(fetchedAt)
+      ? Math.max(0,(Date.now()-fetchedAt)/60000)
+      : null;
+
     S.imgwDiag={
       ...S.imgwDiag,
-      status:"pobrano-bezpośrednio",
+      status:"snapshot-pobrany",
       count:list.length,
       found:!!station,
-      station:station?.nazwa_stacji||station?.stacja||null,
-      temperature:station?.temperatura_powietrza??station?.temperatura??null,
-      timestamp:station?.temperatura_powietrza_data??station?.temperatura_data??null,
+      station:station?.nazwa_stacji||"Głodowo",
+      stationCode:"252190030",
+      temperature:station?.temperatura_powietrza??null,
+      timestamp:station?.temperatura_powietrza_data??null,
       ageMinutes:null,
-      liveFetchedAt:Date.now(),
-      snapshotFetchedAt:S.imgwDiag?.snapshotFetchedAt??null,
-      error:null
+      dist:null,
+      fetchedAt,
+      snapshotFetchedAt:fetchedAt,
+      snapshotAgeMinutes,
+      sourceAvailable:true,
+      snapshotValid:true,
+      liveRefreshUsed:false,
+      liveSource:"IMGW METEO snapshot via GitHub Actions",
+      error:null,
+      requestDurationMs:Date.now()-started
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
-    console.log("IMGW METEO:",{count:list.length,glodowoFound:!!station,glodowo:station||null});
+
+    if(!station){
+      throw new Error("IMGW snapshot nie zawiera Głodowa 252190030");
+    }
+
+    console.log("IMGW METEO snapshot:",{
+      count:list.length,
+      fetchedAt,
+      snapshotAgeMinutes,
+      glodowo:station
+    });
     return list;
   }catch(e){
     S.imgwDiag={
-      ...S.imgwDiag,status:"niedostępne",count:null,found:false,used:false,
-      error:(e?.message||String(e)),station:null,temperature:null,timestamp:null,
-      ageMinutes:null,dist:null,
-      reason:"bezpośredni endpoint IMGW METEO niedostępny"
+      ...S.imgwDiag,
+      status:"niedostępne",
+      sourceAvailable:false,
+      error:e?.message||String(e),
+      reason:"same-origin IMGW snapshot niedostępny"
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
-    console.warn("IMGW METEO niedostępne:",S.imgwDiag.error);
+    console.warn("IMGW snapshot niedostępny:",S.imgwDiag.error);
     return null;
   }
 }
