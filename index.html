@@ -1310,7 +1310,8 @@ async function findNearestIMGW(lat,lng){
     const ageMinutes=rawAge==null?null:(rawAge < -30 ? null : Math.max(0,Math.round(rawAge)));
     const __allFields=Object.keys(glodowo||{});
     const __tempFields=__allFields.filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
-    const __candidateTemps=__allFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:glodowo[k],num:parseFloat(String(glodowo[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
+    const __rawAllFields=Object.keys(rawGlodowoBeforeValidation||{});
+    const __candidateTemps=__rawAllFields.filter(k=>/temp|temper/i.test(k)).map(k=>({key:k,value:rawGlodowoBeforeValidation[k],num:parseFloat(String(rawGlodowoBeforeValidation[k]).replace(",","."))})).filter(x=>Number.isFinite(x.num));
     const temp=parseFloat(String(tempRaw ?? "").replace(",","."));
     const humidityObservedAt=parseImgwMeteoTimestamp(glodowo.wilgotnosc_wzgledna_data);
     const windObservedAt=parseImgwMeteoTimestamp(glodowo.wiatr_srednia_predkosc_data);
@@ -1392,7 +1393,7 @@ async function findNearestIMGW(lat,lng){
       ageOK
     };
 
-    const tempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
+    const tempFields=Object.keys(rawGlodowoBeforeValidation||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=rawGlodowoBeforeValidation[k];return o;},{});
     console.log("IMGW Głodowo diagnostyka:",{
       kod_stacji:glodowo.kod_stacji,
       nazwa:glodowo.nazwa_stacji,
@@ -2979,9 +2980,12 @@ function nowcastHTML(X){
 
     // 2) Klasyfikacja kanoniczna decyduje, czy w ogóle wolno pokazać opad.
     // "none" i "drizzle" nie mogą generować słupków ani fałszywych wartości mm/POP.
-    const canonicalRainVisible=!!canonicalPrecip?.nextEvent &&
+    const canonicalEventVisible=!!canonicalPrecip?.nextEvent &&
       canonicalClass?.type!=="none" &&
       canonicalClass?.type!=="drizzle";
+    // DISPLAY ≠ EVENT: dodatni zaakceptowany mikroopad ma być widoczny,
+    // nawet gdy nie kwalifikuje się jeszcze jako zdarzenie deszczowe.
+    const canonicalRainVisible=renderSlots.some(x=>Number(x?.mm)>0);
 
     const v=renderSlots.map(x=>{
       const rawMm=Number(x?.mm)||0;
@@ -2999,19 +3003,19 @@ function nowcastHTML(X){
       const pop=canonicalRainVisible
         ?(Number.isFinite(rawPop)?Math.round(clamp(rawPop,0,100))+"%":"–")
         :"0%";
-      const traceRain=mm>=0.01&&mm<0.15;
+      const traceRain=mm>0&&mm<0.15;
       const activeRain=
-        canonicalRainVisible && (
+        canonicalEventVisible && (
           isRainCode(stateCode) ||
           (Number.isFinite(stateMm)&&stateMm>0.05) ||
           (Number.isFinite(statePrecip)&&statePrecip>0.05)
         );
       const label=traceRain
-        ? "< 0,1 mm"
+        ? fnum(mm,2)+" mm"
         : mm<0.005
           ? "0"
           : fnum(mm,2)+" mm";
-      const displayMm=traceRain&&activeRain?0.08:mm;
+      const displayMm=mm;
       const barH=Math.round(clamp(displayMm,0,1)*54+4);
       return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
@@ -3603,7 +3607,7 @@ function imgwDiagHTML(){
   const d=S.imgwDiag;
   if(!d)return "";
   const tone=d.used?"ok":(d.status==="pobieranie"||d.status==="pobieranie-live"?"warn":"bad");
-  const source=d.liveSource==="IMGW METEO"?"IMGW LIVE":(d.liveSource==="snapshot-fallback"?"IMGW — awaryjny snapshot":"IMGW");
+  const source=d.liveSource==="IMGW METEO"?"IMGW LIVE · pobrano bezpośrednio":(d.liveSource==="snapshot-fallback"?"IMGW — awaryjny snapshot":"IMGW");
   const measurementTs=parseImgwMeteoTimestamp(d.timestamp);
   const measurementAge=measurementTs!=null?Math.max(0,Math.round((Date.now()-measurementTs)/60000)):null;
   const fetchedTs=d.liveSource==="IMGW METEO"?Number(d.liveFetchedAt):Number(d.snapshotFetchedAt);
@@ -3615,6 +3619,7 @@ function imgwDiagHTML(){
     Number.isFinite(fetchedTs)&&fetchedTs>0?"Pobrano: "+new Date(fetchedTs).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null,
     d.snapshotAgeMinutes!=null&&d.liveSource==="snapshot-fallback"?"Snapshot ma: "+d.snapshotAgeMinutes+" min":null,
     d.dist!=null?"odległość: "+d.dist+" km":null,
+    measurementAge!=null?(measurementAge<=30?"pomiar: ŚWIEŻY":measurementAge<=120?"pomiar: STARY, UŻYWALNY":"pomiar: PRZETERMINOWANY"):null,
     d.reason?"powód: "+d.reason:null,
     d.error?"błąd: "+d.error:null
   ].filter(Boolean).join(" · ");
@@ -3814,7 +3819,15 @@ function buildIMGWDiagnosticDetails(){
     latestField:latest?.name||null,
     fields:fields.map(([name,value,timestamp,fresh])=>{
       const a=diagnosticAgeMinutes(timestamp);
-      return{name,value:value??null,timestamp:timestamp||null,ageMinutes:a,status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status};
+      const rawField=raw&&name==="Temperatura"?raw.temperature:null;
+      return{
+        name,
+        value:value??null,
+        rawValue:rawField??value??null,
+        timestamp:timestamp||null,
+        ageMinutes:a,
+        status:fresh===true?"ŚWIEŻE":fresh===false?"NIEŚWIEŻE":diagnosticAgeStatus(a).status
+      };
     })
   };
 }
