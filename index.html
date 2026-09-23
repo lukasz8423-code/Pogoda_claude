@@ -137,12 +137,22 @@ a.btn{text-decoration:none;color:inherit}
 
 /* hourly */
 .hstrip{display:flex;overflow-x:auto;gap:0;margin:0 -8px;padding:0 4px 2px;scroll-snap-type:x proximity}
-.hi{flex:none;width:56px;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0;border-radius:18px;scroll-snap-align:start;font-size:14px}
+.hi{flex:none;width:60px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 10px;border-radius:18px;scroll-snap-align:start;font-size:14px}
 .hi.now{background:rgba(255,255,255,.12)}
 .hi .t{font-size:12.5px;color:var(--ink2);font-weight:500}
-.hi .v{font-weight:600;font-size:16px}
-.hi .p{font-size:11.5px;color:var(--rain);font-weight:600;height:14px}
+.hi .v{font-weight:600;font-size:16px;margin-bottom:1px}
+.hi .p{font-size:11px;color:var(--ink3);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2}
+.hi .p.active{color:var(--rain)}
+.hi .p svg{width:11px;height:11px;stroke-width:2.2;flex:none}
+.hi .c{font-size:11px;color:var(--ink2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2}
+.hi .c svg{width:11px;height:11px;stroke-width:2;flex:none;opacity:.85}
 .hi.sun .t{color:var(--sun)}
+.h-legend{display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:500}
+.h-leg-item{display:inline-flex;align-items:center;gap:3px}
+.h-leg-item.rain{color:var(--rain)}
+.h-leg-item.rain svg{width:12px;height:12px;stroke-width:2.2}
+.h-leg-item.cloud{color:var(--ink2)}
+.h-leg-item.cloud svg{width:12px;height:12px;stroke-width:2}
 
 /* meteogram */
 .mg{overflow-x:auto;margin:0 -8px;padding:0 4px}
@@ -336,28 +346,24 @@ function pad(n){return String(n).padStart(2,"0");}
 // Temperatura na słońcu i w cieniu
 // Na podstawie promieniowania słonecznego, wiatru i wilgotności
 function calcSunShadeTemp(tempC, radiation, windKmh, humidity){
-  // Temperatura w cieniu = apparent_temperature (juz mamy)
-  // Temperatura na słońcu = temp + efekt promieniowania
-  // Wzór oparty na WBGT (Wet Bulb Globe Temperature) uproszczony
-  
-  const windMs = windKmh / 3.6;
-  
-  // Efekt promieniowania na człowieka (W/m²) -> °C
-  // Przy 800 W/m² ciało pochłania ok 6-8°C więcej
-  const radiationEffect = radiation > 0 
-    ? Math.min(12, (radiation / 1000) * 10 * (1 - humidity/200))
-    : 0;
-  
-  // Korekta wiatru - wiatr chłodzi
-  const windCool = windMs > 0.5 ? Math.min(3, windMs * 0.5) : 0;
-  
-  const shadeTemp = Math.round(tempC * 10) / 10;
-  const calculatedSunTemp = Math.round((tempC + radiationEffect - windCool) * 10) / 10;
+  const windMs = Math.max(0, (Number(windKmh) || 0) / 3.6);
+  const rad = Math.max(0, Number(radiation) || 0);
+  const hum = Math.min(100, Math.max(0, Number(humidity) || 50));
+  const t = Number.isFinite(Number(tempC)) ? Number(tempC) : 0;
 
-  // Twarda zasada: słońce nie może wyjść chłodniejsze niż cień.
-  // Promieniowanie może podnieść temperaturę, ale wiatr nie może odwrócić
-  // relacji słońce > cień.
-  const sunTemp = Math.max(shadeTemp, calculatedSunTemp);
+  // Temperatura w cieniu = oficjalna temperatura powietrza 2m (klatka Stevenson screen mierzy w cieniu)
+  const shadeTemp = Math.round(t * 10) / 10;
+
+  // Efekt promieniowania słonecznego na człowieka / ciało nasłonecznione (W/m² -> °C)
+  // Przy 1000 W/m² czystego nieba przyrost wynosi ok. 10-12°C w bezwietrznym powietrzu.
+  const baseDelta = (rad / 1000) * 10 * (1 - hum / 250);
+
+  // Wiatr chłodzi konwekcyjnie — odprowadza ciepło z nasłonecznionej powierzchni,
+  // co tłumi naddatek radiacyjny (współczynnik konwekcji rośnie z pierwiastkiem prędkości wiatru).
+  const windDamping = 1 + 0.35 * Math.sqrt(windMs);
+  const solarGain = Math.max(0, baseDelta / windDamping);
+
+  const sunTemp = Math.round((t + solarGain) * 10) / 10;
 
   return { sun: sunTemp, shade: shadeTemp };
 }
@@ -1901,7 +1907,8 @@ function ico(code,isDay=true,px=32){
   const c=Number(code);
   let g="";
   if(c===0)g=day?sunShape(24,24,10):`<g transform="translate(2 2) scale(1.08)">${moonShape()}</g>`;
-  else if(c<=2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
+  else if(c===1)g=(day?sunShape(21,19,9):`<g transform="translate(-4 -5) scale(.98)">${moonShape()}</g>`)+`<g transform="translate(10 12) scale(.62)" opacity=".9">${cloudShape()}</g>`;
+  else if(c===2)g=(day?sunShape(18,17,8):`<g transform="translate(-5 -6) scale(.95)">${moonShape()}</g>`)+`<g transform="translate(3 4) scale(.9)">${cloudShape()}</g>`;
   else if(c===3)g=`<g transform="translate(-4 -6) scale(.8)" opacity=".85">${cloudShape()}</g><g transform="translate(2 2)">${cloudShape(true)}</g>`;
   else if(c<=48)g=`<g transform="translate(0 -4)">${cloudShape()}</g><path d="M11 38.5h26M15 43h18" stroke="#DCE6F3" stroke-width="2.4" stroke-linecap="round"/>`;
   else if(c<=57)g=`<g transform="translate(0 -3)">${cloudShape(true)}</g><path d="M17 38l-1 3M25 38l-1 3M33 38l-1 3" stroke="#8ADBFF" stroke-width="2.4" stroke-linecap="round"/>`;
@@ -2109,7 +2116,7 @@ function computeCtx(){
 
   let currentStateCode = isRainingActive
     ? (isRainCode(hourlyNowCode) ? hourlyNowCode : (isRainCode(rawCurrentCode) ? rawCurrentCode : 61))
-    : (cloud <= 20 ? 0 : cloud <= 70 ? 2 : 3);
+    : (cloud <= 15 ? 0 : cloud <= 45 ? 1 : cloud <= 75 ? 2 : 3);
 
   const code=currentStateCode;
   const precip=+(current.precipitation??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
@@ -2440,11 +2447,11 @@ function getHourlyCode(hourlyData,idx){
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
   if(pr<=0.05){
     if(rawCode===45||rawCode===48)return rawCode;
-    if(isPrecipCode(rawCode)){
-      return cloud<=20?0:cloud<=70?2:3;
-    }
-    if(rawCode>=0&&rawCode<=3)return rawCode;
-    return cloud<=20?0:cloud<=70?2:3;
+    // Spójność ikony z procentem zachmurzenia przy braku deszczu/mgły:
+    if(cloud<=15)return 0;
+    if(cloud<=45)return 1;
+    if(cloud<=75)return 2;
+    return 3;
   }
   if(isPrecipCode(rawCode))return rawCode;
   return 61;
@@ -2472,16 +2479,17 @@ function hourlyHTML(X){
     const code=i===0
       ?(X.currentState?.code??getHourlyCode(hourly,idx))
       :getHourlyCode(hourly,idx);
-    const pr=Number(hourly.precipitation?.[idx]??0);
-    const pop=Number(hourly.precipitation_probability?.[idx]??0);
+    const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
+    const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
+      ?Number(X.cloud)
+      :Number(hourly.cloud_cover?.[idx]??0);
+    const cloud=Math.round(clamp(rawCloud,0,100));
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
 
-    const rainNow=i===0?isRainCode(code):(pr>0.05&&isRainCode(code));
-
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn">${pop>=15?Math.round(pop)+"%":""}${rainNow?" · deszcz":""}</span></div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span><span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
   }
 
-  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span></div><div class="hstrip">${out}</div></section>`;
+  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span></div></div><div class="hstrip">${out}</div></section>`;
 }
 
 
@@ -2565,8 +2573,9 @@ function dailyRows(){
       const dateStr=daily.time[i];let hs="";
       hourly.time.forEach((t,k)=>{
         if(!t.startsWith(dateStr))return;
-        const p=hourly.precipitation_probability?.[k]??0;
-        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
+        const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
+        const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
+        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
       {
@@ -2729,7 +2738,7 @@ function wRain(X){
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
   const sh=calcSunShadeTemp(X.T,X.rad,X.wind,X.hum);
-  return`<div class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}°<small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
+  return`<div class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
 }
 function widgetsInnerHTML(X){
   return [wUV(X),wWind(X),wFeels(X),wHum(X),wPress(X),wVis(X),wLayers(X),wRain(X),wSun(X)].filter(Boolean).join("");
