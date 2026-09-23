@@ -3223,6 +3223,9 @@ function canonicalDayPrecipitation(hourly,dayIso,isToday=false){
   // Jedno źródło prawdy dla 10-dniówki: ta sama oczyszczona oś hourly.
   // DLA DZISIAJ liczymy wyłącznie czas od TERAZ — opad z minionych godzin
   // nie może wrócić do kafelka "Dziś".
+  // WAŻNE: próg 0.15 mm NIE jest progiem wyświetlania.
+  // Mikroopad (np. 0.07 mm) pozostaje widoczny; próg zdarzenia jest
+  // używany osobno przez logikę alertów/klasyfikacji opadu.
   if(!hourly?.time?.length||!dayIso)return{mm:0,pop:0,hasRain:false};
   const now=Date.now();
   let mm=0,pop=0,hasRain=false;
@@ -3233,9 +3236,12 @@ function canonicalDayPrecipitation(hourly,dayIso,isToday=false){
     if(isToday&&ts<now-15*60*1000)continue;
     const v=Number(hourly.precipitation?.[k]??0);
     const p=Number(hourly.precipitation_probability?.[k]??0);
-    if(Number.isFinite(v)&&v>=0.15){
-      mm+=v;hasRain=true;
+    if(Number.isFinite(v)&&v>0){
+      // Każdy dodatni, zaakceptowany opad jest częścią sumy prezentowanej.
+      mm+=v;
       if(Number.isFinite(p))pop=Math.max(pop,clamp(p,0,100));
+      // hasRain pozostaje semantyką ZDARZENIA, nie prezentacji mikroopadu.
+      if(v>=0.15)hasRain=true;
     }
   }
   return{mm,pop,hasRain};
