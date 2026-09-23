@@ -6170,14 +6170,26 @@ document.addEventListener("visibilitychange",()=>{
     const c=localStorage.getItem("aura_v7");
     if(c){
       const d=JSON.parse(c);
-      if(d&&d.data&&d.city&&d.data.current&&d.data.hourly&&d.data.daily&&(Date.now()-d.ts)<7200000){
-        Object.assign(S,{phase:"weather",lat:d.lat,lng:d.lng,city:d.city,data:d.data,isDemo:false,lastUpdate:d.ts,stationInfo:null});
+      if(d&&d.lat!=null&&d.lng!=null&&d.city){
+        if(d.data&&d.data.current&&d.data.hourly&&d.data.daily){
+          Object.assign(S,{phase:"weather",lat:d.lat,lng:d.lng,city:d.city,data:d.data,isDemo:false,lastUpdate:d.ts||Date.now(),stationInfo:null});
+        }else{
+          Object.assign(S,{phase:"loading",lat:d.lat,lng:d.lng,city:d.city,isDemo:false,loading:true});
+        }
+      }
+    }else{
+      const hist=getHistory();
+      if(hist&&hist.length>0&&hist[0].lat!=null){
+        const last=hist[0];
+        Object.assign(S,{phase:"loading",lat:last.lat,lng:last.lng,city:last.n,isDemo:false,loading:true});
       }
     }
   }catch(e){console.warn("Cache err:",e);}
   render();
-  // po odtworzeniu z cache od razu odświeżamy w tle
-  if(S.phase==="weather"&&S.lat!=null)loadW(S.lat,S.lng,S.city,true);
+
+  if((S.phase==="weather"||S.phase==="loading")&&S.lat!=null){
+    loadW(S.lat,S.lng,S.city,S.phase==="weather");
+  }
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(err => console.error('SW Registration Error:', err));
