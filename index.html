@@ -1370,13 +1370,18 @@ async function findNearestIMGW(lat,lng){
 
     // Czas prezentowany użytkownikowi = najświeższy faktycznie użyty parametr.
     // Temperatura może być starsza od wilgotności/wiatru i nie może narzucać czasu całego rekordu.
-    const latestObservedCandidates=[
-      usableTimestamp(temp,observedAt,tempFresh),
-      usableTimestamp(parseFloat(glodowo.wilgotnosc_wzgledna),humidityObservedAt,humidityFresh),
-      usableTimestamp(parseFloat(glodowo.wiatr_srednia_predkosc),windObservedAt,windFresh),
-      usableTimestamp(parseFloat(glodowo.wiatr_kierunek),windDirObservedAt,windDirFresh)
+    // Diagnostyka pokazuje ostatni timestamp faktycznie odebrany z IMGW,
+    // nawet gdy wszystkie pola są już poza TTL użycia. "Brak" oznacza odtąd
+    // wyłącznie brak jakiegokolwiek timestampu w rekordzie stacji.
+    const latestReceivedCandidates=[
+      observedAt,
+      humidityObservedAt,
+      windObservedAt,
+      windDirObservedAt,
+      groundObservedAt,
+      rain10ObservedAt
     ].filter(Number.isFinite);
-    const latestObservedAt=latestObservedCandidates.length?Math.max(...latestObservedCandidates):null;
+    const latestObservedAt=latestReceivedCandidates.length?Math.max(...latestReceivedCandidates):null;
     const latestAgeMinutes=latestObservedAt==null?null:Math.max(0,Math.round((fetchedAt-latestObservedAt)/60000));
 
     const distRounded=Math.round(dist*10)/10;
@@ -3575,7 +3580,7 @@ function stationHTML(){
     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
     <div class="note" style="margin-top:12px">Czasy poszczególnych pomiarów IMGW</div>
     <div class="note" style="margin-top:4px">${timeRowsHtml}</div>
-    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Najnowszy rzeczywisty pomiar: ${latestText}${latestAge}.</div>`:""}
+    ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Ostatni timestamp odebrany z IMGW: ${latestText}${latestAge}. Wiek jest liczony względem czasu pobrania; pola starsze niż TTL nie są używane.</div>`:""}
     <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; brak pomiaru nie jest zamieniany na zero."}</div></section>`;
 }
 
