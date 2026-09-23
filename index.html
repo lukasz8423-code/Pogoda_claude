@@ -116,35 +116,247 @@ button.chip:active{background:var(--glass2)}
 a.btn{text-decoration:none;color:inherit}
 
 /* alerts & threat center */
-.alert{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:18px;margin-bottom:8px;background:var(--glass2);border:1px solid var(--line);border-left:4px solid var(--warn);font-size:13.5px;line-height:1.4;cursor:pointer;transition:transform .15s ease,background .15s ease}
-.alert:hover{background:rgba(255,255,255,.08);transform:translateY(-1px)}
-.alert:active{transform:scale(.99)}
-.alert.bad{border-left-color:var(--bad)}
-.alert.info{border-left-color:var(--rain)}
-.alert.deg3{border-left-color:#ef4444;background:linear-gradient(90deg,rgba(239,68,68,.12),var(--glass2))}
-.alert.deg2{border-left-color:#f97316;background:linear-gradient(90deg,rgba(249,115,22,.10),var(--glass2))}
-.alert.deg1{border-left-color:#eab308;background:linear-gradient(90deg,rgba(234,179,8,.08),var(--glass2))}
-.alert svg{width:18px;height:18px;flex:none;margin-top:2px}
-.alert-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;margin-bottom:3px}
-.alert-badge.deg3{background:#ef4444;color:#fff}
-.alert-badge.deg2{background:#f97316;color:#fff}
-.alert-badge.deg1{background:#eab308;color:#18181b}
-.alert-badge.info{background:rgba(255,255,255,.15);color:var(--ink1)}
-.threat-grid{display:grid;gap:10px;margin-top:12px}
-.threat-card{padding:12px 14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);transition:all .2s ease}
-.threat-card.lvl-3{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}
-.threat-card.lvl-2{background:rgba(249,115,22,.10);border-color:rgba(249,115,22,.3)}
-.threat-card.lvl-1{background:rgba(234,179,8,.08);border-color:rgba(234,179,8,.25)}
-.threat-card.lvl-0{background:rgba(255,255,255,.025);border-color:rgba(255,255,255,.05)}
-.threat-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
-.threat-title{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex:1;min-width:180px}
-.threat-status-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
-.threat-status-badge.lvl-3{background:#ef4444;color:#fff}
-.threat-status-badge.lvl-2{background:#f97316;color:#fff}
-.threat-status-badge.lvl-1{background:#eab308;color:#18181b}
-.threat-status-badge.lvl-0{background:rgba(34,197,94,.18);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
-.threat-val{font-size:12.5px;font-weight:600;color:var(--ink2);margin-bottom:4px}
-.threat-desc{font-size:12px;color:var(--ink3);line-height:1.45}
+@keyframes threatBeacon {
+  0% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  70% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; filter: brightness(1.2); }
+}
+.alert {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 20px;
+  margin-bottom: 10px;
+  background: var(--glass2);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--warn);
+  font-size: 13.5px;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: transform .18s cubic-bezier(0.16, 1, 0.3, 1), background .18s ease, border-color .18s ease, box-shadow .18s ease;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+}
+.alert:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.35);
+}
+.alert:active {
+  transform: scale(0.985);
+}
+.alert.bad { border-left-color: var(--bad); }
+.alert.info { border-left-color: var(--rain); }
+.alert.deg3 {
+  border-left-color: #ef4444;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.16), var(--glass2) 65%);
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 4px 20px -4px rgba(239, 68, 68, 0.2);
+}
+.alert.deg2 {
+  border-left-color: #f97316;
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.14), var(--glass2) 65%);
+  border-color: rgba(249, 115, 22, 0.3);
+  box-shadow: 0 4px 18px -4px rgba(249, 115, 22, 0.16);
+}
+.alert.deg1 {
+  border-left-color: #eab308;
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.11), var(--glass2) 65%);
+  border-color: rgba(234, 179, 8, 0.25);
+}
+.alert-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex: none;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.15);
+}
+.alert.deg3 .alert-icon-box { background: rgba(239, 68, 68, 0.25); color: #fff; animation: pulseGlow 2s infinite ease-in-out; }
+.alert.deg2 .alert-icon-box { background: rgba(249, 115, 22, 0.22); color: #fff; }
+.alert.deg1 .alert-icon-box { background: rgba(234, 179, 8, 0.20); color: #fff; }
+.alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.alert-badge.deg3 { background: #ef4444; color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.4); }
+.alert-badge.deg2 { background: #f97316; color: #fff; box-shadow: 0 2px 8px rgba(249,115,22,0.35); }
+.alert-badge.deg1 { background: #eab308; color: #18181b; box-shadow: 0 2px 6px rgba(234,179,8,0.3); }
+.alert-badge.info { background: rgba(255, 255, 255, 0.14); color: var(--ink1); }
+
+.threat-meter-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+}
+.threat-meter-dot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 26px;
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.threat-meter-dot:hover { transform: translateY(-2px); }
+.threat-meter-dot .t-icon { font-size: 13px; line-height: 1; }
+.threat-meter-dot .t-beacon {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 4px rgba(74,222,128,0.5);
+  transition: all .2s ease;
+}
+.threat-meter-dot.lvl-1 .t-beacon { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.7); }
+.threat-meter-dot.lvl-2 .t-beacon { background: #f97316; box-shadow: 0 0 7px rgba(249,115,22,0.8); }
+.threat-meter-dot.lvl-3 .t-beacon { background: #ef4444; box-shadow: 0 0 9px rgba(239,68,68,1); animation: threatBeacon 1.8s infinite; }
+
+.threat-grid { display: grid; gap: 12px; margin-top: 14px; }
+.threat-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+.threat-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-1px);
+}
+.threat-card.lvl-3 {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.16), rgba(255, 255, 255, 0.03));
+  border-color: rgba(239, 68, 68, 0.4);
+  box-shadow: 0 4px 16px -3px rgba(239, 68, 68, 0.2);
+}
+.threat-card.lvl-2 {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.14), rgba(255, 255, 255, 0.03));
+  border-color: rgba(249, 115, 22, 0.35);
+  box-shadow: 0 4px 14px -3px rgba(249, 115, 22, 0.15);
+}
+.threat-card.lvl-1 {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.10), rgba(255, 255, 255, 0.03));
+  border-color: rgba(234, 179, 8, 0.3);
+}
+.threat-card.lvl-0 {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+.threat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.threat-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 170px;
+}
+.threat-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  flex: none;
+}
+.threat-card.lvl-3 .threat-card-icon { background: rgba(239, 68, 68, 0.25); }
+.threat-card.lvl-2 .threat-card-icon { background: rgba(249, 115, 22, 0.22); }
+.threat-card.lvl-1 .threat-card-icon { background: rgba(234, 179, 8, 0.20); }
+.threat-card.lvl-0 .threat-card-icon { background: rgba(74, 222, 128, 0.12); }
+.threat-title {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+}
+.threat-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.threat-status-badge.lvl-3 { background: #ef4444; color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.4); }
+.threat-status-badge.lvl-2 { background: #f97316; color: #fff; box-shadow: 0 2px 8px rgba(249,115,22,0.35); }
+.threat-status-badge.lvl-1 { background: #eab308; color: #18181b; box-shadow: 0 2px 6px rgba(234,179,8,0.3); }
+.threat-status-badge.lvl-0 { background: rgba(34, 197, 94, 0.16); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); }
+
+.threat-gauge-bar {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0;
+  height: 5px;
+}
+.threat-gauge-seg {
+  flex: 1;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all .2s ease;
+}
+.threat-gauge-seg.on-0 { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.5); }
+.threat-gauge-seg.on-1 { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.6); }
+.threat-gauge-seg.on-2 { background: #f97316; box-shadow: 0 0 8px rgba(249,115,22,0.7); }
+.threat-gauge-seg.on-3 { background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.85); }
+
+.threat-val-box {
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink1);
+  margin-bottom: 7px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.threat-desc {
+  font-size: 12.5px;
+  color: var(--ink2);
+  line-height: 1.45;
+}
 
 /* nowcast */
 .nc-sum{font-size:18px;font-weight:600;margin-bottom:14px;line-height:1.45}
@@ -3568,16 +3780,24 @@ function wThreats(X){
   const isLvl2 = thr.maxLevel === 2;
   const isLvl1 = thr.maxLevel === 1;
   const badgeColor = isLvl3 ? "#ef4444" : (isLvl2 ? "#f97316" : (isLvl1 ? "#eab308" : "#4ade80"));
-  const badgeBg = isLvl3 ? "rgba(239,68,68,.14)" : (isLvl2 ? "rgba(249,115,22,.12)" : (isLvl1 ? "rgba(234,179,8,.10)" : "rgba(74,222,128,.08)"));
-  const label = activeCount > 0 ? `${activeCount} aktywne ${activeCount === 1 ? 'ostrzeżenie' : (activeCount < 5 ? 'ostrzeżenia' : 'ostrzeżeń')}` : "Wszystkie w normie";
+  const badgeBg = isLvl3 ? "rgba(239,68,68,.16)" : (isLvl2 ? "rgba(249,115,22,.14)" : (isLvl1 ? "rgba(234,179,8,.11)" : "rgba(74,222,128,.08)"));
+  const label = activeCount > 0 ? `${activeCount} ${activeCount === 1 ? 'aktywne ostrzeżenie' : (activeCount < 5 ? 'aktywne ostrzeżenia' : 'aktywnych ostrzeżeń')}` : "10/10 parametrów w normie";
   
+  const meterDots = thr.items.map(t => `
+    <div class="threat-meter-dot lvl-${t.level}" title="${esc(t.name)}: ${esc(t.status)}">
+      <span class="t-icon">${t.icon}</span>
+      <span class="t-beacon"></span>
+    </div>
+  `).join("");
+
   return `<div class="w full" data-act="open-threats" role="button" tabindex="0" style="cursor:pointer;border:1px solid ${activeCount>0?badgeColor:'var(--line)'};background:linear-gradient(135deg,${badgeBg},var(--glass2))">
     <div class="wh" style="display:flex;justify-content:space-between;align-items:center">
       <span style="display:flex;align-items:center;gap:6px">${mini("alert")}Zagrożenia i Ostrzeżenia IMGW</span>
-      <span style="padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:${badgeColor};color:${isLvl1?'#18181b':'#fff'}">${activeCount > 0 ? 'Stopień ' + thr.maxLevel : 'Bezpiecznie'}</span>
+      <span style="padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;background:${badgeColor};color:${isLvl1?'#18181b':'#fff'}">${activeCount > 0 ? 'Stopień ' + thr.maxLevel : 'Bezpiecznie'}</span>
     </div>
-    <div class="wv tn" style="font-size:20px;margin:4px 0">${label}</div>
-    <div class="ws">${activeCount > 0 ? 'Wykryto zjawiska wymagające szczególnej uwagi (wiatr, opad, burza lub temperatura). Kliknij, aby sprawdzić 10 monitorowanych parametrów.' : '10/10 zjawisk monitorowanych w czasie rzeczywistym (deszcz, wiatr, porywy, burze, wyładowania, grad, śnieg, gołoledź, mróz, upał). Kliknij po raport.'}</div>
+    <div class="wv tn" style="font-size:20px;margin:3px 0 6px">${label}</div>
+    <div class="threat-meter-strip">${meterDots}</div>
+    <div class="ws" style="margin-top:8px">${activeCount > 0 ? 'Wykryto zjawiska wymagające szczególnej ostrożności. Kliknij, aby otworzyć szczegółowy raport dla 10 monitorowanych parametrów.' : 'Wszystkie 10 zjawisk monitorowanych w czasie rzeczywistym (deszcz, wiatr, porywy, burze, wyładowania, grad, śnieg, gołoledź, mróz, upał). Kliknij po pełny raport.'}</div>
   </div>`;
 }
 
@@ -3732,31 +3952,31 @@ function alertsHTML(X){
   const alerts = getAlerts(X, threats);
   const isSafe = threats.maxLevel === 0;
   
-  const headerChip = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <div style="font-size:12px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:5px">
+  const headerChip = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:0.6px;display:flex;align-items:center;gap:6px">
       ${mini("alert")} Zagrożenia i Ostrzeżenia
     </div>
-    <button class="btn" data-act="open-threats" style="padding:4px 10px;font-size:11.5px;gap:4px">
-      ${isSafe ? '10/10 w normie ›' : `Centrum Zagrożeń (${threats.maxLevel}. st.) ›`}
+    <button class="btn" data-act="open-threats" style="padding:4px 11px;font-size:11.5px;gap:5px;border-radius:999px">
+      ${isSafe ? '🛡️ 10/10 w normie ›' : `🛡️ Centrum Zagrożeń (${threats.maxLevel}. st.) ›`}
     </button>
   </div>`;
 
   if(!alerts.length){
-    return `<div class="alerts-wrap" style="margin-bottom:8px">${headerChip}</div>`;
+    return `<div class="alerts-wrap" style="margin-bottom:10px">${headerChip}</div>`;
   }
 
-  return `<div class="alerts-wrap" style="margin-bottom:8px">
+  return `<div class="alerts-wrap" style="margin-bottom:12px">
     ${headerChip}
     ${alerts.map(a=>`
       <div class="alert ${a.c} ${a.grade ? 'deg'+a.grade : ''}" data-act="open-threats" data-tid="${esc(a.id||'')}" role="button" tabindex="0">
-        <span style="font-size:18px;line-height:1;margin-top:1px">${a.icon}</span>
+        <div class="alert-icon-box">${a.icon}</div>
         <div style="flex:1;min-width:0">
-          ${a.badge ? `<span class="alert-badge ${a.grade ? 'deg'+a.grade : 'info'}">${esc(a.badge)}</span>` : ''}
-          <div style="font-weight:600;margin-bottom:2px;font-size:14px">${esc(a.title || a.t)}</div>
-          ${a.sub ? `<div style="font-size:12.5px;color:var(--ink2);line-height:1.4">${esc(a.sub)}</div>` : ''}
-          ${a.time ? `<div style="font-size:11.5px;color:var(--ink3);margin-top:3px">⏱️ ${esc(a.time)}</div>` : ''}
+          ${a.badge ? `<div class="alert-badge ${a.grade ? 'deg'+a.grade : 'info'}">${esc(a.badge)}</div>` : ''}
+          <div style="font-weight:700;margin-bottom:3px;font-size:14.5px;color:var(--ink)">${esc(a.title || a.t)}</div>
+          ${a.sub ? `<div style="font-size:12.5px;color:var(--ink2);line-height:1.45">${esc(a.sub)}</div>` : ''}
+          ${a.time ? `<div style="font-size:11.5px;color:var(--ink3);margin-top:4px;font-weight:500;display:flex;align-items:center;gap:4px">⏱️ ${esc(a.time)}</div>` : ''}
         </div>
-        <span style="color:var(--ink3);font-size:16px;margin-top:2px">›</span>
+        <span style="color:var(--ink3);font-size:18px;margin-top:2px;opacity:0.8">›</span>
       </div>
     `).join("")}
   </div>`;
@@ -3859,53 +4079,73 @@ function openThreatsSheet(X){
   const activeCount = thr.items.filter(x => x.level >= 1).length;
   
   const lvlBadge = (lvl) => {
-    if (lvl === 3) return `<span class="threat-status-badge lvl-3">Stopień 3 (Ekstremalne)</span>`;
-    if (lvl === 2) return `<span class="threat-status-badge lvl-2">Stopień 2 (Zagrożenie)</span>`;
-    if (lvl === 1) return `<span class="threat-status-badge lvl-1">Stopień 1 (Uwaga)</span>`;
-    return `<span class="threat-status-badge lvl-0">Bezpiecznie (W normie)</span>`;
+    if (lvl === 3) return `<span class="threat-status-badge lvl-3">🔴 Stopień 3 (Ekstremalne)</span>`;
+    if (lvl === 2) return `<span class="threat-status-badge lvl-2">🟠 Stopień 2 (Zagrożenie)</span>`;
+    if (lvl === 1) return `<span class="threat-status-badge lvl-1">🟡 Stopień 1 (Uwaga)</span>`;
+    return `<span class="threat-status-badge lvl-0">🟢 W normie (Bezpiecznie)</span>`;
+  };
+
+  const gaugeBar = (lvl) => {
+    return `<div class="threat-gauge-bar">
+      <div class="threat-gauge-seg ${lvl >= 0 ? 'on-0' : ''}"></div>
+      <div class="threat-gauge-seg ${lvl >= 1 ? 'on-1' : ''}"></div>
+      <div class="threat-gauge-seg ${lvl >= 2 ? 'on-2' : ''}"></div>
+      <div class="threat-gauge-seg ${lvl >= 3 ? 'on-3' : ''}"></div>
+    </div>`;
   };
 
   const threatRows = thr.items.map(t => `
     <div class="threat-card lvl-${t.level}">
       <div class="threat-head">
-        <div class="threat-title">${t.icon} <span>${esc(t.name)}</span></div>
+        <div class="threat-title-wrap">
+          <div class="threat-card-icon">${t.icon}</div>
+          <div>
+            <div class="threat-title">${esc(t.name)}</div>
+            <div style="font-size:11px;color:var(--ink3);font-style:italic">Co wykrywamy: ${esc(t.what)}</div>
+          </div>
+        </div>
         ${lvlBadge(t.level)}
       </div>
-      <div style="font-size:11.5px;color:var(--ink3);margin-bottom:5px;font-style:italic">Co wykrywamy: <b>${esc(t.what)}</b></div>
-      <div class="threat-val">${esc(t.val)}</div>
+      ${gaugeBar(t.level)}
+      <div class="threat-val-box">
+        <span style="opacity:0.8">📊</span>
+        <span>${esc(t.val)}</span>
+      </div>
       <div class="threat-desc">${esc(t.detail)}</div>
     </div>
   `).join("");
 
   const summaryHtml = isSafe ? `
     <div style="padding:14px 16px;border-radius:18px;background:rgba(34,197,94,.12);border:1px solid rgba(74,222,128,.3);margin-bottom:14px">
-      <div style="font-weight:700;font-size:15px;color:#4ade80;display:flex;align-items:center;gap:6px">
-        ✅ Wszystkie 10 zjawisk w normie
+      <div style="font-weight:700;font-size:15px;color:#4ade80;display:flex;align-items:center;gap:8px">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px #4ade80"></span>
+        Wszystkie 10 zjawisk meteorologicznych w normie
       </div>
-      <div style="font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.45">
-        Brak aktywnych ostrzeżeń IMGW i zjawisk niebezpiecznych (opady nawalne, wichury, porywy, burze, wyładowania, grad, gołoledź, zamiecie, mróz i upał są monitorowane w czasie rzeczywistym).
+      <div style="font-size:13px;color:var(--ink2);margin-top:6px;line-height:1.45">
+        Brak aktywnych ostrzeżeń IMGW i zjawisk niebezpiecznych w Twojej lokalizacji. System stale monitoruje opady nawalne, wichury, porywy, burze, wyładowania, grad, gołoledź, śnieżyce, mróz i upał.
       </div>
     </div>
   ` : `
     <div style="padding:14px 16px;border-radius:18px;background:${thr.maxLevel===3?'rgba(239,68,68,.16)':(thr.maxLevel===2?'rgba(249,115,22,.14)':'rgba(234,179,8,.12)')};border:1px solid ${thr.maxLevel===3?'#ef4444':(thr.maxLevel===2?'#f97316':'#eab308')};margin-bottom:14px">
-      <div style="font-weight:700;font-size:15px;color:#fff;display:flex;align-items:center;gap:6px">
-        ⚠️ Wykryto ${activeCount} ${activeCount===1?'zjawisko wymagające uwagi':'zjawiska wymagające uwagi'} (Maks. Stopień ${thr.maxLevel})
+      <div style="font-weight:700;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${thr.maxLevel===3?'#ef4444':(thr.maxLevel===2?'#f97316':'#eab308')};box-shadow:0 0 8px ${thr.maxLevel===3?'#ef4444':(thr.maxLevel===2?'#f97316':'#eab308')};animation:threatBeacon 1.8s infinite"></span>
+        Wykryto ${activeCount} ${activeCount===1?'zjawisko wymagające uwagi':'zjawiska wymagające uwagi'} (Maks. Stopień ${thr.maxLevel})
       </div>
-      <div style="font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.45">
-        Zachowaj ostrożność. Poniżej znajduje się szczegółowa analiza 10 monitorowanych parametrów.
+      <div style="font-size:13px;color:var(--ink2);margin-top:6px;line-height:1.45">
+        Zaleca się zachowanie ostrożności i zapoznanie się ze wskaźnikami pomiarowymi oraz prognozą poniżej.
       </div>
     </div>
   `;
 
   openSheet(`
     <h3>🛡️ Centrum Zagrożeń i Ostrzeżeń</h3>
-    <div class="sd">System monitorowania 10 zjawisk meteorologicznych (fuzja IMGW-PIB, radar opadów, detekcja wyładowań i numeryczne modele pogody).</div>
+    <div class="sd">System monitorowania 10 zjawisk meteorologicznych w czasie rzeczywistym (fuzja IMGW-PIB, radar opadów, detekcja wyładowań i numeryczne modele pogody).</div>
     ${summaryHtml}
     <div class="threat-grid">
       ${threatRows}
     </div>
-    <div class="note" style="margin-top:14px">
-      Klasyfikacja zagrożeń i ostrzeżeń zgodna ze standardami IMGW-PIB. Dane odświeżane automatycznie z pomiarów i prognoz wysokiej rozdzielczości.
+    <div class="note" style="margin-top:14px;line-height:1.45">
+      Klasyfikacja zagrożeń i stopni ostrzeżeń (1, 2, 3) zgodna z oficjalnymi progami IMGW-PIB. Pomiary i parametry konwekcyjne są aktualizowane automatycznie.
     </div>
   `);
 }
