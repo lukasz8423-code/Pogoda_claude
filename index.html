@@ -2697,13 +2697,92 @@ function computeCtx(){
   };
 }
 
+function umbrellaRainAlertAllowed(X){
+  const EVENT_MM=0.15;
+  const TRACE_MM=0.1;
+  const TRACE_POP=15;
+  const now=Date.now();
+  const precipitation=S.canonicalWeather?.precipitation||X?.timeline||null;
+  const classification=precipitation?.nextEvent?.classification||precipitation?.classification||null;
+
+  // Alert parasolowy musi używać dokładnie tej samej klasyfikacji,
+  // którą widzą kafelki. Mżawka / pojedyncze krople nie są zdarzeniem.
+  if(!classification||classification.type==="none"||classification.type==="drizzle")return false;
+
+  const slots=(Array.isArray(precipitation?.minutely)?precipitation.minutely:
+    Array.isArray(precipitation?.slots)?precipitation.slots:[])
+    .map(x=>({
+      t:Date.parse(String(x?.t)),
+      mm:Number(x?.mm),
+      pop:Number(x?.pop)
+    }))
+    .filter(x=>Number.isFinite(x.t)&&x.t>=now&&Number.isFinite(x.mm)&&x.mm>=0)
+    .sort((a,b)=>a.t-b.t);
+
+  const nextTs=Date.parse(String(
+    precipitation?.nextEvent?.startsAt||X?.firstRainTime||""
+  ));
+
+  // Jeżeli kanoniczna oś nie ma zdarzenia, alert nie może powstać
+  // tylko na podstawie samego POP.
+  if(!Number.isFinite(nextTs))return false;
+
+  const eventSlots=slots.filter(x=>x.t>=nextTs&&x.t<=nextTs+45*60000);
+  const minutelySupporting=eventSlots.filter(x=>x.mm>0.05);
+  const minutelyMm=Math.max(
+    ...eventSlots.map(x=>x.mm),
+    eventSlots.reduce((s,x)=>s+x.mm,0),
+    0
+  );
+  const minutelyConfirmed=minutelySupporting.length>=2&&minutelyMm>=EVENT_MM;
+
+  // Alternatywne potwierdzenie: co najmniej dwa niezależne modele
+  // wskazują opad dla tego samego zdarzenia i przekraczają próg.
+  const models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[];
+  let modelConfirmed=0;
+  for(const model of models){
+    const h=model?.data?.hourly;
+    if(!Array.isArray(h?.time))continue;
+    let best=-1,bestDelta=Infinity;
+    for(let i=0;i<h.time.length;i++){
+      const ts=Date.parse(String(h.time[i]));
+      const d=Math.abs(ts-nextTs);
+      if(Number.isFinite(ts)&&d<=15*60000&&d<bestDelta){
+        best=i;bestDelta=d;
+      }
+    }
+    if(best<0)continue;
+    const mm=Number(h.precipitation?.[best]);
+    if(Number.isFinite(mm)&&mm>=EVENT_MM)modelConfirmed++;
+  }
+
+  const support=minutelyConfirmed||modelConfirmed>=2;
+  if(!support)return false;
+
+  // 2–15% + 0 mm / <0,1 mm = brak alertu.
+  // POP śladowy nie może sam podbić zdarzenia do "Weź parasol".
+  const eventPop=Math.max(
+    ...eventSlots.map(x=>Number.isFinite(x.pop)?x.pop:0),
+    Number(X?.pop)||0,
+    Number(precipitation?.nextEvent?.pop)||0
+  );
+  const eventMm=Math.max(
+    ...eventSlots.map(x=>Number(x.mm)||0),
+    Number(precipitation?.nextEvent?.mm)||0
+  );
+  if(eventPop<=TRACE_POP&&eventMm<TRACE_MM)return false;
+  if(eventMm<EVENT_MM&&!modelConfirmed>=2)return false;
+
+  return true;
+}
+
 function getAlerts(X){
   const A=[],{hourly}=S.data;
   if(X.code>=95)A.push({c:"bad",t:"Burza w okolicy. Zostań w budynku i odłącz wrażliwe urządzenia."});
   if(X.wind>=45)A.push({c:"bad",t:`Silny wiatr ${X.wind} km/h, porywy do ${X.gusts} km/h.`});
   else if(X.gusts>=65)A.push({c:"bad",t:`Porywy wiatru do ${X.gusts} km/h.`});
   const futureRainTs=X.firstRainTime?Date.parse(String(X.firstRainTime)):NaN;
-  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(futureRainTs)&&futureRainTs>Date.now()){
+  if(!isRainingNow(X)&&X.code<51&&Number.isFinite(futureRainTs)&&futureRainTs>Date.now()&&umbrellaRainAlertAllowed(X)){
     A.push({c:"info",t:`Prognoza opadów około ${hhmm(X.firstRainTime)}. Weź parasol.`});
   }
   if(X.T<=0)A.push({c:"info",t:"Temperatura poniżej zera, możliwe oblodzenie."});
