@@ -2771,7 +2771,7 @@ function umbrellaRainAlertAllowed(X){
     Number(precipitation?.nextEvent?.mm)||0
   );
   if(eventPop<=TRACE_POP&&eventMm<TRACE_MM)return false;
-  if(eventMm<EVENT_MM&&!modelConfirmed>=2)return false;
+  if(eventMm<EVENT_MM&&!modelConfirmed)return false;
 
   return true;
 }
