@@ -1320,8 +1320,22 @@ async function apiGeminiAnalysisSnapshot(lat,lng){
 
 async function apiCity(lat,lng){
   try{
-    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
-    if(r.ok){const d=await r.json();const a=d.address||{};const n=a.city||a.town||a.village||a.municipality||a.hamlet||a.locality;if(n)return n;}
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=13&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
+    if(r.ok){
+      const d=await r.json();
+      const a=d.address||{};
+      const mainName=a.village||a.town||a.city||a.municipality;
+      if(mainName)return mainName;
+    }
+  }catch{}
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(5000)});
+    if(r.ok){
+      const d=await r.json();
+      const a=d.address||{};
+      const name=a.village||a.town||a.city||a.municipality||a.locality||a.hamlet;
+      if(name)return name;
+    }
   }catch{}
   try{
     const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=pl`,{signal:AbortSignal.timeout(5000)});
