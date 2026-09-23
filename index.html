@@ -1304,8 +1304,6 @@ async function findNearestIMGW(lat,lng){
     const __rawTempFields=Object.keys(glodowo||{}).filter(k=>/temp|temper/i.test(k)).reduce((o,k)=>{o[k]=glodowo[k];return o;},{});
     S.imgwDiag={...(S.imgwDiag||{}),found:true,station:glodowo.nazwa_stacji||"Głodowo",stationCode:String(glodowo.kod_stacji??glodowo.id_stacji??"252190030"),temperature:glodowo.temperatura_powietrza??glodowo.temperatura??null,timestamp:glodowo.temperatura_powietrza_data??glodowo.temperatura_data??null,rawTempFields:__rawTempFields,rawKeys:Object.keys(glodowo||{}),rawStation:rawGlodowoBeforeValidation,rawGlodowo:{code:String(rawGlodowoBeforeValidation.kod_stacji??rawGlodowoBeforeValidation.id_stacji??""),name:rawGlodowoBeforeValidation.nazwa_stacji??rawGlodowoBeforeValidation.stacja??null,lat:Number(rawGlodowoBeforeValidation.lat),lng:Number(rawGlodowoBeforeValidation.lon??rawGlodowoBeforeValidation.lng),temperature:rawGlodowoBeforeValidation.temperatura_powietrza??rawGlodowoBeforeValidation.temperatura??null,temperatureAt:rawGlodowoBeforeValidation.temperatura_powietrza_data??rawGlodowoBeforeValidation.temperatura_data??null,humidity:rawGlodowoBeforeValidation.wilgotnosc_wzgledna??null,humidityAt:rawGlodowoBeforeValidation.wilgotnosc_wzgledna_data??null,wind:rawGlodowoBeforeValidation.wiatr_srednia_predkosc??null,windAt:rawGlodowoBeforeValidation.wiatr_srednia_predkosc_data??null,rain10:rawGlodowoBeforeValidation.opad_10min??null,rain10At:rawGlodowoBeforeValidation.opad_10min_data??null}};
     window.__AURA_IMGW_DIAG=S.imgwDiag;
-  }else if(S.imgwDiag){
-    S.imgwDiag={...S.imgwDiag,found:false};
   }
 
     const dist=stationDist(lat,lng,52.8306,19.2356);
