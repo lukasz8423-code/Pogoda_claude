@@ -249,6 +249,16 @@ button.chip:active{background:var(--glass2)}
 .btn svg{width:18px;height:18px}
 a.btn{text-decoration:none;color:inherit}
 
+/* quick navigation bar */
+.quick-nav{margin:10px 0 14px;width:100%;overflow:hidden}
+.quick-nav-track{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.quick-nav-track::-webkit-scrollbar{display:none}
+.qnav-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--ink);font-size:13px;font-weight:500;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);cursor:pointer;white-space:nowrap;flex:0 0 auto;transition:background .15s,border-color .15s,transform .1s}
+.qnav-btn:active{background:var(--glass2);transform:scale(.96)}
+.qnav-ico{font-size:14px;line-height:1}
+.qnav-lbl{font-size:12.5px;font-weight:600;color:var(--ink)}
+:root[data-theme="light"] .qnav-btn{box-shadow:0 2px 8px rgba(0,0,0,.04)}
+
 /* alerts & threat center */
 @keyframes threatBeacon {
   0% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
@@ -3822,7 +3832,7 @@ function wUV(X){
   const adv=uv<3?"Niskie UV":uv<6?"Umiarkowane UV — przy dłuższym pobycie warto chronić skórę i oczy":uv<8?"Wysokie UV — potrzebna ochrona skóry i oczu":"Bardzo wysokie UV — ogranicz bezpośrednie słońce w środku dnia";
   const peakTxt=peakTime?"Szczyt około "+hhmm(peakTime)+": "+fnum(peak,1)+".":"Maks. dziś "+fnum(X.uvMax,1)+".";
   const clearTxt=Number.isFinite(X.uvClearMax)&&X.uvClearMax>0?` Bezchmurne maksimum modelu: ${fnum(X.uvClearMax,1)}.`:"";
-  return`<div class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}${clearTxt}</div></div>`;
+  return`<div id="w-uv" class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn">${fnum(uv,uv<10?1:0)}<small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}${clearTxt}</div></div>`;
 }
 function compass(deg,spd){
   let ticks="";
@@ -3849,7 +3859,7 @@ function wWind(X){
   const gustForecast=maxG>X.gusts
     ? " Najsilniejsze porywy: "+Math.round(maxG)+" km/h"+(maxGTime?" około "+hhmm(maxGTime):".")
     : "";
-  return`<div class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
+  return`<div id="w-wind" class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
 }
 function wFeels(X){
   const d=discomfortIndex(X.T,X.hum,X.wind),diff=Math.round(X.feels-X.T);
@@ -4099,9 +4109,44 @@ function wVis(X){
   const source=waOk?"WeatherAPI · vis_km":omOk?"Open-Meteo · visibility":"Brak pomiaru";
   return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small>${pctBadge}</div><div class="ws"><b style="color:var(--ink);display:block;margin-bottom:2px;font-size:12.5px">${info.desc}</b><span style="opacity:0.65;font-size:11px">${source}</span></div></div>`;
 }
+function layerCloudDesc(layerName, val){
+  if(val==null||!Number.isFinite(Number(val)))return "—";
+  const v=Math.round(Number(val));
+  const name=String(layerName||"").toLowerCase();
+  if(v<=10)return "Prawie bezchmurnie";
+  if(v<=30){
+    if(name.includes("nisk"))return "Nieliczne niskie chmury";
+    if(name.includes("średn"))return "Nieliczne chmury średnie";
+    if(name.includes("wysok"))return "Nieliczne wysokie chmury";
+    return "Nieliczne chmury";
+  }
+  if(v<=60){
+    if(name.includes("nisk"))return "Umiarkowane chmury niskie";
+    if(name.includes("średn"))return "Umiarkowane chmury średnie";
+    if(name.includes("wysok"))return "Umiarkowane chmury wysokie";
+    return "Umiarkowane zachmurzenie";
+  }
+  if(v<=80){
+    if(name.includes("nisk"))return "Dużo chmur niskich";
+    if(name.includes("średn"))return "Dużo chmur średnich";
+    if(name.includes("wysok"))return "Dużo chmur wysokich";
+    return "Dużo chmur";
+  }
+  if(name.includes("nisk"))return "Prawie pełne niskie chmury";
+  if(name.includes("średn"))return "Prawie pełne chmury średnie";
+  if(name.includes("wysok"))return "Prawie pełne wysokie chmury";
+  return "Prawie pełne zachmurzenie";
+}
 function wLayers(X){
-  const L=(n,v)=>v==null?"":`<div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>`;
-  return`<div class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
+  const L=(n,v)=>{
+    if(v==null)return"";
+    const desc=layerCloudDesc(n,v);
+    return`<div style="margin-top:6px">
+      <div class="layer"><span>${n}</span><div><b style="width:${clamp(v,0,100)}%"></b></div><span class="tn">${Math.round(v)}%</span></div>
+      <div style="font-size:10.5px;color:var(--ink3);text-align:right;margin-top:1px;line-height:1.2">${desc}</div>
+    </div>`;
+  };
+  return`<div id="w-clouds" class="w"><div class="wh">${mini("cloud")}Zachmurzenie</div><div class="wv tn">${X.cloud}<small>%</small></div>${L("Niskie",X.low)}${L("Średnie",X.mid)}${L("Wysokie",X.high)}</div>`;
 }
 function wRain(X){
   let next="";
@@ -4112,13 +4157,13 @@ function wRain(X){
   }else if(X?.firstRainTime&&new Date(X.firstRainTime).getTime()>Date.now()){
     next="Najbliższy opad ok. "+hhmm(X.firstRainTime)+".";
   }
-  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
+  return`<div id="w-rain" class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
 
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
   const sh=calcSunShadeTemp(X.T,X.rad,X.wind,X.hum);
-  return`<div class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
+  return`<div id="w-sun" class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${sh.sun}° <small>na słońcu</small></div><div class="ws">W cieniu ${sh.shade}°. Promieniowanie ${Math.round(X.rad)} W/m².</div></div>`;
 }
 function wThreats(X){
   const thr = detectThreats(X);
@@ -4559,6 +4604,28 @@ function stationCockpitHTML(X){
   </div>`;
 }
 
+function quickNavHTML(){
+  return`<nav class="quick-nav" aria-label="Szybka nawigacja do sekcji pogodowych">
+    <div class="quick-nav-track">
+      <button type="button" class="qnav-btn" data-act="nav-to" data-target="s-nowcast" aria-label="Przewiń do sekcji Opady">
+        <span class="qnav-ico">☔</span><span class="qnav-lbl">Opady</span>
+      </button>
+      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-clouds" aria-label="Przewiń do kafelka Chmury">
+        <span class="qnav-ico">☁️</span><span class="qnav-lbl">Chmury</span>
+      </button>
+      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-wind" aria-label="Przewiń do kafelka Wiatr">
+        <span class="qnav-ico">💨</span><span class="qnav-lbl">Wiatr</span>
+      </button>
+      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-uv" aria-label="Przewiń do kafelka Słońce i UV">
+        <span class="qnav-ico">☀️</span><span class="qnav-lbl">Słońce</span>
+      </button>
+      <button type="button" class="qnav-btn" data-act="nav-to" data-target="s-air" aria-label="Przewiń do kafelka Jakość Powietrza">
+        <span class="qnav-ico">🌬️</span><span class="qnav-lbl">Powietrze</span>
+      </button>
+    </div>
+  </nav>`;
+}
+
 function weatherHTML(){
   const X=computeCtx();S.X=X;
   // UI dostaje dokładnie tę samą surową wartość cloud_cover, którą ma X.cloud.
@@ -4589,6 +4656,7 @@ function weatherHTML(){
     ${imgwDiagHTML()}
     ${oknoHTML()}
     <div id="s-models">${modelsHTML()}</div>
+    ${quickNavHTML()}
     <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${pad(upd.getHours())}:${pad(upd.getMinutes())}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
   </div>`;
 }
@@ -6062,6 +6130,16 @@ document.addEventListener("click",e=>{
     case"req-notif":{requestWebNotifications().then(p=>{if(p==="granted")openThreatsSheet(S.X||computeCtx());});break;}
     case"radar":startRadar();break;
     case"rplay":toggleRadarPlay();break;
+    case"nav-to":{
+      const targetId=t.dataset.target;
+      if(!targetId)break;
+      const targetEl=document.getElementById(targetId);
+      if(targetEl){
+        const isReduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        targetEl.scrollIntoView({behavior:isReduced?"auto":"smooth",block:"center"});
+      }
+      break;
+    }
   }
 });
 document.addEventListener("input",e=>{
