@@ -1992,23 +1992,9 @@ function correctHourlyPrecipitation(hourlyData,imgwData){
     // świeże IMGW nie może automatycznie wyzerować.
     if(precipValue===null||precipValue<=0||precipValue>0.4)continue;
 
-    if(Array.isArray(hourlyData.precipitation))hourlyData.precipitation[i]=0;
-    if(Array.isArray(hourlyData.rain))hourlyData.rain[i]=0;
-    if(Array.isArray(hourlyData.showers))hourlyData.showers[i]=0;
-    if(Array.isArray(hourlyData.snowfall))hourlyData.snowfall[i]=0;
-
-    if(Array.isArray(hourlyData.precipitation_probability)){
-      const pop=Number(hourlyData.precipitation_probability[i]);
-      if(Number.isFinite(pop))hourlyData.precipitation_probability[i]=Math.min(pop,15);
-    }
-
-    const code=Number(hourlyData.weather_code?.[i]);
-    if(Number.isFinite(code)&&isRainCode(code)){
-      const cloud=Number(hourlyData.cloud_cover?.[i]);
-      hourlyData.weather_code[i]=Number.isFinite(cloud)
-        ?(cloud<=20?0:cloud<=70?2:3)
-        :0;
-    }
+    // Nie kasujemy mikroopadu z prognozy. Ten etap odpowiada za stan
+    // bieżący oparty o świeże IMGW; przyszły mikroopad jest oceniany
+    // osobno przez consensus/event engine.
     correctedCount++;
   }
 
@@ -2082,20 +2068,9 @@ function applyCanonicalWeatherFusion(data,imgwData){
       const mm=vals.length?Math.max(...vals):0;
 
       if(mm>0&&mm<=0.4){
-        if(Array.isArray(hourly.precipitation))hourly.precipitation[i]=0;
-        if(Array.isArray(hourly.rain))hourly.rain[i]=0;
-        if(Array.isArray(hourly.showers))hourly.showers[i]=0;
-        if(Array.isArray(hourly.snowfall))hourly.snowfall[i]=0;
-        if(Array.isArray(hourly.precipitation_probability)){
-          const p=Number(hourly.precipitation_probability[i]);
-          if(Number.isFinite(p))hourly.precipitation_probability[i]=Math.min(p,15);
-        }
-        if(Array.isArray(hourly.weather_code)&&isRainCode(Number(hourly.weather_code[i]))){
-          const c=Number(hourly.cloud_cover?.[i]);
-          hourly.weather_code[i]=Number.isFinite(c)
-            ?(c<=20?0:c<=70?2:3)
-            :0;
-        }
+        // Mikroopad pozostaje w osi prognostycznej. Świeże 0 mm z IMGW
+        // opisuje stan TERAZ, ale nie zeruje automatycznie przyszłej prognozy.
+        // Kwalifikacja zdarzenia odbywa się osobno w buildCanonicalPrecipitation().
       }
     }
 
