@@ -249,15 +249,7 @@ button.chip:active{background:var(--glass2)}
 .btn svg{width:18px;height:18px}
 a.btn{text-decoration:none;color:inherit}
 
-/* quick navigation bar */
-.quick-nav{margin:10px 0 14px;width:100%;overflow:hidden}
-.quick-nav-track{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-.quick-nav-track::-webkit-scrollbar{display:none}
-.qnav-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--ink);font-size:13px;font-weight:500;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);cursor:pointer;white-space:nowrap;flex:0 0 auto;transition:background .15s,border-color .15s,transform .1s}
-.qnav-btn:active{background:var(--glass2);transform:scale(.96)}
-.qnav-ico{font-size:14px;line-height:1}
-.qnav-lbl{font-size:12.5px;font-weight:600;color:var(--ink)}
-:root[data-theme="light"] .qnav-btn{box-shadow:0 2px 8px rgba(0,0,0,.04)}
+
 
 /* alerts & threat center */
 @keyframes threatBeacon {
@@ -3955,7 +3947,6 @@ function wLeafWetness(X){
   if(!Number.isFinite(X.T)||!Number.isFinite(dp))return"";
   
   const temp=X.T;
-  const rawDepression=Math.max(0, temp - dp);
   const w=Number.isFinite(X.wind)?Math.max(0, X.wind):10;
   const night=X.isDay===false||X.isDay===0;
   const h=Number.isFinite(X.hum)?clamp(X.hum,0,100):50;
@@ -3992,13 +3983,6 @@ function wLeafWetness(X){
     ? "linear-gradient(90deg,#10b981,#a3e635)"
     : "linear-gradient(90deg,#64748b,#94a3b8)";
 
-  const isImgw=X.dewStation!=null&&S.imgwData;
-  const stName=isImgw?(S.imgwData.stacja||S.imgwData.name||"IMGW"):"";
-  const stDist=isImgw&&S.imgwData.dist!=null?`${Math.round(S.imgwData.dist)} km`:"";
-  const dpSource=isImgw?`stacja IMGW ${stName}${stDist?` (${stDist})`:""}`:"model numeryczny";
-  const dpTxt=Math.round(dp)+"°C";
-  const diffTxt=rawDepression.toFixed(1)+"°C";
-
   return`<div id="w-leaf" class="w">
     <div class="wh">${mini("leaf")}Wilgotność liści</div>
     <div class="wv tn">${fillPct}<small>%</small> <span style="font-size:14px;font-weight:600;opacity:0.85;margin-left:4px">· ${score!=null?score+"/15":"–/15"}</span></div>
@@ -4009,9 +3993,7 @@ function wLeafWetness(X){
     </div>
     <div class="ws">
       <b style="color:var(--ink);display:block;margin-bottom:2px">${statusLabel}</b>
-      <div style="font-size:12px;color:var(--ink2);margin-bottom:2px">${dewSub}</div>
-      <div>Różnica T − Td: <b>${diffTxt}</b> (T: ${Math.round(temp)}°C, Td: ${dpTxt})</div>
-      <div style="font-size:11px;opacity:0.75;margin-top:2px">Punkt rosy: ${dpSource}</div>
+      <div style="font-size:12px;color:var(--ink2)">${dewSub}</div>
     </div>
   </div>`;
 }
@@ -4084,34 +4066,13 @@ function wPress(X){
   return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center;padding-top:2px"><div style="font-size:11.5px;opacity:0.8;margin-bottom:4px">poziom morza</div><div style="display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;border-radius:12px;background:rgba(255,255,255,0.06);width:100%">${trendHtml}</div>${sparklineHtml}</div></div>`;
 }
 function getVisInfo(km){
-  if(km==null||!Number.isFinite(km))return{pct:null,desc:"Brak pomiaru"};
+  if(km==null||!Number.isFinite(km))return "Brak pomiaru widoczności";
   const val=Math.max(0,km);
-  let pct=0;
-  if(val>=10){
-    pct=100; // Standard meteorologiczny WMO / SYNOP: >= 10 km to pełna przejrzystość (CAVOK, brak barier widzialności)
-  }else if(val>=7){
-    pct=Math.round(80+((val-7)/3)*20);  // 7..10 km -> 80..100%
-  }else if(val>=4){
-    pct=Math.round(50+((val-4)/3)*30);  // 4..7 km -> 50..80%
-  }else if(val>=1){
-    pct=Math.round(20+((val-1)/3)*30);  // 1..4 km -> 20..50%
-  }else if(val>=0.2){
-    pct=Math.round(3+((val-0.2)/0.8)*17); // 0.2..1 km -> 3..20%
-  }else{
-    pct=Math.round(Math.max(0,(val/0.2)*3)); // 0..0.2 km -> 0..3%
-  }
-  pct=Math.min(100,Math.max(0,pct));
-
-  let desc="";
-  if(pct>=95)desc="100% · pełna przejrzystość powietrza";
-  else if(pct>=80)desc=`${pct}% · bardzo dobra widoczność`;
-  else if(pct>=50)desc=`${pct}% · dobra widoczność, lekkie zamglenie`;
-  else if(pct>=20)desc=`${pct}% · umiarkowana widoczność, zamglenie`;
-  else if(pct>=8)desc=`${pct}% · słaba widoczność, mgła`;
-  else if(pct>=3)desc=`${pct}% · gęsta mgła, krytycznie niska widoczność`;
-  else desc=`${pct}% · niemal zerowa widoczność, bardzo gęsta mgła`;
-
-  return{pct,desc};
+  if(val>20)return "Bardzo dobra widoczność 👀";
+  if(val>=10)return "Dobra widoczność";
+  if(val>=5)return "Widoczność ograniczona";
+  if(val>=2)return "Widoczność wyraźnie ograniczona";
+  return "Słaba widoczność 🌫️";
 }
 function wVis(X){
   const wa=Number(S.weatherapi?.vis_km);
@@ -4129,10 +4090,16 @@ function wVis(X){
     km=10;
   }
   const value=km==null?"–":fnum(km,1);
-  const info=getVisInfo(km);
-  const pctBadge=info.pct!=null?` <span style="font-size:16px;font-weight:600;opacity:0.85">· ${info.pct}%</span>`:"";
+  const desc=getVisInfo(km);
   const source=waOk?"WeatherAPI · vis_km":omOk?"Open-Meteo · visibility":"Brak pomiaru";
-  return`<div class="w"><div class="wh">${mini("eye")}Widoczność</div><div class="wv tn">${value}<small>km</small>${pctBadge}</div><div class="ws"><b style="color:var(--ink);display:block;margin-bottom:2px;font-size:12.5px">${info.desc}</b><span style="opacity:0.65;font-size:11px">${source}</span></div></div>`;
+  return`<div class="w">
+    <div class="wh">${mini("eye")}Widoczność</div>
+    <div class="wv tn">${value} <small>km</small></div>
+    <div class="ws">
+      <b style="color:var(--ink);display:block;margin-bottom:2px;font-size:12.5px">${desc}</b>
+      <span style="opacity:0.65;font-size:11px">${source}</span>
+    </div>
+  </div>`;
 }
 function totalCloudHumanDesc(cloudVal){
   if(cloudVal==null||!Number.isFinite(Number(cloudVal)))return null;
@@ -4150,11 +4117,10 @@ function wLayers(X){
   const v=hasCloud?clamp(Math.round(Number(raw)),0,100):null;
   const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych o zachmurzeniu";
   const valStr=v!=null?`${v}<small>%</small>`:"–";
-  const subText=hasCloud?`${desc} · ${v}% nieba`:"Brak pomiaru";
   return`<div id="w-clouds" class="w">
     <div class="wh">${mini("cloud")}Zachmurzenie</div>
-    <div class="wv tn">${valStr}</div>
-    <div class="ws">${subText}</div>
+    <div class="wv tn" style="text-align:center">${valStr}</div>
+    <div class="ws">${hasCloud?`<b style="color:var(--ink);display:block;margin-bottom:2px">${desc}</b><div>${v}% nieba pokryte chmurami</div>`:"Brak pomiaru"}</div>
   </div>`;
 }
 function wRain(X){
@@ -4613,28 +4579,6 @@ function stationCockpitHTML(X){
   </div>`;
 }
 
-function quickNavHTML(){
-  return`<nav class="quick-nav" aria-label="Szybka nawigacja do sekcji pogodowych">
-    <div class="quick-nav-track">
-      <button type="button" class="qnav-btn" data-act="nav-to" data-target="s-nowcast" aria-label="Przewiń do sekcji Opady">
-        <span class="qnav-ico">☔</span><span class="qnav-lbl">Opady</span>
-      </button>
-      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-clouds" aria-label="Przewiń do kafelka Chmury">
-        <span class="qnav-ico">☁️</span><span class="qnav-lbl">Chmury</span>
-      </button>
-      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-wind" aria-label="Przewiń do kafelka Wiatr">
-        <span class="qnav-ico">💨</span><span class="qnav-lbl">Wiatr</span>
-      </button>
-      <button type="button" class="qnav-btn" data-act="nav-to" data-target="w-uv" aria-label="Przewiń do kafelka Słońce i UV">
-        <span class="qnav-ico">☀️</span><span class="qnav-lbl">Słońce</span>
-      </button>
-      <button type="button" class="qnav-btn" data-act="nav-to" data-target="s-air" aria-label="Przewiń do kafelka Jakość Powietrza">
-        <span class="qnav-ico">🌬️</span><span class="qnav-lbl">Powietrze</span>
-      </button>
-    </div>
-  </nav>`;
-}
-
 function weatherHTML(){
   const X=computeCtx();S.X=X;
   // UI dostaje dokładnie tę samą surową wartość cloud_cover, którą ma X.cloud.
@@ -4665,7 +4609,6 @@ function weatherHTML(){
     ${imgwDiagHTML()}
     ${oknoHTML()}
     <div id="s-models">${modelsHTML()}</div>
-    ${quickNavHTML()}
     <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${pad(upd.getHours())}:${pad(upd.getMinutes())}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
   </div>`;
 }
@@ -6139,16 +6082,6 @@ document.addEventListener("click",e=>{
     case"req-notif":{requestWebNotifications().then(p=>{if(p==="granted")openThreatsSheet(S.X||computeCtx());});break;}
     case"radar":startRadar();break;
     case"rplay":toggleRadarPlay();break;
-    case"nav-to":{
-      const targetId=t.dataset.target;
-      if(!targetId)break;
-      const targetEl=document.getElementById(targetId);
-      if(targetEl){
-        const isReduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        targetEl.scrollIntoView({behavior:isReduced?"auto":"smooth",block:"center"});
-      }
-      break;
-    }
   }
 });
 document.addEventListener("input",e=>{
