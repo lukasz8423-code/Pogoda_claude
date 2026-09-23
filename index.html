@@ -2443,7 +2443,31 @@ function buildCanonicalPrecipitation(data,nowcast){
       .sort((a,b)=>Date.parse(String(a.t))-Date.parse(String(b.t)))
     :[];
 
-  const futureMinutely=minutely.filter(x=>Date.parse(String(x.t))>=now);
+  const rawFutureMinutely=minutely.filter(x=>Date.parse(String(x.t))>=now);
+
+  // 15-minutowy model ICON-D2 nie może samodzielnie nadpisać aktywnego
+  // forecastu godzinowego. Szczególnie ważne jest zachowanie fizycznej
+  // spójności: opad z jednego okna 15 min nie może być większy od całego
+  // opadu przypisanego do tej samej godziny w kanonicznym hourly.
+  //
+  // Przykład błędu, który to odcina:
+  // minutely = 0.20 mm, hourly = 0.07 mm -> 0.20 mm > 0.07 mm,
+  // więc slot nie może być pokazany jako rzeczywisty opad.
+  const futureMinutely=rawFutureMinutely.filter(x=>{
+    const slotMm=Number(x?.mm);
+    const hourlyMm=Number(x?.hourlyMm);
+    if(!Number.isFinite(slotMm)||slotMm<=MINUTE_TRACE)return true;
+    if(!Number.isFinite(hourlyMm))return false;
+    return hourlyMm+0.001>=slotMm;
+  });
+
+  const rejectedMinutely=rawFutureMinutely.filter(x=>{
+    const slotMm=Number(x?.mm);
+    const hourlyMm=Number(x?.hourlyMm);
+    return Number.isFinite(slotMm)&&slotMm>MINUTE_TRACE&&
+      Number.isFinite(hourlyMm)&&hourlyMm+0.001<slotMm;
+  });
+
   const nearMinutely=futureMinutely.filter(x=>{
     const t=Date.parse(String(x.t));
     return t<=now+NEAR_MS&&x.mm>MINUTE_TRACE;
@@ -2545,7 +2569,12 @@ function buildCanonicalPrecipitation(data,nowcast){
       eventThresholdMm:EVENT_MM,
       hourlyEventThresholdMm:HOURLY_EVENT_MM,
       nearMinutelySlots:nearMinutely.length,
-      minutelyEvent:!!minutelyEvent
+      minutelyEvent:!!minutelyEvent,
+      rawFutureMinutelySlots:rawFutureMinutely.length,
+      rejectedMinutelySlots:rejectedMinutely.length,
+      rejectedMinutely:rejectedMinutely.slice(0,16).map(x=>({
+        t:x.t,mm:x.mm,hourlyMm:x.hourlyMm,pop:x.pop,reason:"15min_mm_gt_hourly_mm"
+      }))
     },
     committedAt:Date.now()
   };
