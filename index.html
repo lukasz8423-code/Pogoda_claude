@@ -3240,9 +3240,9 @@ function meteogramHTML(X){
       <span class="mg-wind tn">${wind}${gust} km/h</span>
     </div>`;
   }).join("");
-  return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Przebieg na 48 godzin</span></div>
+  return `<section class="card"><div class="ch">${mini("chart")}<span class="grow">Prognoza na 48 godzin</span></div>
     <div class="mg-grid">${cells}</div>
-    <div class="note">Każda kolumna = 1 godzina · temperatura · opad z poprzedniej godziny · szansa dla poprzedniej godziny · wiatr / porywy. Przewiń w bok.</div>
+    <div class="note">Każda kolumna przedstawia 1 godzinę · temperatura · opad · prawdopodobieństwo opadu · wiatr / porywy. Przewiń w bok.</div>
   </section>`;
 }
 
@@ -3442,7 +3442,7 @@ function wRain(X){
   const popToday=day.hasRain?day.pop:0;
   if(active)next="Pada teraz.";
   else if(nextEvent?.startsAt)next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";
-  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${popToday}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
+  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(rainToday,1)}<small>mm</small></div><div class="ws">Maks. prawdopodobieństwo opadu: ${popToday}%. ${next||"Brak prognozowanego opadu w ciągu najbliższych 24 godz."}</div></div>`;
 }
 
 function wSun(X){
@@ -3476,10 +3476,10 @@ function oknoHTML(){
   const o=oknoStats();
   let body;
   if(o){
-    body=`<div class="stg"><div><small>Trafność prognozy</small><b class="tn">${o.acc==null?"–":o.acc+"%"}</b></div><div><small>Twoje obserwacje</small><b class="tn">${o.count}</b></div></div>`;
+    body=`<div class="stg"><div><small>Trafność prognoz</small><b class="tn">${o.acc==null?"–":o.acc+"%"}</b></div><div><small>Twoje obserwacje</small><b class="tn">${o.count}</b></div></div>`;
     if(o.bias!=null)body+=`<div class="note">Model średnio ${o.bias>0?"zawyża":"zaniża"} temperaturę o ${fnum(Math.abs(o.bias),1)}° względem Twojego termometru (${o.biasN} pomiarów).</div>`;
-  }else body=`<div class="say" style="font-size:15px;font-weight:400;margin:0">Powiedz, co widzisz za oknem. Aplikacja porówna to z prognozą i z pomiarem ze stacji, a z czasem pokaże, komu ufać.</div>`;
-  return`<section class="card"><div class="ch">${mini("window")}<span class="grow">Prognoza kontra okno</span></div>${body}<a class="btn pri wide" style="margin-top:14px" href="okno.html">Sprawdź zza okna</a></section>`;
+  }else body=`<div class="say" style="font-size:15px;font-weight:400;margin:0">Powiedz, co widzisz za oknem. Aplikacja porówna to z prognozą i z pomiarem ze stacji, a z czasem pokaże, któremu źródłu ufać.</div>`;
+  return`<section class="card"><div class="ch">${mini("window")}<span class="grow">Prognoza kontra okno</span></div>${body}<a class="btn pri wide" style="margin-top:14px" href="okno.html">Sprawdź za oknem</a></section>`;
 }
 
 function modelsHTML(){
@@ -3536,7 +3536,7 @@ function stationHTML(){
     <div class="note" style="margin-top:12px">Czasy poszczególnych pomiarów IMGW</div>
     <div class="note" style="margin-top:4px">${timeRowsHtml}</div>
     ${im.fetchedAt!=null?`<div class="note">Aura pobrała dane o ${hhmm(im.fetchedAt)}. Najnowszy z powyższych pomiarów: ${im.latestObservedAt!=null?hhmm(im.latestObservedAt):"brak"}${im.latestAgeMinutes!=null?`, ${fmtAge(im.latestAgeMinutes)}`:""}.</div>`:""}
-    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":im.dist>80?"Stacja jest poza zasięgiem fuzji 45 km, więc jej pomiar jest tylko informacyjny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe."}</div></section>`;
+    <div class="note">${stale?"Co najmniej jeden kluczowy pomiar jest nieaktualny. ":im.dist>80?"Stacja jest poza zasięgiem fuzji (45 km), więc jej pomiar ma charakter informacyjny. ":"Świeże pola IMGW są łączone z modelem niezależnie dla temperatury, wilgotności i wiatru; ciśnienie pozostaje modelowe."}</div></section>`;
 }
 
 function assistantHTML(X){
