@@ -3246,21 +3246,22 @@ function meteogramHTML(X){
   </section>`;
 }
 
-function canonicalDayPrecipitation(hourly,dayIso){
-  // JEDNO ŹRÓDŁO PRAWDY DLA 10-DNIÓWKI:
-  // liczymy dobę z tej samej, już przefiltrowanej tablicy hourly,
-  // którą pokazują 48h i prognoza godzinowa. Surowe daily.* nie może
-  // ponownie wprowadzić POP/opadu wyzerowanego wcześniej w hourly.
+function canonicalDayPrecipitation(hourly,dayIso,isToday=false){
+  // Jedno źródło prawdy dla 10-dniówki: ta sama oczyszczona oś hourly.
+  // DLA DZISIAJ liczymy wyłącznie czas od TERAZ — opad z minionych godzin
+  // nie może wrócić do kafelka "Dziś".
   if(!hourly?.time?.length||!dayIso)return{mm:0,pop:0,hasRain:false};
+  const now=Date.now();
   let mm=0,pop=0,hasRain=false;
   for(let k=0;k<hourly.time.length;k++){
-    const iso=String(hourly.time[k]||"");
-    if(!iso.startsWith(dayIso))continue;
+    const raw=String(hourly.time[k]||"");
+    const ts=Date.parse(raw);
+    if(!Number.isFinite(ts)||!raw.startsWith(dayIso))continue;
+    if(isToday&&ts<now-15*60*1000)continue;
     const v=Number(hourly.precipitation?.[k]??0);
     const p=Number(hourly.precipitation_probability?.[k]??0);
     if(Number.isFinite(v)&&v>0.05){
-      mm+=v;
-      hasRain=true;
+      mm+=v;hasRain=true;
       if(Number.isFinite(p))pop=Math.max(pop,clamp(p,0,100));
     }
   }
@@ -3275,7 +3276,7 @@ function dailyRows(){
   return idxs.map(i=>{
     const mn=daily.temperature_2m_min[i],mx=daily.temperature_2m_max[i];
     const dayIso=String(daily.time?.[i]||"").slice(0,10);
-    const canonicalDay=canonicalDayPrecipitation(hourly,dayIso);
+    const canonicalDay=canonicalDayPrecipitation(hourly,dayIso,i===0);
     const dayPrecip=canonicalDay.mm;
     const pop=canonicalDay.hasRain?canonicalDay.pop:0;
     const open=S.expDay===i;
@@ -3305,7 +3306,7 @@ function dailyRows(){
     }
     return`<button class="drow" data-act="day" data-i="${i}" aria-expanded="${open}">
       <span class="dname">${label}</span>
-      <span class="dic">${ico(daily.weather_code?.[i]??0,true,30)}<i class="tn">${pop>=20?pop+"%":""}</i></span>
+      <span class="dic">${ico(canonicalDay.hasRain?(daily.weather_code?.[i]??0):0,true,30)}<i class="tn">${pop>=20?pop+"%":""}</i></span>
       <span class="dmin tn">${Math.round(mn)}°</span>
       <span class="dbar"><b style="left:${left}%;width:${width}%;background:linear-gradient(90deg,${tempColor(mn)},${tempColor(mx)})"></b>${dot}</span>
       <span class="dmax tn">${Math.round(mx)}°</span></button>${exp}`;
@@ -3435,12 +3436,13 @@ function wRain(X){
   const activeMm=Number.isFinite(Number(p?.current))?Number(p.current):currentTimelineMm(X);
   const active=activeMm!==null&&activeMm>0.05;
   const nextEvent=p?.nextEvent||null;
-  if(active){
-    next="Pada teraz.";
-  }else if(nextEvent?.startsAt){
-    next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";;
-  }
-  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(X.rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${X.popMax}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
+  const dayIso=new Date().toISOString().slice(0,10);
+  const day=canonicalDayPrecipitation(S.data?.hourly,dayIso,true);
+  const rainToday=day.hasRain?day.mm:0;
+  const popToday=day.hasRain?day.pop:0;
+  if(active)next="Pada teraz.";
+  else if(nextEvent?.startsAt)next="Najbliższy opad ok. "+hhmm(nextEvent.startsAt)+".";
+  return`<div class="w"><div class="wh">${mini("umbrella")}Opady dziś</div><div class="wv tn">${fnum(rainToday,1)}<small>mm</small></div><div class="ws">Szansa maks. ${popToday}%. ${next||"Brak prognozowanego deszczu w kolejnych 24 h."}</div></div>`;
 }
 
 function wSun(X){
