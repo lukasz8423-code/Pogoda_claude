@@ -1,0 +1,100 @@
+name: Refresh IMGW METEO snapshot
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-imgw-meteo
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Pobierz IMGW METEO
+        id: fetch
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://danepubliczne.imgw.pl/api/data/meteo/"
+          tmp="$(mktemp)"
+
+          curl --fail --silent --show-error --location             --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 45             -H 'Accept: application/json'             -H 'Cache-Control: no-cache'             -o "$tmp" "$url"
+
+          python - "$tmp" <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          data = json.loads(p.read_text(encoding="utf-8"))
+
+          if not isinstance(data, list) or not data:
+              raise SystemExit("IMGW METEO: pusty lub nieprawidłowy feed")
+
+          station = next(
+              (x for x in data
+               if str(x.get("kod_stacji", "")).strip() == "252190030"
+               or str(x.get("nazwa_stacji", "")).strip().upper() == "GŁODOWO"),
+              None
+          )
+
+          if station is None:
+              raise SystemExit("IMGW METEO: brak stacji GŁODOWO w feedzie")
+
+          required = [
+              "temperatura_powietrza_data",
+              "wilgotnosc_wzgledna_data",
+              "wiatr_srednia_predkosc_data",
+              "wiatr_kierunek_data",
+              "opad_10min_data",
+          ]
+          timestamps = [station.get(k) for k in required if station.get(k)]
+          if not timestamps:
+              raise SystemExit("IMGW METEO: GŁODOWO bez jakichkolwiek timestampów")
+
+          from datetime import datetime, timezone
+          now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+          payload = {
+              "fetchedAt": now_ms,
+              "source": "IMGW METEO",
+              "stationCount": len(data),
+              "data": data,
+          }
+
+          Path("imgw-meteo.json").write_text(
+              json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8"
+          )
+
+          print("IMGW GŁODOWO:", json.dumps(station, ensure_ascii=False))
+
+          PY
+
+      - name: Zapisz snapshot tylko po poprawnym pobraniu
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add imgw-meteo.json
+
+          if git diff --cached --quiet; then
+            echo "IMGW snapshot bez zmian."
+            exit 0
+          fi
+
+          git commit -m "chore(imgw): odśwież snapshot METEO"
+          git push origin HEAD:main
