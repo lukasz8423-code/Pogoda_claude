@@ -4160,10 +4160,11 @@ function wLayers(X){
   const v=hasCloud?clamp(Math.round(Number(raw)),0,100):null;
   const desc=hasCloud?totalCloudHumanDesc(v):"Brak danych o zachmurzeniu";
   const valStr=v!=null?`${v}<small>%</small>`:"–";
+  const subText=hasCloud?`${desc} · ${v}% nieba`:"Brak pomiaru";
   return`<div id="w-clouds" class="w">
     <div class="wh">${mini("cloud")}Zachmurzenie</div>
     <div class="wv tn">${valStr}</div>
-    <div class="ws">${desc}</div>
+    <div class="ws">${subText}</div>
   </div>`;
 }
 function wRain(X){
