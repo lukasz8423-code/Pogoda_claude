@@ -816,6 +816,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     daily:commonDaily.join(","),
     timezone:"auto",
     forecast_days:String(requestDays),
+    past_hours:"24",
     models:modelId
   });
   const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
@@ -2131,6 +2132,16 @@ function computeCtx(){
   const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
   const pDelta=p0!=null&&p1!=null?p1-p0:null;
+  const pressHistory=[];
+  const pTimes=hourly?.time||[];
+  const pVals=hourly?.pressure_msl||[];
+  const pStart=Math.max(0,ci-24);
+  for(let i=pStart;i<=ci;i++){
+    const v=Number(pVals[i]);
+    if(Number.isFinite(v)){
+      pressHistory.push({t:pTimes[i],p:v});
+    }
+  }
   const apiVisibilityNow=Number(data.__auraApiCurrentVisibility);
   const visMeters=Number.isFinite(apiVisibilityNow)&&apiVisibilityNow>0
     ?apiVisibilityNow
@@ -2179,6 +2190,7 @@ function computeCtx(){
     currentState:{code:currentStateCode,pop:Number(pop)||0,mm:Number.isFinite(timelineNowMm)?timelineNowMm:0},
     timeline:precipTimeline,
     firstRainTime,
+    pressHistory,
     low:boundedLow,
     mid:boundedMid,
     high:boundedHigh,
@@ -2739,17 +2751,64 @@ function wPress(X){
   if(d===null||!Number.isFinite(d)){
     trendHtml=`<span style="opacity:0.75;font-size:11.5px">Brak danych o trendzie</span>`;
   }else if(d>0.4){
-    // Rośnie - czerwona strzałka
-    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#f87171;font-weight:700;font-size:12px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>Rośnie</span> <span style="font-size:11.5px;opacity:0.85">+${d.toFixed(1)} hPa/3h</span>`;
+    // Rośnie - łagodny, ciepły bursztyn/złoty (nieagresywny dla oka)
+    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#fbbf24;font-weight:700;font-size:12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>Rośnie</span> <span style="font-size:11.5px;opacity:0.85">+${d.toFixed(1)} hPa/3h</span>`;
   }else if(d<-0.4){
-    // Spada - niebieska strzałka
-    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#38bdf8;font-weight:700;font-size:12px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>Spada</span> <span style="font-size:11.5px;opacity:0.85">${d.toFixed(1)} hPa/3h</span>`;
+    // Spada - stonowany błękit nieba
+    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#38bdf8;font-weight:700;font-size:12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>Spada</span> <span style="font-size:11.5px;opacity:0.85">${d.toFixed(1)} hPa/3h</span>`;
   }else{
-    // Stałe - poziomy wskaźnik równowagi
-    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#34d399;font-weight:700;font-size:12px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="3.5" stroke-linecap="round"><line x1="4" y1="12" x2="20" y2="12"></line></svg>Stałe</span> <span style="font-size:11.5px;opacity:0.85">${d>=0?"+":""}${d.toFixed(1)} hPa/3h</span>`;
+    // Stałe - stonowany popiel / równowaga
+    trendHtml=`<span style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-weight:700;font-size:12px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="3.5" stroke-linecap="round"><line x1="4" y1="12" x2="20" y2="12"></line></svg>Stałe</span> <span style="font-size:11.5px;opacity:0.85">${d>=0?"+":""}${d.toFixed(1)} hPa/3h</span>`;
   }
 
-  return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center;padding-top:2px"><div style="font-size:11.5px;opacity:0.8;margin-bottom:3px">hPa · poziom morza</div><div style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:2px 8px;border-radius:12px;background:rgba(255,255,255,0.06)">${trendHtml}</div></div></div>`;
+  // Wykres trendu z ostatnich 24 godzin
+  let sparklineHtml="";
+  const hist=X.pressHistory||[];
+  if(hist.length>=3){
+    const vals=hist.map(h=>h.p);
+    const minP=Math.min(...vals);
+    const maxP=Math.max(...vals);
+    const diff24=vals[vals.length-1]-vals[0];
+    const range=Math.max(1.2, maxP-minP);
+    const W=140, H=28, padX=3, padY=4;
+    const uw=W-padX*2, uh=H-padY*2;
+    
+    const pts=vals.map((v,i)=>{
+      const x=padX+(i/(vals.length-1))*uw;
+      const y=padY+uh-((v-minP)/range)*uh;
+      return{x:+x.toFixed(1),y:+y.toFixed(1)};
+    });
+    
+    const pathD=pts.reduce((acc,pt,i)=>i===0?`M ${pt.x},${pt.y}`:`${acc} L ${pt.x},${pt.y}`,"");
+    const lastPt=pts[pts.length-1];
+    const firstPt=pts[0];
+    const areaD=`${pathD} L ${lastPt.x},${H} L ${firstPt.x},${H} Z`;
+
+    const trendColor=diff24>0.8?"#fbbf24":diff24<-0.8?"#38bdf8":"#94a3b8";
+    const areaGradStart=diff24>0.8?"rgba(251,191,36,.25)":diff24<-0.8?"rgba(56,189,248,.25)":"rgba(148,163,184,.18)";
+
+    sparklineHtml=`
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);width:100%">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--ink2);margin-bottom:2px">
+          <span>Ostatnie 24 h</span>
+          <span>min ${Math.round(minP)} · max ${Math.round(maxP)}</span>
+        </div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:28px;overflow:visible;display:block">
+          <defs>
+            <linearGradient id="pressGrad24" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${areaGradStart}"/>
+              <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+            </linearGradient>
+          </defs>
+          <path d="${areaD}" fill="url(#pressGrad24)"/>
+          <path d="${pathD}" fill="none" stroke="${trendColor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="${lastPt.x}" cy="${lastPt.y}" r="2.8" fill="${trendColor}" stroke="rgba(8,15,32,.7)" stroke-width="1.2"/>
+        </svg>
+      </div>
+    `;
+  }
+
+  return`<div class="w"><div class="wh">${mini("gauge")}Ciśnienie</div><svg class="gauge" viewBox="0 0 120 66" role="img" aria-label="${p} hPa"><path d="M14 58A46 46 0 0 1 106 58" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6" stroke-linecap="round"/><circle cx="${px}" cy="${py}" r="6.500" fill="#fff" stroke="rgba(8,15,32,.55)" stroke-width="3"/><text x="60" y="54" text-anchor="middle" font-size="21" font-weight="600" fill="#fff" class="tn">${p}</text></svg><div class="ws" style="text-align:center;padding-top:2px"><div style="font-size:11.5px;opacity:0.8;margin-bottom:3px">hPa · poziom morza</div><div style="display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:2px 8px;border-radius:12px;background:rgba(255,255,255,0.06)">${trendHtml}</div>${sparklineHtml}</div></div>`;
 }
 function getVisInfo(km){
   if(km==null||!Number.isFinite(km))return{pct:null,desc:"Brak pomiaru"};
