@@ -3013,9 +3013,9 @@ function nowcastHTML(X){
 
     // 2) Klasyfikacja kanoniczna decyduje, czy w ogóle wolno pokazać opad.
     // "none" i "drizzle" nie mogą generować słupków ani fałszywych wartości mm/POP.
-    const canonicalRainVisible=!!canonicalClass &&
-      canonicalClass.type!=="none" &&
-      canonicalClass.type!=="drizzle";
+    const canonicalRainVisible=!!canonicalPrecip?.nextEvent &&
+      canonicalClass?.type!=="none" &&
+      canonicalClass?.type!=="drizzle";
 
     const v=renderSlots.map(x=>{
       const rawMm=Number(x?.mm)||0;
@@ -3177,7 +3177,10 @@ function hourlyHTML(X){
       ?(X.currentState?.code??getHourlyCode(hourly,idx))
       :getHourlyCode(hourly,idx);
     const finalMm=Number(hourly.precipitation?.[idx]??0);
-    const pop=Number(hourly.precipitation_probability?.[idx]??0);
+    const rawPop=Number(hourly.precipitation_probability?.[idx]??0);
+    const pop=Number.isFinite(finalMm)&&finalMm>0.05
+      ?clamp(rawPop,0,100)
+      :0;
     const safeIso=hourly.time?.[idx]||t.toISOString();
 
     // "deszcz" wymaga faktycznego opadu w finalnej tablicy.
@@ -3225,7 +3228,7 @@ function meteogramHTML(X){
     const bar=Math.round(clamp(displayPr/maxPr,0,1)*38);
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
-    const pop=Math.round(p.pop);
+    const pop=Math.round(Number.isFinite(p.pr)&&p.pr>0.05?p.pop:0);
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
@@ -3259,9 +3262,11 @@ function dailyRows(){
     const rawPop=Number(daily.precipitation_probability_max?.[i]??0);
     // Jeżeli dzień ma tylko śladowy modelowy opad, a Głodowo potwierdza sucho,
     // nie pokazujemy 70–80% POP jako faktu.
-    const pop=stationDryNow && Number.isFinite(dayPrecip) && dayPrecip<=0.4
-      ?Math.min(rawPop,15)
-      :rawPop;
+    const pop=(
+      S.canonicalWeatherFusion?.applied===true &&
+      Number.isFinite(dayPrecip) &&
+      dayPrecip<=0.4
+    ) ? 0 : rawPop;
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3271,7 +3276,9 @@ function dailyRows(){
       const dateStr=daily.time[i];let hs="";
       hourly.time.forEach((t,k)=>{
         if(!t.startsWith(dateStr))return;
-        const p=hourly.precipitation_probability?.[k]??0;
+        const rawP=Number(hourly.precipitation_probability?.[k]??0);
+        const hm=Number(hourly.precipitation?.[k]??0);
+        const p=Number.isFinite(hm)&&hm>0.05?Math.round(clamp(rawP,0,100)):0;
         hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn">${p>=20?p+"%":""}</span></div>`;
       });
       const kv=[];
