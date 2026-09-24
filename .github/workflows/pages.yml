@@ -122,6 +122,10 @@ jobs:
           fi
 
       - name: Upload Pages artifact
+        # Przy ponownym uruchomieniu tego samego runu GitHub zachowuje artefakt
+        # z poprzedniej próby. Ponowny upload tworzył drugi "github-pages" i
+        # deploy-pages@v4 kończył się błędem "Multiple artifacts".
+        if: ${{ github.run_attempt == 1 }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
