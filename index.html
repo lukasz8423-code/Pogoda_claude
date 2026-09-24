@@ -1668,7 +1668,7 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_M
   return {data:safeData,stale_fields,warnings,maxAgeMinutes};
 }
 
-async function fetchIMGWMeteoAll(){
+async function fetchIMGWMeteoAll(forceLive=false){
   S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkAttempted:true,networkOk:false,networkFetchedAt:null,snapshotUsed:false};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   let list=null;
@@ -1704,8 +1704,10 @@ async function fetchIMGWMeteoAll(){
     console.warn("Pobieranie IMGW METEO z sieci nie powiodło się, sięgam po lokalny zrzut zapasowy imgw-meteo.json:", e.message);
   }
 
-  // 2. Twardy fallback: sięganie po lokalne snapshoty zapasowe (imgw-meteo.json)
-  if(!list||!list.length){
+  // 2. Snapshot lokalny jest dozwolony tylko dla zwykłego ładowania.
+  // Wymuszony poll Głodowa ma być bezwzględnie LIVE: błąd sieci = brak nowego pomiaru,
+  // nigdy nie udajemy świeżej odpowiedzi starym snapshotem.
+  if(!forceLive && (!list||!list.length)){
     const paths=["/imgw-meteo.json","./imgw-meteo.json","imgw-meteo.json"];
     for(const p of paths){
       try{
@@ -6005,18 +6007,28 @@ async function handleGPS(){
 
 let IMGW_GLODOWO_POLL_TIMER=null;
 let IMGW_GLODOWO_POLL_RUNNING=false;
-async function pollGlodowoEvery60Min(){
+async function pollGlodowoEvery60Min(force=false){
   if(IMGW_GLODOWO_POLL_RUNNING)return;
   IMGW_GLODOWO_POLL_RUNNING=true;
+  const requestedAt=Date.now();
   try{
-    const res=await fetchIMGWMeteoAll();
+    const res=await fetchIMGWMeteoAll(true);
     const raw=res?.list?.find(st=>{
       const code=String(st?.kod_stacji??st?.id_stacji??"").trim();
       const name=String(st?.nazwa_stacji??st?.stacja??"").trim().toLowerCase();
       return code==="252190030"||name==="głodowo"||name==="glodowo";
     });
     S.imgwDiag=S.imgwDiag||{};
-    S.imgwDiag.glodowoPoll={requestedAt:Date.now(),ok:!!raw,station:raw?.nazwa_stacji||raw?.stacja||"Głodowo",fetchedAt:res?.fetchedAt??null,snapshotUsed:res?.isFallback===true};
+    S.imgwDiag.glodowoPoll={
+      requestedAt,
+      completedAt:Date.now(),
+      ok:!!raw && res?.isFallback!==true,
+      station:raw?.nazwa_stacji||raw?.stacja||"Głodowo",
+      fetchedAt:res?.fetchedAt??null,
+      snapshotUsed:false,
+      networkOk:S.imgwDiag.networkOk===true,
+      error:S.imgwDiag.networkOk===true?null:(S.imgwDiag.error||"IMGW API niedostępne")
+    };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
   }catch(e){
     S.imgwDiag=S.imgwDiag||{};
@@ -6025,7 +6037,10 @@ async function pollGlodowoEvery60Min(){
 }
 function startGlodowo60MinPoll(){
   if(IMGW_GLODOWO_POLL_TIMER)clearInterval(IMGW_GLODOWO_POLL_TIMER);
-  IMGW_GLODOWO_POLL_TIMER=setInterval(pollGlodowoEvery60Min,60*60*1000);
+  // Pierwszy poll wykonujemy od razu, ale nie dublujemy go przy każdym refreshu.
+  const last=Number(S.imgwDiag?.glodowoPoll?.requestedAt||0);
+  if(!last || Date.now()-last>=60*60*1000) pollGlodowoEvery60Min(true);
+  IMGW_GLODOWO_POLL_TIMER=setInterval(()=>pollGlodowoEvery60Min(true),60*60*1000);
 }
 let LOAD_SEQ=0;
 
