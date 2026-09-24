@@ -5438,7 +5438,9 @@ function applyObservationFusion(data,imgwData){
     temperature:toFiniteNumber(imgwData.tempAgeMinutes??imgwData.ageMinutes),
     humidity:toFiniteNumber(imgwData.humidityAgeMinutes??imgwData.ageMinutes),
     wind:toFiniteNumber(imgwData.windAgeMinutes??imgwData.ageMinutes),
-    windDirection:toFiniteNumber(imgwData.windDirAgeMinutes??imgwData.ageMinutes)
+    windDirection:toFiniteNumber(imgwData.windDirAgeMinutes??imgwData.ageMinutes),
+    gust:toFiniteNumber(imgwData.porywWiatruAgeMinutes??imgwData.windAgeMinutes??imgwData.ageMinutes),
+    precipitation:toFiniteNumber(imgwData.opad10minAgeMinutes??imgwData.ageMinutes)
   };
   const obs={
     temperature:toFiniteNumber(imgwData.temperatura),
@@ -5473,8 +5475,11 @@ function applyObservationFusion(data,imgwData){
     humidity:fusionParameterWeight(ages.humidity,dist,valid.humidity),
     wind:fusionParameterWeight(ages.wind,dist,valid.wind),
     windDirection:fusionParameterWeight(ages.windDirection,dist,valid.windDirection),
+    gust:(stationFreshGustKmH(imgwData)!=null)
+      ?fusionParameterWeight(ages.gust,dist,true)
+      :0,
     precipitation:stationPrecipFresh
-      ?fusionParameterWeight(toFiniteNumber(imgwData.opad10minAgeMinutes??ages.temperature)??0,dist,true)
+      ?fusionParameterWeight(ages.precipitation,dist,true)
       :0
   };
   if(!Object.values(weights).some(v=>v>0))return {weight:0,bias:{},weights,completeness:{},used:false};
@@ -5482,8 +5487,8 @@ function applyObservationFusion(data,imgwData){
   if(weights.humidity>0)cur.relative_humidity_2m=+fuseObservedValue(model.humidity,obs.humidity,weights.humidity).toFixed(0);
   if(weights.wind>0)cur.wind_speed_10m=+fuseObservedValue(model.wind,obs.wind,weights.wind).toFixed(1);
   const stationGust=stationFreshGustKmH(imgwData);
-  if(stationGust!=null){
-    cur.wind_gusts_10m=Math.round(Math.max(cur.wind_gusts_10m??0, stationGust));
+  if(stationGust!=null&&weights.gust>0){
+    cur.wind_gusts_10m=Math.round(fuseObservedValue(cur.wind_gusts_10m,stationGust,weights.gust));
   }else if(cur.wind_speed_10m!=null){
     cur.wind_gusts_10m=Math.round(Math.max(cur.wind_gusts_10m??0, cur.wind_speed_10m*1.35));
   }
@@ -5522,30 +5527,39 @@ function correctWeatherFusion(data,imgwData,cloudFusion){
     Number(imgwData.dist)<=30 &&
     (!Number.isFinite(stationAge)||stationAge<=IMGW_MAX_FIELD_AGE_MINUTES);
 
+  const precipWeight=stationFresh
+    ?fusionParameterWeight(Number.isFinite(stationAge)?stationAge:0,Number(imgwData.dist),true)
+    :0;
+  const precipHardFresh=stationFresh&&Number.isFinite(stationAge)&&stationAge<=30;
   let precipitationApplied=false;
   let cloudApplied=false;
 
-  // Twardy dowód dla T0: świeży opad_10min=0 z bliskiej stacji
-  // wygrywa z chwilowym opadem modelowym. Model może nadal mieć opad
-  // w kolejnych godzinach, ale nie może być pokazany jako opad TERAZ.
-  if(stationFresh){
+  // Opad ma osobną, ostrzejszą politykę świeżości:
+  // <=30 min = twarda obserwacja; 30–75 min = wygaszanie;
+  // 75–120 min = tylko słaby sygnał; >120 min = brak wpływu.
+  // Zero z Głodowa nie może więc automatycznie kasować modelu po 31 min,
+  // ale jego wpływ maleje wraz z wiekiem.
+  if(stationFresh&&precipWeight>0){
     if(stationPrecip<=0){
-      cur.precipitation=0;
-      cur.rain=0;
-      cur.showers=0;
-      cur.snowfall=0;
+      const modelPrecip=Math.max(0,Number(cur.precipitation)||0);
+      const blendedPrecip=precipHardFresh?0:modelPrecip*(1-precipWeight);
+      cur.precipitation=+blendedPrecip.toFixed(2);
+      cur.rain=+blendedPrecip.toFixed(2);
+      if(precipHardFresh){
+        cur.showers=0;
+        cur.snowfall=0;
+      }
       precipitationApplied=true;
-    }else{
-      cur.precipitation=stationPrecip;
-      cur.rain=stationPrecip;
-      cur.showers=0;
-      cur.snowfall=0;
+    }else if(precipHardFresh){
+      // IMGW opad_10min jest sumą 10-minutową, a nie natężeniem mm/h.
+      // Dlatego nie kopiujemy go 1:1 do pola modelowego mm/h.
+      // Traktujemy dodatni pomiar jako potwierdzenie obecności opadu.
+      cur.precipitation=Math.max(0,Number(cur.precipitation)||0);
+      cur.rain=Math.max(0,Number(cur.rain)||0);
       precipitationApplied=true;
     }
   }
 
-  // Zachmurzenie pochodzi z osobnej fuzji. Jeżeli fuzja zwróciła wartość,
-  // zapisujemy ją ponownie w ostatnim punkcie danych przed renderowaniem.
   if(cloudFusion&&Number.isFinite(Number(cloudFusion.value))){
     cur.cloud_cover=clamp(Number(cloudFusion.value),0,100);
     cloudApplied=true;
@@ -5557,6 +5571,9 @@ function correctWeatherFusion(data,imgwData,cloudFusion){
     cloudApplied,
     stationPrecipMm:stationFresh?stationPrecip:null,
     stationPrecipFresh:stationFresh,
+    precipitationWeight:precipWeight,
+    precipitationFresh:precipHardFresh,
+    precipitationState:!stationFresh?"stale":precipHardFresh?"fresh":precipWeight>0?"decaying":"stale",
     finalPrecipitation:Number.isFinite(Number(cur.precipitation))?Number(cur.precipitation):null,
     finalCloudCover:Number.isFinite(Number(cur.cloud_cover))?Number(cur.cloud_cover):null
   };
