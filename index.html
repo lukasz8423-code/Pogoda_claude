@@ -6158,23 +6158,6 @@ async function loadWCore(lat,lng,name,isRef,token){
   );
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
     if(satelliteResult.status==="fulfilled")S.satelliteCloud=satelliteResult.value||null;
-    // FIELD-SPECIFIC SOURCE RESOLUTION:
-    // każdy parametr wybiera własne źródło zgodnie z hierarchią i TTL.
-    // Fallback = realne inne źródło, nigdy sztuczna wartość.
-    const imgwCandidate=imgwResult.status==="fulfilled"?(imgwResult.value?.best||null):null;
-    const modelRecords=cloudResult.status==="fulfilled"?(cloudResult.value||[]):[];
-    const fieldResolution=auraResolveCurrentFields(
-      data,modelRecords,imgwCandidate,S.satelliteCloud,fusionNowcast
-    );
-    S.fieldSourceDiag={
-      capturedAt:Date.now(),
-      policy:AURA_FIELD_SOURCE_POLICY,
-      sources:fieldResolution.sources,
-      warnings:fieldResolution.warnings
-    };
-    for(const [field,value] of Object.entries(fieldResolution.fields)){
-      if(Number.isFinite(Number(value)))data.current[field]=Number(value);
-    }
     // Awaria IMGW NIE oznacza awarii Internetu. Open-Meteo jest niezależnym
     // źródłem i musi nadal dostarczyć dane live.
     if(weatherResult.status==="fulfilled"){
@@ -6205,6 +6188,25 @@ async function loadWCore(lat,lng,name,isRef,token){
         }
         if(!data)throw lastWeatherError||new Error("Open-Meteo niedostępne");
       }
+    }
+
+    // FIELD-SPECIFIC SOURCE RESOLUTION — po wybraniu finalnego LIVE modelu.
+    // Wcześniej resolver był uruchamiany przed przypisaniem data=weatherResult.value,
+    // więc jego wynik był natychmiast tracony. Teraz każdy parametr jest wybierany
+    // dopiero na finalnym snapshotcie, zgodnie z własną hierarchią i TTL.
+    const imgwCandidate=imgwResult.status==="fulfilled"?(imgwResult.value?.best||null):null;
+    const modelRecords=cloudResult.status==="fulfilled"?(cloudResult.value||[]):[];
+    const fieldResolution=auraResolveCurrentFields(
+      data,modelRecords,imgwCandidate,S.satelliteCloud,fusionNowcast
+    );
+    S.fieldSourceDiag={
+      capturedAt:Date.now(),
+      policy:AURA_FIELD_SOURCE_POLICY,
+      sources:fieldResolution.sources,
+      warnings:fieldResolution.warnings
+    };
+    for(const [field,value] of Object.entries(fieldResolution.fields)){
+      if(Number.isFinite(Number(value)))data.current[field]=Number(value);
     }
 
     // Twarda blokada bieżącej widoczności z głównego API.
@@ -6287,8 +6289,14 @@ async function loadWCore(lat,lng,name,isRef,token){
         nowcast:fusionNowcast,
         satellite:S.satelliteCloud||null
       });
-      const mainCloud=Number.isFinite(cloudFusion.value)?cloudFusion.value:raw;
-      data.current.cloud_cover=mainCloud;
+      // Bieżące cloud_cover ma własną hierarchię źródeł i nie może być
+      // ponownie nadpisane przez medianę/ważenie wszystkich modeli.
+      // cloudFusion pozostaje diagnostyką zgodności modeli i opadu.
+      const resolvedCloud=Number.isFinite(Number(fieldResolution?.fields?.cloud_cover))
+        ?Number(fieldResolution.fields.cloud_cover)
+        :raw;
+      const mainCloud=Number.isFinite(resolvedCloud)?resolvedCloud:null;
+      if(Number.isFinite(mainCloud))data.current.cloud_cover=mainCloud;
       if(Number.isFinite(cloudFusion.precipitation)){
         data.current.precipitation=cloudFusion.precipitation;
         if(cloudFusion.precipitation===0){
@@ -6300,6 +6308,9 @@ async function loadWCore(lat,lng,name,isRef,token){
       S.cloudSource={
         type:"weather-fusion",
         value:mainCloud,
+        source:fieldResolution?.sources?.cloud_cover?.source||"brak świeżego źródła",
+        sourceAgeMinutes:fieldResolution?.sources?.cloud_cover?.ageMinutes??null,
+        sourceTtlMinutes:fieldResolution?.sources?.cloud_cover?.ttlMinutes??null,
         rawConsensus:Number.isFinite(consensus)?consensus:null,
         fusion:cloudFusion,
         opticalValue:optiCloudFromModels(cloudCompare)?.value??null,
