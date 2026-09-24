@@ -3535,9 +3535,21 @@ function precipKindLabel(pr, pop, code){
   if (p >= 0.5) return "deszcz";
   if (p > 0.05) return "słaby deszcz";
 
-  // Opad śladowy / 0 mm przy sygnale %
-  if (pct >= 50) return "mżawka";
-  if (pct >= 20) return "słaba mżawka";
+  // Opad śladowy / mm = 0 przy sygnale %:
+  const isExplicitDrizzle = c >= 51 && c <= 57;
+  const isExplicitRain = (c >= 61 && c <= 65) || (c >= 80 && c <= 82);
+
+  if (isExplicitRain) {
+    if (pct >= 70) return "deszcz";
+    if (pct >= 20) return "słaby deszcz";
+  } else if (isExplicitDrizzle) {
+    if (pct >= 50) return "mżawka";
+    if (pct >= 20) return "słaba mżawka";
+  } else {
+    if (pct >= 70) return "deszcz";
+    if (pct >= 50) return "słaby deszcz";
+    if (pct >= 20) return "słaba mżawka";
+  }
   return "";
 }
 // Jeden wspólny sygnał "opad ciekły teraz" dla Hero, kafelków i alertów.
@@ -3709,17 +3721,17 @@ function nowcastHTML(X){
       const popVal=x.pop==null?0:Math.round(x.pop);
       const pop=x.pop==null?"–":popVal+"%";
       const mm=Number(x.mm)||0;
-      const traceRain=mm>=0.01&&mm<0.15;
       const activeRain=activeNow;
+      const traceRain=(mm>=0.01 || popVal>=45 || activeRain) && mm<0.15;
       const label=traceRain
         ? "< 0,1 mm"
         : mm<0.005
           ? "0"
           : fnum(mm,2)+" mm";
-      const displayMm=traceRain&&activeRain?0.08:mm;
+      const displayMm=traceRain?Math.max(0.08, mm):mm;
       const barH=Math.round(clamp(displayMm,0,1)*54+4);
       const kind=precipKindLabel(mm, popVal, x.code);
-      return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b>${kind?`<span class="nc-kind">${kind}</span>`:""}<small>${label}</small><em>${hhmm(x.t)}</em></i>`;
+      return `<i class="${!traceRain&&mm<.005?"z":""}${traceRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b>${kind?`<span class="nc-kind">${kind}</span>`:""}<small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax="<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>";
     sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu w danej godzinie, mm = opad w danym oknie 15 min.";
