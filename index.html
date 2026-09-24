@@ -3045,31 +3045,66 @@ function normalizeImgwOfficialWarnings(payload){
 
 function notifyOfficialImgwWarnings(warnings){
   const list=Array.isArray(warnings)?warnings:[];
-  if(!list.length)return;
   const city=String(S.city||"wybranej lokalizacji");
-  let previous=null;
-  try{ previous=JSON.parse(localStorage.getItem("aura_imgw_warning_state")||"null"); }catch{}
   const locationKey=[Number(S.lat).toFixed(4),Number(S.lng).toFixed(4)].join(",");
-  const signature=list.map(w=>[
+  const currentSignature=list.map(w=>[
     w.id,w.level,w.phenomenonCode,w.validFrom,w.validTo,w.releaseAt,
     w.content||w.comments||w.short||""
   ].join("|")).sort().join("||");
-  const stateKey=locationKey+"|"+signature;
-  if(previous?.key===stateKey)return;
-  try{localStorage.setItem("aura_imgw_warning_state",JSON.stringify({
-    key:stateKey,location:locationKey,updatedAt:Date.now(),count:list.length
-  }));}catch{}
-  if(getNotificationPermissionStatus()!=="granted")return;
+  let previous=null;
+  try{previous=JSON.parse(localStorage.getItem("aura_imgw_warning_state")||"null");}catch{}
+  const previousList=Array.isArray(previous?.warnings)?previous.warnings:[];
+  const prevMap=new Map(previousList.map(w=>[String(w.id),w]));
+  const currMap=new Map(list.map(w=>[String(w.id),w]));
+  const events=[];
+  list.forEach(w=>{
+    const old=prevMap.get(String(w.id));
+    if(!old)events.push({type:"NEW",w});
+    else{
+      const changed=Number(old.level)!==Number(w.level) ||
+        String(old.validFrom||"")!==String(w.validFrom||"") ||
+        String(old.validTo||"")!==String(w.validTo||"") ||
+        String(old.content||old.comments||old.short||"")!==String(w.content||w.comments||w.short||"");
+      if(changed)events.push({type:"UPDATED",w});
+    }
+  });
+  previousList.forEach(old=>{
+    if(!currMap.has(String(old.id)))events.push({type:"CLEARED",w:old});
+  });
 
-  const highest=list.reduce((m,w)=>Math.max(m,Math.min(3,Number(w.level)||1)),0);
-  const lead=list.slice().sort((a,b)=>(Number(b.level)||0)-(Number(a.level)||0))[0];
-  const title="📢 Aura · Oficjalne ostrzeżenie IMGW";
-  const phenomenon=lead?.phenomenon||"Ostrzeżenie meteorologiczne";
-  const body=(highest?("Stopień "+highest+" · "):"")+phenomenon+" · "+city+
-    (lead?.validTo?" · do "+String(lead.validTo):"");
-  showPushNotification(title,body);
-  if(typeof playAlertChime==="function")playAlertChime(Math.max(1,highest));
-}
+  try{
+    localStorage.setItem("aura_imgw_warning_state",JSON.stringify({
+      key:locationKey+"|"+currentSignature,location:locationKey,updatedAt:Date.now(),
+      count:list.length,warnings:list.map(w=>({
+        id:w.id,level:w.level,phenomenonCode:w.phenomenonCode,
+        validFrom:w.validFrom,validTo:w.validTo,content:w.content||w.comments||w.short||""
+      }))
+    }));
+  }catch{}
+
+  S.pipelineDiag=S.pipelineDiag||{};
+  S.pipelineDiag.imgwOfficialWarnings=S.pipelineDiag.imgwOfficialWarnings||{};
+  S.pipelineDiag.imgwOfficialWarnings.eventState=events.map(e=>({
+    type:e.type,id:e.w?.id||null,level:e.w?.level||0,
+    phenomenon:e.w?.phenomenon||"",detectedAt:new Date().toISOString()
+  }));
+  S.pipelineDiag.imgwOfficialWarnings.lastEvent=events.length?events[events.length-1]:null;
+
+  if(!events.length||getNotificationPermissionStatus()!=="granted")return;
+  const event=events.slice().sort((a,b)=>
+    (b.type==="NEW"?3:b.type==="UPDATED"?2:1)-(a.type==="NEW"?3:a.type==="UPDATED"?2:1)
+  )[0];
+  const lvl=Math.max(1,Math.min(3,Number(event.w?.level)||1));
+  const prefix=event.type==="NEW"?"Nowe ostrzeżenie IMGW":
+    event.type==="UPDATED"?"Aktualizacja ostrzeżenia IMGW":"Odwołano ostrzeżenie IMGW";
+  const phenomenon=event.w?.phenomenon||"Ostrzeżenie meteorologiczne";
+  const body=event.type==="CLEARED"
+    ? phenomenon+" · "+city+" · ostrzeżenie zakończone"
+    : "Stopień "+lvl+" · "+phenomenon+" · "+city+
+      (event.w?.validTo?" · do "+String(event.w.validTo):"");
+  showPushNotification("📢 Aura · "+prefix,body);
+  if(typeof playAlertChime==="function" && event.type!=="CLEARED")playAlertChime(lvl);
+}}
 
 async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
   const seq=++IMGW_WARNINGS_SEQ;
