@@ -4480,7 +4480,22 @@ async function startRadar(){
     const map=L.map($("#rmap"),{zoomControl:false,minZoom:5,maxZoom:9,attributionControl:false}).setView([S.lat,S.lng],7);
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:9}).addTo(map);
     RV.layers=frames.map(f=>L.tileLayer(`${RV.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:9,zIndex:5}).addTo(map));
-    L.circleMarker([S.lat,S.lng],{radius:6,color:"#fff",weight:2,fillColor:"#FFC857",fillOpacity:1}).addTo(map);
+
+    // Lokalizacja użytkownika jest zawsze zaznaczona na radarze. Dodajemy też
+    // okrąg 5 km — przydaje się do szybkiej oceny, czy komórka opadowa jest
+    // faktycznie blisko punktu obserwacji.
+    const userMarker=L.circleMarker([S.lat,S.lng],{
+      radius:7,color:"#fff",weight:2,fillColor:"#FFC857",fillOpacity:1
+    }).addTo(map);
+    userMarker.bindTooltip(esc(S.city||"Twoja lokalizacja"),{permanent:true,direction:"top",offset:[0,-7],className:"radar-user-label"});
+    L.circle([S.lat,S.lng],{
+      radius:5000,color:"#FFC857",weight:1,opacity:.55,fill:false,interactive:false
+    }).addTo(map);
+
+    // Centrowanie na lokalizacji po zmianie rozmiaru kontenera zapobiega
+    // przesunięciu mapy po podmianie placeholdera przez renderer.
+    setTimeout(()=>map.invalidateSize(),80);
+
     RV.map=map;RV.pos=frames.length-1;RV.state="ready";radarShow(RV.pos);
     const sl=node.querySelector("#rslider");if(sl)sl.addEventListener("input",()=>radarShow(+sl.value));
     const play=node.querySelector('[data-act="rplay"]');if(play)play.addEventListener("click",toggleRadarPlay);
