@@ -1145,23 +1145,34 @@ function fuseCloudCover(records,context={}){
     reason
   };
 }
-function discomfortIndex(temp,hum,windKmh=0){
-  const t=Number(temp),rh=clamp(Number(hum),0,100),w=Math.max(0,Number(windKmh)||0);
+function discomfortIndex(temp,hum,windKmh=0,gustKmh=0){
+  const t=Number(temp),rh=clamp(Number(hum),0,100);
+  const w=Math.max(0,Number(windKmh)||0, (Number(gustKmh)||0)*0.7);
   if(!Number.isFinite(t))return{value:null,label:"Brak danych",color:"rgba(255,255,255,.08)",emoji:"–"};
-  // Jedna ciągła postać apparent temperature: temperatura + wilgotność - chłodzenie wiatrem.
+  
   const e=6.105*Math.exp(17.27*t/(237.7+t))*rh/100;
   const windMs=w/3.6;
-  const hi=Math.round(t+0.33*e-0.70*windMs-4.00);
+  let hi = t + 0.33*e - 0.70*windMs - 4.00;
+
+  // Dla chłodnych, wietrznych dni (T <= 11°C): uwzględniamy odczuwalność wiatru (Wind Chill)
+  if(t <= 11 && w >= 6){
+    const vKmh = Math.max(w, 8);
+    const v016 = Math.pow(vKmh, 0.16);
+    const wc = 13.12 + 0.6215*t - 11.37*v016 + 0.3965*t*v016;
+    hi = Math.min(hi, wc);
+  }
+
+  const value = Math.round(hi);
   let label,color,emoji;
-  if(temp<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
-  else if(hi<10){label="Zimno";color="rgba(56,189,248,.12)";emoji="🧊";}
-  else if(hi<17){label="Chłodno";color="rgba(99,102,241,.1)";emoji="😐";}
-  else if(hi<22){label="Komfortowo";color="rgba(52,211,153,.1)";emoji="😊";}
-  else if(hi<27){label="Przyjemnie";color="rgba(52,211,153,.08)";emoji="😌";}
-  else if(hi<32){label="Ciepło";color="rgba(251,191,36,.1)";emoji="😅";}
-  else if(hi<38){label="Gorąco";color="rgba(249,115,22,.12)";emoji="🥵";}
+  if(t<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
+  else if(value<10){label="Zimno";color="rgba(56,189,248,.12)";emoji="🧊";}
+  else if(value<17){label="Chłodno";color="rgba(99,102,241,.1)";emoji="😐";}
+  else if(value<22){label="Komfortowo";color="rgba(52,211,153,.1)";emoji="😊";}
+  else if(value<27){label="Przyjemnie";color="rgba(52,211,153,.08)";emoji="😌";}
+  else if(value<32){label="Ciepło";color="rgba(251,191,36,.1)";emoji="😅";}
+  else if(value<38){label="Gorąco";color="rgba(249,115,22,.12)";emoji="🥵";}
   else{label="Bardzo gorąco";color="rgba(248,113,113,.12)";emoji="🔥";}
-  return{value:hi,label,color,emoji};
+  return{value,label,color,emoji};
 }
 
 
@@ -2675,10 +2686,11 @@ function computeCtx(){
   const T=current.temperature_2m??g(hourly.temperature_2m)??15;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
   const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
-  const rawApparent=current.apparent_temperature??g(hourly.apparent_temperature);
-  const feels=Number.isFinite(Number(rawApparent))?Math.round(Number(rawApparent)):(discomfortIndex(T,hum,wind).value??T);
   const stationGust=stationFreshGustKmH(S.imgwData);
   const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
+  const rawApparent=current.apparent_temperature??g(hourly.apparent_temperature);
+  const computedFeels=discomfortIndex(T,hum,wind,gusts).value;
+  const feels=computedFeels??(Number.isFinite(Number(rawApparent))?Math.round(Number(rawApparent)):T);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
   const press=Math.round(current.pressure_msl??g(hourly.pressure_msl)??0);
   const opti=optiCloudFromModels(S.modelCompareRaw||[]);
@@ -5925,17 +5937,20 @@ async function loadWCore(lat,lng,name,isRef,token){
           };
         }
 
-        // Odczuwalna po fuzji: zachowanie odczuwalności modelowej z uwzględnieniem korekty IMGW.
+        // Odczuwalna po fuzji: wyliczamy ciągłą odczuwalność (Steadman + Wind Chill) z uwzględnieniem porywów i wilgotności.
         if(fusion.used&&Number.isFinite(data.current.temperature_2m)){
           const t=Number(data.current.temperature_2m);
           const rh=Number(data.current.relative_humidity_2m);
           const windKmh=Number(data.current.wind_speed_10m||0);
-          const modelApp=Number(data.__auraRawCurrentApparent??data.current.apparent_temperature);
-          if(Number.isFinite(modelApp)&&fusion.bias!=null){
-            data.current.apparent_temperature=Math.round((modelApp+fusion.bias)*10)/10;
-          }else if(Number.isFinite(t)&&Number.isFinite(rh)){
-            const disc=discomfortIndex(t,rh,windKmh).value;
-            data.current.apparent_temperature=disc!=null?disc:t;
+          const gustKmh=Number(data.current.wind_gusts_10m||0);
+          const disc=discomfortIndex(t,rh,windKmh,gustKmh).value;
+          if(disc!=null){
+            data.current.apparent_temperature=disc;
+          }else{
+            const modelApp=Number(data.__auraRawCurrentApparent??data.current.apparent_temperature);
+            if(Number.isFinite(modelApp)&&fusion.bias!=null){
+              data.current.apparent_temperature=Math.round((modelApp+fusion.bias)*10)/10;
+            }
           }
           if(Number.isFinite(rh)&&rh>0&&rh<=100){
             const stationDew=dewPoint(t,rh);
