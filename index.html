@@ -1457,7 +1457,22 @@ function parseImgwMeteoTimestamp(value){
   const raw=String(value).trim();
   if(!raw)return null;
   const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if(m)return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  if(m){
+    // IMGW METEO zwraca znaczniki bez strefy czasowej, ale są to czasy lokalne Polski.
+    // Date.UTC() traktował je jako UTC i zawyżał świeżość o +1/+2 h.
+    const wallUtc=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+    try{
+      const parts=new Intl.DateTimeFormat("en-US",{
+        timeZone:"Europe/Warsaw",timeZoneName:"shortOffset"
+      }).formatToParts(new Date(wallUtc));
+      const tz=parts.find(p=>p.type==="timeZoneName")?.value||"GMT";
+      const om=tz.match(/GMT([+-])(\\d{1,2})(?::(\\d{2}))?/);
+      const offsetMin=om?((om[1]==="-"?-1:1)*(Number(om[2])*60+Number(om[3]||0))):0;
+      return wallUtc-offsetMin*60000;
+    }catch{
+      return wallUtc;
+    }
+  }
   const parsed=Date.parse(raw);
   return Number.isFinite(parsed)?parsed:null;
 }
