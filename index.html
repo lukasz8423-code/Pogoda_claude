@@ -4188,10 +4188,9 @@ function wVis(X){
 
   const currentCode=Number(X?.code);
   const currentPrecip=Number(X?.precip??0);
-  const hasFog=isFogVisibilityCode(currentCode)||stationFogObserved(S.imgwData);
-  const hasPrecip=isPrecipCode(currentCode)||(Number.isFinite(currentPrecip)&&currentPrecip>0.05);
+  const hasVisReducing=isVisibilityReducingPhenomenon(currentCode,currentPrecip,S.imgwData);
 
-  if(km!==null&&!hasFog&&!hasPrecip&&km<10){
+  if(km!==null&&!hasVisReducing&&km<10){
     km=10;
   }
   const value=km==null?"–":fnum(km,1);
@@ -5315,6 +5314,9 @@ function syncDailyExtremes(data){
 
 // Widoczność z modelu jest sanityzowana godzinowo. Niska wartość może być
 // prawdziwa przy mgle/mżawce/intensywnym opadzie; w pozostałych warunkach
+// Widoczność z modelu jest sanityzowana godzinowo. Niska wartość może być
+// prawdziwa przy mgle/zamgleniu lub bardzo intensywnym opadzie/ulewie; w pozostałych warunkach
+// (zwykły opad lekki/umiarkowany, 100% zachmurzenie chmurami górnymi/średnimi/niskimi bez mgły)
 // nie pozwalamy modelowi zaniżyć jej poniżej 10 km.
 function isFogVisibilityCode(code){
   const c=Number(code);
@@ -5323,6 +5325,15 @@ function isFogVisibilityCode(code){
 function isDrizzleVisibilityCode(code){
   const c=Number(code);
   return c>=51&&c<=57;
+}
+function isVisibilityReducingPhenomenon(code, precipMm, imgwData){
+  const c=Number(code);
+  const precip=Number(precipMm||0);
+  const fog=isFogVisibilityCode(c)||(imgwData?stationFogObserved(imgwData):false);
+  // Tylko prawdziwa mgła (codes 45, 48 lub stacyjna mgła) oraz ulewny/intensywny opad (>= 2.5 mm/h lub ulewa/śnieżyca/burza 65, 75, 82, 85, 86, 95, 96, 99) obniżają widzialność przyziemną poniżej 10 km.
+  // Zwykły opad lekki/umiarkowany i 100% zachmurzenie nie wpływają na widzialność poziomą przy ziemi.
+  const heavyPrecip=precip>=2.5||[65,75,82,85,86,95,96,99].includes(c);
+  return fog||heavyPrecip;
 }
 function stationFreshPrecipMm(imgwData){
   if(!imgwData||Number(imgwData.dist)>30||imgwData.opad10minFresh!==true)return null;
@@ -5356,9 +5367,7 @@ function sanitizeVisibility(data,imgwData){
 
   const currentCode=Number(data.current?.weather_code);
   const currentPrecip=Number(data.current?.precipitation??data.current?.rain??0);
-  const hasFog=isFogVisibilityCode(currentCode)||stationFogObserved(imgwData);
-  const hasPrecip=isPrecipCode(currentCode)||(Number.isFinite(currentPrecip)&&currentPrecip>0.05)||(stationFreshPrecipMm(imgwData)??0)>0.05;
-  const isClearOrDry=!hasFog&&!hasPrecip;
+  const hasVisReducing=isVisibilityReducingPhenomenon(currentCode,currentPrecip,imgwData);
 
   if(data.current){
     const apiCurrent=Number(data.__auraApiCurrentVisibility);
@@ -5373,8 +5382,9 @@ function sanitizeVisibility(data,imgwData){
           :null;
 
     if(apiValue!==null){
-      if(isClearOrDry&&apiValue<10000)apiValue=10000;
+      if(!hasVisReducing&&apiValue<10000)apiValue=10000;
       data.current.visibility=apiValue;
+      data.__auraApiCurrentVisibility=apiValue;
     }
   }
 
@@ -5384,9 +5394,8 @@ function sanitizeVisibility(data,imgwData){
       if(hv!==null){
         const hCode=Number(data.hourly.weather_code?.[i]);
         const hPrecip=Number(data.hourly.precipitation?.[i]);
-        const hFog=isFogVisibilityCode(hCode);
-        const hPrecipActive=isPrecipCode(hCode)||(Number.isFinite(hPrecip)&&hPrecip>0.05);
-        if(!hFog&&!hPrecipActive&&hv<10000)hv=10000;
+        const hVisReducing=isVisibilityReducingPhenomenon(hCode,hPrecip,null);
+        if(!hVisReducing&&hv<10000)hv=10000;
         data.hourly.visibility[i]=hv;
       }
     }
