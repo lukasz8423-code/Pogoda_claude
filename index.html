@@ -1669,7 +1669,10 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_M
 }
 
 async function fetchIMGWMeteoAll(forceLive=false){
-  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkAttempted:true,networkOk:false,networkFetchedAt:null,snapshotUsed:false};
+  const requestStartedAt=Date.now();
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,
+    networkAttempted:true,networkOk:false,networkFetchedAt:null,networkRequestStartedAt:requestStartedAt,networkCompletedAt:null,
+    networkHttpStatus:null,networkResponseMs:null,networkError:null,snapshotUsed:false,liveStationFound:false};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   let list=null;
   let isFallback=false;
@@ -1680,14 +1683,18 @@ async function fetchIMGWMeteoAll(forceLive=false){
     const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
       mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(8000)
     });
+    S.imgwDiag.networkHttpStatus=r.status;
     if(!r.ok)throw new Error("HTTP "+r.status);
     const data=await r.json();
+    S.imgwDiag.networkCompletedAt=Date.now();
+    S.imgwDiag.networkResponseMs=S.imgwDiag.networkCompletedAt-requestStartedAt;
     if(Array.isArray(data)&&data.length>0){
       const glodowoCheck=data.find(s=>{
         const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
         const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
         return code==="252190030"||name==="głodowo"||name==="glodowo";
       });
+      S.imgwDiag.liveStationFound=!!glodowoCheck;
       if(glodowoCheck){
         list=data;
         isFallback=false;
@@ -1701,7 +1708,11 @@ async function fetchIMGWMeteoAll(forceLive=false){
       throw new Error("Nieprawidłowa odpowiedź IMGW API");
     }
   }catch(e){
-    console.warn("Pobieranie IMGW METEO z sieci nie powiodło się, sięgam po lokalny zrzut zapasowy imgw-meteo.json:", e.message);
+    S.imgwDiag.networkCompletedAt=Date.now();
+    S.imgwDiag.networkResponseMs=S.imgwDiag.networkCompletedAt-requestStartedAt;
+    S.imgwDiag.networkError=String(e?.message||e);
+    S.imgwDiag.error=String(e?.message||e);
+    console.warn("Pobieranie IMGW METEO z sieci nie powiodło się:", e.message);
   }
 
   // 2. Snapshot lokalny jest dozwolony tylko dla zwykłego ładowania.
@@ -1800,7 +1811,12 @@ async function findNearestIMGW(lat,lng){
   }
   candidates.sort((a,b)=>a.dist-b.dist);
   const nearest=candidates[0]||null;
-  const active=glodowo&&glodowo.dist<=10&&glodowo.anyUsable===true?glodowo:nearest;
+  // Jeżeli Głodowo zostało znalezione w feedzie, nie zastępujemy go inną stacją
+  // tylko dlatego, że chwilowo jest stare. To rozdziela "Głodowo stale" od
+  // "Głodowo niedostępne" i chroni przed fałszywym wyborem dalszej stacji.
+  const active=glodowo&&glodowo.dist<=10
+    ?(glodowo.anyUsable===true?glodowo:null)
+    :nearest;
   if(active){
     const isGlodowo=String(active.id_stacji||active.kod_stacji||"")==="252190030"||String(active.name||active.stacja||"").toLowerCase().includes("głodowo");
     if(isGlodowo){
@@ -1815,8 +1831,15 @@ async function findNearestIMGW(lat,lng){
     window.__AURA_IMGW_DIAG=S.imgwDiag;
     return {best:active,nearby:[...(glodowo?[glodowo]:[]),...candidates.slice(0,5)]};
   }
-  S.imgwDiag={...(S.imgwDiag||{}),status:"IMGW brak używalnej stacji → Active Ensemble",found:!!glodowo,used:false,activeStation:null,activeDistanceKm:null,
-    glodowoDistanceKm:glodowo?.dist??null,reason:"Brak używalnej stacji w promieniu 45 km"};
+  S.imgwDiag={...(S.imgwDiag||{}),status:glodowo
+    ?"IMGW Głodowo znalezione → brak świeżych pól → Active Ensemble"
+    :"IMGW brak Głodowa → Active Ensemble",
+    found:!!glodowo,used:false,activeStation:null,activeDistanceKm:null,
+    glodowoDistanceKm:glodowo?.dist??null,
+    reason:glodowo
+      ?("Głodowo znalezione w feedzie, ale brak pola mieszczącego się w TTL; ostatni pomiar: "+
+        (glodowo.latestAnyAgeMinutes==null?"wiek nieznany":glodowo.latestAnyAgeMinutes+" min"))
+      :"Głodowo nieobecne w aktualnym feedzie IMGW"};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   return {best:null,nearby:[...(glodowo?[glodowo]:[]),...candidates.slice(0,5)]};
 }
