@@ -3104,7 +3104,7 @@ function notifyOfficialImgwWarnings(warnings){
       (event.w?.validTo?" · do "+String(event.w.validTo):"");
   showPushNotification("📢 Aura · "+prefix,body);
   if(typeof playAlertChime==="function" && event.type!=="CLEARED")playAlertChime(lvl);
-}}
+}
 
 async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
   const seq=++IMGW_WARNINGS_SEQ;
