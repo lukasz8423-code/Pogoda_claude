@@ -4353,7 +4353,7 @@ function assistantHTML(X){
   </section>`;
 }
 
-// ── radar: oficjalny radar IMGW-PIB (POLRAD) + RainViewer tylko jako fallback
+// ── radar: oficjalny radar IMGW-PIB (POLRAD) na mapie + RainViewer tylko jako fallback
 const RV={state:"idle",map:null,layers:[],frames:[],pos:0,timer:null,node:null,host:"",source:"",lastTs:null};
 
 function radarHTML(){
@@ -4379,8 +4379,8 @@ async function fetchImgwRadarFrames(){
   const list=Array.isArray(j?.cmax?.list)?j.cmax.list:[];
   const frames=list.map(x=>({
     time:Number(x?.date),
-    url:String(x?.url||"").replace(/^http:\/\//i,"https://")
-  })).filter(x=>Number.isFinite(x.time)&&/^https:\/\//i.test(x.url));
+    url:String(x?.url||"").replace(/^http:\\/\\//i,"https://")
+  })).filter(x=>Number.isFinite(x.time)&&/^https:\\/\\//i.test(x.url));
   if(!frames.length)throw new Error("IMGW radar: brak klatek");
   return frames.slice(-12);
 }
@@ -4394,7 +4394,14 @@ function radarFrameTime(f){
 function radarShow(i){
   if(!RV.frames.length)return;
   RV.pos=Math.max(0,Math.min(i,RV.frames.length-1));
-  RV.layers.forEach((el,k)=>{el.style.display=k===RV.pos?"block":"none";});
+  if(RV.map){
+    RV.layers.forEach((layer,k)=>{
+      if(k===RV.pos)layer.setOpacity(0.72);
+      else layer.setOpacity(0);
+    });
+  }else{
+    RV.layers.forEach((el,k)=>{el.style.display=k===RV.pos?"block":"none";});
+  }
   const f=RV.frames[RV.pos],t=$("#radar-time");
   if(t&&f){t.hidden=false;t.textContent=radarFrameTime(f);}
   const sl=$("#rslider");if(sl&&+sl.value!==RV.pos)sl.value=RV.pos;
@@ -4407,44 +4414,51 @@ function toggleRadarPlay(){
   RV.timer=setInterval(()=>radarShow((RV.pos+1)%RV.frames.length),700);
 }
 
-function renderRadarViewer(frames,sourceLabel){
+async function renderImgwRadarMap(frames){
+  await loadLeaflet();
   const node=document.createElement("div");node.id="radar-slot";
-  node.innerHTML=`<div class="rwrap" id="radar-image-wrap"></div>
+  node.innerHTML=`<div class="rmap" id="imgw-radar-map"></div>
     <div class="rctl"><button class="ib" data-act="rplay" aria-label="Odtwórz animację">${mini("play")}</button>
     <input type="range" id="rslider" min="0" max="${frames.length-1}" value="${frames.length-1}" aria-label="Klatka radaru"/></div>
-    <div class="note">Źródło: ${sourceLabel}. Klatki radarowe są rzeczywistymi pomiarami; nie są generowane z modelu prognozy.</div>`;
-  const wrap=node.querySelector("#radar-image-wrap");
-  RV.layers=frames.map(f=>{
-    const img=document.createElement("img");
-    img.src=f.url;img.alt="Radar opadów IMGW-PIB";
-    img.loading="eager";img.decoding="async";
-    img.style.cssText="width:100%;height:100%;object-fit:contain;display:none;background:#020817";
-    img.onerror=()=>{img.dataset.failed="1";};
-    wrap.appendChild(img);return img;
-  });
+    <div class="note">Źródło: IMGW-PIB POLRAD — CMAX (odbiciowość radarowa). To rzeczywisty produkt radarowy, bez danych generowanych z modelu.</div>`;
   const cur=$("#radar-slot");if(cur)cur.replaceWith(node);RV.node=node;
+
+  const map=L.map($("#imgw-radar-map"),{zoomControl:true,minZoom:5,maxZoom:10,attributionControl:true});
+  map.setView([Number(S.lat)||52.81,Number(S.lng)||19.22],7);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:10,attribution:"© OpenStreetMap contributors"}).addTo(map);
+
+  // IMGW publikuje te obrazy w EPSG:3857. Nakładamy je na obszar Polski
+  // jako warstwę georeferencjonowaną, zamiast wyświetlać surowy PNG jako osobny obraz.
+  const bounds=[[49.0,14.0],[55.0,24.5]];
+  RV.layers=frames.map(f=>L.imageOverlay(f.url,bounds,{opacity:0,interactive:false,crossOrigin:true,zIndex:10}).addTo(map));
+  L.circleMarker([Number(S.lat)||52.81,Number(S.lng)||19.22],{radius:7,color:"#fff",weight:2,fillColor:"#FFC857",fillOpacity:1}).addTo(map)
+    .bindTooltip("Twoja lokalizacja",{permanent:false});
+  map.fitBounds(bounds,{padding:[8,8]});
+  RV.map=map;
+  RV.pos=frames.length-1;
+  radarShow(RV.pos);
   const sl=node.querySelector("#rslider");if(sl)sl.addEventListener("input",()=>radarShow(+sl.value));
   const play=node.querySelector('[data-act="rplay"]');if(play)play.addEventListener("click",toggleRadarPlay);
-  radarShow(frames.length-1);
-  return node;
+  setTimeout(()=>map.invalidateSize(),100);
 }
 
 async function startRadar(){
   if(RV.state==="loading"||RV.state==="ready")return;
   RV.state="loading";
+  if(RV.timer){clearInterval(RV.timer);RV.timer=null;}
   const slot=$("#radar-slot");if(slot)slot.innerHTML=`<div class="radar-ph"><div>Ładowanie rzeczywistego radaru IMGW-PIB…</div></div>`;
 
   try{
     const frames=await fetchImgwRadarFrames();
     RV.frames=frames;RV.source="IMGW-PIB POLRAD / CMAX";RV.lastTs=frames.at(-1)?.time||null;
-    renderRadarViewer(frames,RV.source);
+    await renderImgwRadarMap(frames);
     RV.state="ready";
     return;
   }catch(e){
     console.warn("IMGW radar:",e.message);
   }
 
-  // Awaryjnie korzystamy z RainViewer. Nadal jest to rzeczywisty radar, nigdy symulacja modelowa.
+  // Fallback pozostaje rzeczywistym radarem, nigdy symulacją modelową.
   try{
     await loadLeaflet();
     const r=await fetch("https://api.rainviewer.com/public/weather-maps.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(9000)});
@@ -4454,16 +4468,18 @@ async function startRadar(){
     const frames=(j.radar?.past||[]).slice(-10).map(f=>({time:Number(f.time),path:f.path})).filter(f=>Number.isFinite(f.time)&&f.path);
     if(!frames.length)throw new Error("RainViewer: brak klatek");
     RV.frames=frames;RV.source="RainViewer (fallback)";RV.lastTs=frames.at(-1)?.time||null;
+
     const node=document.createElement("div");node.id="radar-slot";
     node.innerHTML=`<div class="rmap" id="rmap"></div><div class="rctl"><button class="ib" data-act="rplay" aria-label="Odtwórz animację">${mini("play")}</button><input type="range" id="rslider" min="0" max="${frames.length-1}" value="${frames.length-1}" aria-label="Klatka radaru"/></div><div class="note">Źródło: RainViewer — awaryjny radar rzeczywisty. IMGW-PIB POLRAD chwilowo niedostępny.</div>`;
-    const cur=$("#radar-slot");cur.replaceWith(node);RV.node=node;
-    const map=L.map($("#rmap"),{zoomControl:false,minZoom:5,maxZoom:9,attributionControl:false}).setView([S.lat,S.lng],7);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:9}).addTo(map);
-    RV.layers=frames.map(f=>L.tileLayer(`${RV.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:9,zIndex:5}).addTo(map));
-    L.circleMarker([S.lat,S.lng],{radius:6,color:"#fff",weight:2,fillColor:"#FFC857",fillOpacity:1}).addTo(map);
+    const cur=$("#radar-slot");if(cur)cur.replaceWith(node);RV.node=node;
+    const map=L.map($("#rmap"),{zoomControl:true,minZoom:5,maxZoom:10,attributionControl:true}).setView([Number(S.lat)||52.81,Number(S.lng)||19.22],7);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:10,attribution:"© OpenStreetMap contributors"}).addTo(map);
+    RV.layers=frames.map(f=>L.tileLayer(`${RV.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:10,zIndex:5}).addTo(map));
+    L.circleMarker([Number(S.lat)||52.81,Number(S.lng)||19.22],{radius:7,color:"#fff",weight:2,fillColor:"#FFC857",fillOpacity:1}).addTo(map);
     RV.map=map;RV.pos=frames.length-1;RV.state="ready";radarShow(RV.pos);
     const sl=node.querySelector("#rslider");if(sl)sl.addEventListener("input",()=>radarShow(+sl.value));
     const play=node.querySelector('[data-act="rplay"]');if(play)play.addEventListener("click",toggleRadarPlay);
+    setTimeout(()=>map.invalidateSize(),100);
   }catch(e){
     console.warn("Radar:",e.message);
     RV.state="fail";RV.source="NONE";
