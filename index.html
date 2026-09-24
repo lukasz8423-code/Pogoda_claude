@@ -2964,7 +2964,7 @@ window.onAndroidNotificationPermission = function(granted){
    Źródło oficjalne IMGW-PIB; osobne od lokalnej oceny Aura.
    ═══════════════════════════════════════════════ */
 const IMGW_OSMET_URL="https://meteo.imgw.pl/api/meteo/messages/v1/osmet/latest/osmet-teryt";
-const IMGW_TARGET_TERYT=["0408062","040806","0408"]; // gmina Lipno wiejska → powiat lipnowski → woj. kujawsko-pomorskie
+const IMGW_TARGET_TERYT=[]; // Legacy fallback only; runtime TERYT is resolved from the selected location.
 let IMGW_WARNINGS_SEQ=0;
 
 function parseImgwWarningDate(v){
@@ -2973,17 +2973,34 @@ function parseImgwWarningDate(v){
   return Number.isFinite(t)?t:null;
 }
 
-function imgwWarningAppliesToTarget(terytMap,warnCode){
-  const ids=Object.keys(terytMap||{});
-  return ids.some(id=>IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target)));
+function normalizeTerytCode(v){
+  if(v==null)return "";
+  return String(v).trim().replace(/[^0-9]/g,"");
+}
+
+function getSelectedLocationTerytIds(){
+  const ids=[];
+  const loc=S?.location||S?.selectedLocation||S?.place||{};
+  [loc.teryt,loc.terytId,loc.terytCode,loc.gminaTeryt,loc.powiatTeryt,loc.voivodeshipTeryt,
+   S?.teryt,S?.terytId,S?.locationTeryt,S?.selectedTeryt].forEach(v=>{
+    const n=normalizeTerytCode(v);
+    if(n)ids.push(n);
+  });
+  return [...new Set(ids)];
+}
+
+function terytMatchesLocation(id,targetIds){
+  const n=normalizeTerytCode(id);
+  return !!n && targetIds.some(target=>n===target||n.startsWith(target)||target.startsWith(n));
 }
 
 function normalizeImgwOfficialWarnings(payload){
   const warnings=payload?.warnings||{};
   const teryt=payload?.teryt||{};
+  const targetIds=getSelectedLocationTerytIds();
   const codes=new Set();
   Object.keys(teryt).forEach(id=>{
-    if(IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target))){
+    if(terytMatchesLocation(id,targetIds)){
       const list=Array.isArray(teryt[id])?teryt[id]:[];
       list.forEach(code=>codes.add(String(code)));
     }
@@ -3022,7 +3039,7 @@ function normalizeImgwOfficialWarnings(payload){
     lastChange:payload?.program?.LxLastChange||payload?.program?.LastChange||null,
     warnings:items,
     rawWarningCount:Object.keys(warnings).length,
-    matchedTeryt:Object.keys(teryt).filter(id=>IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target)))
+    targetTerytIds:targetIds,matchedTeryt:Object.keys(teryt).filter(id=>terytMatchesLocation(id,targetIds))
   };
 }
 
@@ -3050,6 +3067,7 @@ async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
       exportTime:normalized.exportTime,
       lastChange:normalized.lastChange,
       rawWarningCount:normalized.rawWarningCount,
+      targetTerytIds:normalized.targetTerytIds,
       matchedTeryt:normalized.matchedTeryt,
       activeCount:normalized.warnings.length,
       fetchMs:normalized.fetchMs
