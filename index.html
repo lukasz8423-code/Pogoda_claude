@@ -3479,6 +3479,28 @@ function detectThreats(X){
   };
 }
 
+function mergeOfficialImgwAlertsIntoAuraAlerts(alerts,X){
+  const official=S.imgwOfficialWarnings?.warnings||[];
+  if(!official.length)return alerts;
+  const out=Array.isArray(alerts)?alerts.slice():[];
+  official.forEach(w=>{
+    const lvl=Math.max(1,Math.min(3,Number(w.level)||1));
+    const key="imgw_official_"+w.id;
+    if(out.some(a=>a?.id===key))return;
+    out.unshift({
+      id:key, grade:lvl, c:lvl>=2?"bad":"warn",
+      icon:lvl===3?"🔴":(lvl===2?"🟠":"🟡"),
+      badge:"OFICJALNE IMGW • "+lvl+". stopień",
+      title:w.phenomenon||"Ostrzeżenie meteorologiczne",
+      sub:w.short||w.content||w.comments||"Ostrzeżenie wydane przez IMGW-PIB.",
+      time:(w.validFrom&&w.validTo)?(w.validFrom+" – "+w.validTo):"Okres ważności wg IMGW",
+      source:"IMGW-PIB", official:true, officialWarningId:w.id,
+      phenomenonCode:w.phenomenonCode, validFrom:w.validFrom, validTo:w.validTo
+    });
+  });
+  return out.slice(0,8);
+}
+
 function getAlerts(X, threatsData=null){
   const T = threatsData || detectThreats(X);
   const A = [];
@@ -3608,7 +3630,7 @@ function getAlerts(X, threatsData=null){
     });
   }
 
-  return A.slice(0, 4);
+  return mergeOfficialImgwAlertsIntoAuraAlerts(A,X);
 }
 
 // ── ambient tylko przy zmianie warunków (nie przy każdym renderze)
