@@ -6119,12 +6119,15 @@ async function loadWCore(lat,lng,name,isRef,token){
     // IMGW status musi opierać się na faktycznej dostępności źródła,
     // a nie tylko na tym, czy Promise zwrócił obiekt. findNearestIMGW może
     // zwrócić stary/pośredni rekord stacji nawet przy niedostępnym feedzie.
+    const imgwBest=imgwResult.status==="fulfilled" ? (imgwResult.value?.best||null) : null;
     const imgwFeedOffline=
       imgwResult.status!=="fulfilled" ||
       !imgwResult.value ||
       S.imgwDiag?.status==="niedostępne" ||
       S.imgwDiag?.status==="nieprawidłowa odpowiedź";
-    const imgwOffline=imgwFeedOffline;
+    // "Online" oznacza teraz realnie używalną stację Głodowo, nie samo
+    // odpowiadanie endpointu. Stary Głodowo = Active Ensemble.
+    const imgwOffline=imgwFeedOffline || !imgwBest || imgwBest.isFresh===false;
     S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
     // Bierzemy surowe cloud_cover bezpośrednio z pierwszego dostępnego modelu:
@@ -6218,7 +6221,7 @@ async function loadWCore(lat,lng,name,isRef,token){
           :"IMGW Głodowo niedostępne — Active Ensemble";
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
-      if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=45){
+      if(imgwData&&data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=45){
         const imgwTemp=parseFloat(imgwData.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
