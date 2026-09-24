@@ -2675,7 +2675,8 @@ function computeCtx(){
   const T=current.temperature_2m??g(hourly.temperature_2m)??15;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
   const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
-  const feels=discomfortIndex(T,hum,wind).value??T;
+  const rawApparent=current.apparent_temperature??g(hourly.apparent_temperature);
+  const feels=Number.isFinite(Number(rawApparent))?Math.round(Number(rawApparent)):(discomfortIndex(T,hum,wind).value??T);
   const stationGust=stationFreshGustKmH(S.imgwData);
   const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
   const wdeg=current.wind_direction_10m??g(hourly.wind_direction_10m)??0;
@@ -5776,6 +5777,10 @@ async function loadWCore(lat,lng,name,isRef,token){
         const imgwPress=parseFloat(imgwData.cisnienie);
         const modelTemp=data.current.temperature_2m;
         const tempFresh=imgwData.tempFresh===true && Number.isFinite(imgwTemp);
+        if(data?.current?.apparent_temperature != null && data.__auraRawCurrentApparent == null){
+          data.__auraRawCurrentApparent = Number(data.current.apparent_temperature);
+        }
+
         const humidityFresh=imgwData.humidityFresh===true && Number.isFinite(imgwHum);
         const windFresh=imgwData.windFresh===true && Number.isFinite(imgwWind);
         const windDirFresh=imgwData.windDirFresh===true && Number.isFinite(imgwWindDir);
@@ -5920,20 +5925,17 @@ async function loadWCore(lat,lng,name,isRef,token){
           };
         }
 
-        // Odczuwalna liczona po fuzji, bez gwałtownego przeskoku.
+        // Odczuwalna po fuzji: zachowanie odczuwalności modelowej z uwzględnieniem korekty IMGW.
         if(fusion.used&&Number.isFinite(data.current.temperature_2m)){
           const t=Number(data.current.temperature_2m);
           const rh=Number(data.current.relative_humidity_2m);
-          const windMs=Math.max(0,Number(data.current.wind_speed_10m||0)/3.6);
-          if(Number.isFinite(rh)){
-            const previousWind=S.X?.wind;
-            S.X=S.X||{};
-            S.X.wind=windMs*3.6;
-            const newFeels=discomfortIndex(t,rh).value;
-            if(Number.isFinite(previousWind))S.X.wind=previousWind;
-            data.current.apparent_temperature=Number.isFinite(newFeels)?Math.round(newFeels*10)/10:t;
-          }else{
-            data.current.apparent_temperature=t;
+          const windKmh=Number(data.current.wind_speed_10m||0);
+          const modelApp=Number(data.__auraRawCurrentApparent??data.current.apparent_temperature);
+          if(Number.isFinite(modelApp)&&fusion.bias!=null){
+            data.current.apparent_temperature=Math.round((modelApp+fusion.bias)*10)/10;
+          }else if(Number.isFinite(t)&&Number.isFinite(rh)){
+            const disc=discomfortIndex(t,rh,windKmh).value;
+            data.current.apparent_temperature=disc!=null?disc:t;
           }
           if(Number.isFinite(rh)&&rh>0&&rh<=100){
             const stationDew=dewPoint(t,rh);
