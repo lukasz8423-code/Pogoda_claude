@@ -6163,14 +6163,14 @@ async function loadWCore(lat,lng,name,isRef,token){
     const raw=Number(data?.current?.cloud_cover);
     if(Number.isFinite(raw)){
       const consensus=consensusCloudCover(cloudCompare);
+      // Do fuzji trafia wyłącznie realny rekord "best".
+      // Wrapper {best:null, nearby:[...]} jest diagnostyką i nie może
+      // zostać potraktowany jako obserwacja IMGW.
+      const imgwFusionStation=imgwResult.status==="fulfilled"
+        ?(imgwResult.value?.best||null)
+        :null;
       const cloudFusion=fuseCloudCover(cloudCompare,{
         lat,lng,
-        // Do fuzji trafia wyłącznie realny rekord "best".
-        // Wrapper {best:null, nearby:[...]} jest diagnostyką i nie może
-        // zostać potraktowany jako obserwacja IMGW.
-        const imgwFusionStation=imgwResult.status==="fulfilled"
-          ?(imgwResult.value?.best||null)
-          :null;
         station:imgwFusionStation||{},
         stationPrecipMm:imgwFusionStation
           ?stationFreshPrecipMm(imgwFusionStation)
