@@ -3759,13 +3759,19 @@ function heroHTML(X){
   const chips=[];
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
-  else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
-  else if(S.imgwData){
-    const im=S.imgwData,stale=im.isFresh===false;
-    const age=im.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek ostatniego pomiaru nieznany";
-    const obsAt=im.observedAt!=null?hhmm(im.observedAt):"—";
-    const used=!stale&&Number(im.dist)<=45;
-    chips.push('<span class="chip '+(stale?'warn':used?'ok':'')+'">'+mini("station")+'<b>'+esc(im.stacja||im.name||"IMGW")+'</b> · '+(Number.isFinite(Number(im.dist))?fnum(im.dist,1):"—")+' km · ostatni pomiar: '+obsAt+' · wiek: '+age+(stale?' · NIEAKTUALNE':'')+'</span>');
+  // Status IMGW nie może ukrywać informacji o stacji. Nazwa i dystans
+  // są liczone względem aktualnych współrzędnych GPS, a nie zapamiętanej lokalizacji.
+  else{
+    const im=S.imgwData||S.imgwDiag?.normalized||null;
+    const stationName=im?.stacja||im?.name||S.imgwDiag?.activeStation||"IMGW";
+    const dist=Number(im?.dist??S.imgwDiag?.activeDistanceKm??S.imgwDiag?.dist);
+    const obsAt=im?.observedAt!=null?hhmm(im.observedAt):"—";
+    const age=im?.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek nieznany";
+    const stale=im?.isFresh===false;
+    const status=S.imgwStatus==="OFFLINE"?"IMGW offline":"IMGW online";
+    const distText=Number.isFinite(dist)?fnum(dist,1)+" km":"odległość nieznana";
+    const cls=stale||S.imgwStatus==="OFFLINE"?"warn":"ok";
+    chips.push('<span class="chip '+cls+'">'+mini("station")+'<b>'+esc(stationName)+'</b> · '+distText+' · ostatni pomiar: '+esc(obsAt)+' · wiek: '+esc(age)+' · '+status+'</span>');
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
