@@ -2723,14 +2723,18 @@ function computeCtx(){
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   const stationPrecip = stationFreshPrecipMm(S.imgwData);
   const curPrecip = Number(current.precipitation ?? 0);
+  const stationNoPrecip = stationHasFreshNoPrecip(S.imgwData);
+
   const hasRealPrecipMm = (Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
     (stationPrecip !== null && stationPrecip > 0.05) ||
     (Number.isFinite(curPrecip) && curPrecip > 0.05);
 
   const rawPrecipCode = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode);
-  const popNow = Number(g(hourly.precipitation_probability) ?? 0);
 
-  const isRainingActive = cloud > 15 && (hasRealPrecipMm || rawPrecipCode || popNow >= 45);
+  // Prawdziwy opad zachodzi tylko wtedy, gdy mamy realny dodatni opad mm (> 0.05 mm)
+  // LUB kod bieżący wskazuje na opad ORAZ brak stacyjnego potwierdzenia braku opadu (stationNoPrecip !== true) i opad mm > 0.
+  // Sama godzinowa prawdopodobieństwo (popNow >= 45%) bez realnego opadu (0 mm) NIE może wymuszać kafelka opadowego (Mżawka 51).
+  const isRainingActive = cloud > 15 && (hasRealPrecipMm || (rawPrecipCode && !stationNoPrecip && curPrecip > 0));
 
   let currentStateCode;
   if (!isRainingActive) {
@@ -6269,13 +6273,20 @@ document.addEventListener("input",e=>{
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
 window.addEventListener("scroll",()=>{const t=$("#top");if(t)t.classList.toggle("solid",window.scrollY>150);},{passive:true});
 document.addEventListener("visibilitychange",()=>{
-  if(!document.hidden&&S.phase==="weather"&&S.lastUpdate&&Date.now()-S.lastUpdate>20*60000&&S.lat!=null)loadW(S.lat,S.lng,S.city,true);
+  if(!document.hidden&&S.phase==="weather"&&S.lastUpdate&&Date.now()-S.lastUpdate>3*60000&&S.lat!=null)loadW(S.lat,S.lng,S.city,true);
 });
 
 (function init(){
   try{
     applyTheme();
     ["aura","aura_v2","aura_v3","aura_v4","aura_v5","aura_v6"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+    if(!window.__auraAutoRefreshInterval){
+      window.__auraAutoRefreshInterval=setInterval(()=>{
+        if(!document.hidden&&S.phase==="weather"&&S.lat!=null&&S.lng!=null&&!S.loading&&!S.refreshing){
+          loadW(S.lat,S.lng,S.city,true);
+        }
+      },3*60000);
+    }
     const c=localStorage.getItem("aura_v7");
     if(c){
       const d=JSON.parse(c);
