@@ -5025,6 +5025,9 @@ function openThreatsSheet(X){
   const thr = detectThreats(X);
   const isSafe = thr.maxLevel === 0;
   const activeCount = thr.items.filter(x => x.level >= 1).length;
+  const officialWarnings = S.imgwOfficialWarnings?.warnings || [];
+  const officialActiveCount = officialWarnings.length;
+  const officialMaxLevel = officialWarnings.reduce((m,w)=>Math.max(m,Math.min(3,Number(w.level)||0)),0);
   
   const lvlBadge = (lvl) => {
     if (lvl === 3) return `<span class="threat-status-badge lvl-3">🔴 Stopień 3 (Ekstremalne)</span>`;
@@ -5041,6 +5044,19 @@ function openThreatsSheet(X){
       <div class="threat-gauge-seg ${lvl >= 3 ? 'on-3' : ''}"></div>
     </div>`;
   };
+
+  const officialRows = officialWarnings.map(w => {
+    const lvl=Math.max(1,Math.min(3,Number(w.level)||1));
+    return '<div class="threat-card lvl-'+lvl+'" style="border-left:4px solid '+(lvl===3?'#ef4444':(lvl===2?'#f97316':'#eab308'))+'">'+
+      '<div class="threat-head"><div class="threat-title-wrap"><div class="threat-card-icon">'+(lvl===3?'🔴':(lvl===2?'🟠':'🟡'))+'</div><div>'+
+      '<div class="threat-title">'+esc(w.phenomenon||"Ostrzeżenie meteorologiczne")+'</div>'+
+      '<div style="font-size:11px;color:var(--ink3);font-style:italic">Oficjalne ostrzeżenie IMGW-PIB</div></div></div>'+lvlBadge(lvl)+'</div>'+
+      '<div class="threat-val-box"><span>📜</span><span>'+esc(w.short||w.content||w.comments||"Treść ostrzeżenia IMGW")+'</span></div>'+
+      '<div class="threat-desc"><b>Ważne:</b> '+esc((w.validFrom&&w.validTo)?(w.validFrom+" – "+w.validTo):"Okres ważności wg IMGW")+'</div>'+
+      (w.probability ? '<div class="threat-desc">Prawdopodobieństwo: '+Math.round(Number(w.probability))+'%</div>' : '')+
+      (w.forecaster ? '<div class="threat-desc">Synoptyk: '+esc(w.forecaster)+'</div>' : '')+
+      '</div>';
+  }).join("");
 
   const threatRows = thr.items.map(t => `
     <div class="threat-card lvl-${t.level}">
@@ -5063,7 +5079,7 @@ function openThreatsSheet(X){
     </div>
   `).join("");
 
-  const summaryHtml = isSafe ? `
+  const summaryHtml = (isSafe && officialActiveCount===0) ? `
     <div style="padding:14px 16px;border-radius:18px;background:rgba(34,197,94,.12);border:1px solid rgba(74,222,128,.3);margin-bottom:14px">
       <div style="font-weight:700;font-size:15px;color:#4ade80;display:flex;align-items:center;gap:8px">
         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px #4ade80"></span>
@@ -5085,6 +5101,7 @@ function openThreatsSheet(X){
     </div>
   `;
 
+  const officialSummary = officialActiveCount ? '<div style="padding:14px 16px;border-radius:18px;background:rgba(234,179,8,.10);border:1px solid rgba(234,179,8,.35);margin:0 0 14px"><div style="font-weight:700;font-size:15px">📢 Oficjalne ostrzeżenia IMGW-PIB: '+officialActiveCount+'</div><div style="font-size:13px;color:var(--ink2);margin-top:6px">Najwyższy aktywny stopień IMGW: <b>'+officialMaxLevel+'</b>. Szczegóły pochodzą bezpośrednio z ostrzeżeń IMGW.</div></div>' : "";
   const soundEnabled = isSoundAlertsEnabled();
   const notifPerm = getNotificationPermissionStatus();
   const notifIsActive = notifPerm === "granted";
@@ -5112,9 +5129,10 @@ function openThreatsSheet(X){
     <h3>🛡️ Centrum Zagrożeń i Ostrzeżeń</h3>
     <div class="sd">System monitorowania 10 zjawisk meteorologicznych w czasie rzeczywistym (fuzja IMGW-PIB, radar opadów, detekcja wyładowań i numeryczne modele pogody).</div>
     ${summaryHtml}
-    <div class="threat-grid">
-      ${threatRows}
-    </div>
+    ${officialSummary}
+    ${officialRows ? `<div style="font-size:12px;font-weight:700;color:var(--ink3);margin:4px 0 8px">OFICJALNE IMGW-PIB</div><div class="threat-grid">${officialRows}</div>` : ''}
+    <div style="font-size:12px;font-weight:700;color:var(--ink3);margin:14px 0 8px">LOKALNA DETEKCJA AURA</div>
+    <div class="threat-grid">${threatRows}</div>
     ${notifControls}
     <div class="note" style="margin-top:14px;line-height:1.45">
       Klasyfikacja zagrożeń i stopni ostrzeżeń (1, 2, 3) zgodna z oficjalnymi progami IMGW-PIB. Pomiary i parametry konwekcyjne są aktualizowane automatycznie.
