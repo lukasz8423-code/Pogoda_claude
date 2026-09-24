@@ -1833,9 +1833,27 @@ async function findNearestIMGW(lat,lng){
       };
       window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,freshFields:normalized.freshFields,staleFields:normalized.staleFields});
+      // Jeżeli Głodowo zostało znalezione, ale nie spełnia warunków lokalnego
+      // źródła, NIE zastępuj go odległą stacją SYNOP (np. Toruń 49+ km).
+      // Aura ma przejść na Active Ensemble, a Głodowo pozostać widoczne
+      // wyłącznie w diagnostyce jako odrzucone źródło lokalne.
+      return {best:null,nearby:[normalized]};
     }
   }else{
     if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:meteoAll?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false,reason:"brak stacji 252190030 w danych"};
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+  }
+
+  // Brak Głodowa w METEO nie upoważnia do podstawienia odległego SYNOP.
+  // SYNOP pozostaje wyłącznie pomocniczym kontekstem diagnostycznym.
+  if(!rawGlodowo){
+    if(S.imgwDiag)S.imgwDiag={
+      ...(S.imgwDiag||{}),
+      status:"IMGW Głodowo niedostępne → Active Ensemble",
+      found:false,
+      used:false,
+      reason:"brak stacji Głodowo w feedzie METEO"
+    };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
   }
 
@@ -1861,6 +1879,13 @@ async function findNearestIMGW(lat,lng){
   if(results.length===0)return null;
 
   const best=results[0];
+  // SYNOP nie może zastąpić lokalnego Głodowa jako źródła fuzji.
+  // Pozostawiamy go poza głównym wynikiem, żeby UI nie pokazywało
+  // odległej stacji jako "stacji IMGW dla lokalizacji".
+  if(Number(best.dist)>45){
+    console.log(`Najbliższa stacja SYNOP (${best.stacja||best.name}, ${best.dist} km) jest poza zasięgiem fuzji — Active Ensemble.`);
+    return {best:null,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
+  }
   console.log(`Najblizsza stacja IMGW SYNOP: ${best.stacja||best.name} (${best.dist} km)`);
   console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
 
