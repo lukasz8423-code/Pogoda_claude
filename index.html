@@ -1844,8 +1844,9 @@ async function findNearestIMGW(lat,lng){
     window.__AURA_IMGW_DIAG=S.imgwDiag;
   }
 
-  // Brak Głodowa w METEO nie upoważnia do podstawienia odległego SYNOP.
-  // SYNOP pozostaje wyłącznie pomocniczym kontekstem diagnostycznym.
+  // Głodowo jest jedyną stacją IMGW dopuszczoną jako lokalne źródło Aura.
+  // Jeśli Głodowo nie występuje w feedzie METEO, żadna stacja SYNOP nie może
+  // zostać podstawiona do fuzji ani pokazana jako lokalna stacja dla miejsca.
   if(!rawGlodowo){
     if(S.imgwDiag)S.imgwDiag={
       ...(S.imgwDiag||{}),
@@ -1855,9 +1856,8 @@ async function findNearestIMGW(lat,lng){
       reason:"brak stacji Głodowo w feedzie METEO"
     };
     window.__AURA_IMGW_DIAG=S.imgwDiag;
+    return {best:null,nearby:[]};
   }
-
-  if(!all||!Array.isArray(all)||all.length===0)return null;
 
   const results=[];
   all.forEach(s=>{
