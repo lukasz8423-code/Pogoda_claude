@@ -4382,7 +4382,20 @@ async function fetchImgwRadarFrames(){
     url:String(x?.url||"").replace(/^http:\/\//i,"https://")
   })).filter(x=>Number.isFinite(x.time)&&/^https:\/\//i.test(x.url));
   if(!frames.length)throw new Error("IMGW radar: brak klatek");
-  return frames.slice(-12);
+
+  // Nigdy nie pokazujemy starej mapy jako "live". POLRAD publikuje klatki
+  // co kilka minut; jeżeli feed jest sklejony z cache albo chwilowo nie działa,
+  // przechodzimy do RainViewer zamiast prezentować nieaktualny obraz.
+  const nowSec=Math.floor(Date.now()/1000);
+  const newest=frames.reduce((m,f)=>Math.max(m,f.time),0);
+  const ageMin=(nowSec-newest)/60;
+  if(!Number.isFinite(ageMin)||ageMin>20){
+    throw new Error("IMGW radar: feed nieaktualny ("+Math.max(0,Math.round(ageMin))+" min)");
+  }
+
+  return frames
+    .filter(f=>f.time<=nowSec+5*60)
+    .slice(-12);
 }
 
 function radarFrameTime(f){
@@ -4451,11 +4464,18 @@ async function startRadar(){
     if(!r.ok)throw new Error("RainViewer HTTP "+r.status);
     const j=await r.json();
     RV.host=j.host||"https://tilecache.rainviewer.com";
-    const frames=(j.radar?.past||[]).slice(-10).map(f=>({time:Number(f.time),path:f.path})).filter(f=>Number.isFinite(f.time)&&f.path);
+    const nowSec=Math.floor(Date.now()/1000);
+    const frames=(j.radar?.past||[])
+      .map(f=>({time:Number(f.time),path:f.path}))
+      .filter(f=>Number.isFinite(f.time)&&f.path&&f.time<=nowSec+5*60)
+      .slice(-10);
     if(!frames.length)throw new Error("RainViewer: brak klatek");
+    const newest=frames.at(-1)?.time||0;
+    const ageMin=(nowSec-newest)/60;
+    if(!Number.isFinite(ageMin)||ageMin>20)throw new Error("RainViewer: feed nieaktualny ("+Math.max(0,Math.round(ageMin))+" min)");
     RV.frames=frames;RV.source="RainViewer (fallback)";RV.lastTs=frames.at(-1)?.time||null;
     const node=document.createElement("div");node.id="radar-slot";
-    node.innerHTML=`<div class="rmap" id="rmap"></div><div class="rctl"><button class="ib" data-act="rplay" aria-label="Odtwórz animację">${mini("play")}</button><input type="range" id="rslider" min="0" max="${frames.length-1}" value="${frames.length-1}" aria-label="Klatka radaru"/></div><div class="note">Źródło: RainViewer — awaryjny radar rzeczywisty. IMGW-PIB POLRAD chwilowo niedostępny.</div>`;
+    node.innerHTML=`<div class="rmap" id="rmap"></div><div class="rctl"><button class="ib" data-act="rplay" aria-label="Odtwórz animację">${mini("play")}</button><input type="range" id="rslider" min="0" max="${frames.length-1}" value="${frames.length-1}" aria-label="Klatka radaru"/></div><div class="note">Źródło: RainViewer — rzeczywisty radar awaryjny. IMGW-PIB POLRAD chwilowo niedostępny. Dane radarowe odświeżane są w feedzie niezależnie od prognozy modeli.</div>`;
     const cur=$("#radar-slot");cur.replaceWith(node);RV.node=node;
     const map=L.map($("#rmap"),{zoomControl:false,minZoom:5,maxZoom:9,attributionControl:false}).setView([S.lat,S.lng],7);
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:9}).addTo(map);
