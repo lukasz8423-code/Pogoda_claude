@@ -3692,7 +3692,7 @@ function nowcastHTML(X){
       sum=endLabel?"Burza występuje teraz i może utrzymać się do około "+endLabel+".":"Burza występuje teraz.";
     }else if(stateRain&&snow){
       sum=endLabel?"Śnieg pada teraz i może potrwać do około "+endLabel+".":"Śnieg pada teraz.";
-    }else if(stateRain&&(currentRainMm(X)>0.05||hasRealPrecipMm)){
+    }else if(stateRain&&(currentRainMm(X)>0.05||Number(X?.precip)>0.05)){
       sum=endLabel?"Deszcz pada teraz i może potrwać do około "+endLabel+".":"Deszcz pada teraz.";
     }else if(stateRain){
       sum="Mżawka lub słaby deszcz występuje teraz.";
