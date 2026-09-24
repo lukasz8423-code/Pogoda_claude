@@ -3466,8 +3466,10 @@ function getAlerts(X, threatsData=null){
 
 // ── ambient tylko przy zmianie warunków (nie przy każdym renderze)
 function ambientFor(X){
-  const key=`${X.code}-${X.isDay?1:0}`;
-  if(key!==S.ambKey){S.ambKey=key;setAmbient(X.code,X.isDay);}
+  const activeRain = isRainingNow(X);
+  const code = activeRain ? (X.currentState?.code ?? X.code) : (X.cloud <= 15 ? 0 : X.cloud <= 40 ? 1 : X.cloud <= 70 ? 2 : 3);
+  const key=`${code}-${X.isDay?1:0}`;
+  if(key!==S.ambKey){S.ambKey=key;setAmbient(code,X.isDay);}
 }
 
 // ═══════════════════════════════════════════════
