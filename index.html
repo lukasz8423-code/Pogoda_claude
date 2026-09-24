@@ -504,6 +504,7 @@ a.btn{text-decoration:none;color:inherit}
 .nc-bars i::after{content:"";position:absolute;left:8px;right:8px;bottom:28px;height:var(--bar-h,4px);max-height:58px;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#B7E8FF,#4FB6F0)}
 .nc-bars i.z::after{background:rgba(255,255,255,.18)}
 .nc-bars i b{position:absolute;left:50%;top:5px;transform:translateX(-50%);font-size:12px;line-height:1;color:var(--ink2);font-weight:700;white-space:nowrap}
+.nc-bars i span.nc-kind{position:absolute;left:50%;top:18px;transform:translateX(-50%);font-size:8px;line-height:1;color:var(--rain);font-weight:700;white-space:nowrap}
 .nc-bars i small{position:absolute;left:50%;bottom:15px;transform:translateX(-50%);font-size:11px;line-height:1;color:var(--ink2);font-weight:600;white-space:nowrap}
 .nc-bars i em{position:absolute;left:50%;bottom:3px;transform:translateX(-50%);font-size:10px;line-height:1;color:var(--ink3);font-style:normal;white-space:nowrap}
 .nc-ax{display:none}
@@ -519,6 +520,8 @@ a.btn{text-decoration:none;color:inherit}
 .hi .p{font-size:11px;color:var(--ink3);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2}
 .hi .p.active{color:var(--rain)}
 .hi .p svg{width:11px;height:11px;stroke-width:2.2;flex:none}
+.p-type{font-size:9px;font-weight:700;color:var(--rain);white-space:nowrap;line-height:1;margin-top:-1px}
+.mg-kind{font-size:8.5px;font-weight:700;color:var(--rain);display:block;margin-top:1px;white-space:nowrap}
 .hi .c{font-size:11px;color:var(--ink2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2}
 .hi .c svg{width:11px;height:11px;stroke-width:2;flex:none;opacity:.85}
 .hi.sun .t{color:var(--sun)}
@@ -3502,6 +3505,34 @@ function isSnowCode(code){
 function isPrecipCode(code){
   return isRainCode(code)||isSnowCode(code)||isStormCode(code);
 }
+function precipKindLabel(pr, pop, code){
+  const p = Number(pr) || 0;
+  const pct = Math.round(Number(pop) || 0);
+  const c = Number(code) || 0;
+
+  if (isSnowCode(c)) {
+    if (p >= 2.5) return "silny śnieg";
+    if (p >= 0.5) return "śnieg";
+    if (p > 0.05) return "słaby śnieg";
+    if (pct >= 20) return "prószenie";
+    return "";
+  }
+  if (isStormCode(c)) {
+    return "burza";
+  }
+  if (c === 56 || c === 57) return "marznąca mżawka";
+  if (c === 66 || c === 67) return "marznący deszcz";
+
+  if (p >= 7.6) return "ulewa";
+  if (p >= 2.5) return "silny deszcz";
+  if (p >= 0.5) return "deszcz";
+  if (p > 0.05) return "słaby deszcz";
+
+  // Opad śladowy / 0 mm przy sygnale %
+  if (pct >= 50) return "mżawka";
+  if (pct >= 20) return "słaba mżawka";
+  return "";
+}
 // Jeden wspólny sygnał "opad ciekły teraz" dla Hero, kafelków i alertów.
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
 // a nie dowolnego starego slotu z historii.
@@ -3665,7 +3696,8 @@ function nowcastHTML(X){
     const peak=v.length?Math.max(...v):0;
     if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne")+" ("+fnum(peak,1)+" mm/h)";
     bars=X.timeline.slots.map(x=>{
-      const pop=x.pop==null?"–":Math.round(x.pop)+"%";
+      const popVal=x.pop==null?0:Math.round(x.pop);
+      const pop=x.pop==null?"–":popVal+"%";
       const mm=Number(x.mm)||0;
       const traceRain=mm>=0.01&&mm<0.15;
       const activeRain=activeNow;
@@ -3676,7 +3708,8 @@ function nowcastHTML(X){
           : fnum(mm,2)+" mm";
       const displayMm=traceRain&&activeRain?0.08:mm;
       const barH=Math.round(clamp(displayMm,0,1)*54+4);
-      return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b><small>${label}</small><em>${hhmm(x.t)}</em></i>`;
+      const kind=precipKindLabel(mm, popVal, x.code);
+      return `<i class="${mm<.1?"z":""}${traceRain&&activeRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b>${kind?`<span class="nc-kind">${kind}</span>`:""}<small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax="<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>";
     sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu w danej godzinie, mm = opad w danym oknie 15 min.";
@@ -3773,8 +3806,9 @@ function hourlyHTML(X){
       :Number(hourly.cloud_cover?.[idx]??0);
     const cloud=Math.round(clamp(rawCloud,0,100));
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
+    const kind=precipKindLabel(prNow, pop, code);
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span><span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
   }
 
   return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span></div></div><div class="hstrip">${out}</div></section>`;
@@ -3825,6 +3859,9 @@ function meteogramHTML(X){
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
     const pop=Math.round(p.pop);
+    const idx=currentIdx+i;
+    const hourlyCode=getHourlyCode(hourly,idx);
+    const kind=precipKindLabel(p.pr, pop, hourlyCode);
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
@@ -3832,6 +3869,7 @@ function meteogramHTML(X){
         <span class="mg-rainbar ${displayPr>0?"on":""}" style="height:${Math.max(displayPr>0?3:0,bar)}px"></span>
         <small>${displayPr>0?fnum(displayPr,1)+" mm":"0 mm"}</small>
         <em>${pop}%</em>
+        ${kind?`<span class="mg-kind">${kind}</span>`:""}
       </div>
       <span class="mg-wind tn">${wind}${gust} km/h</span>
     </div>`;
