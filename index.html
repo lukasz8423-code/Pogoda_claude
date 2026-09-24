@@ -6128,6 +6128,8 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
   }
   try{localStorage.setItem("aura_v8",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
+
+  if(cloudCompare.length>=2){
     const now=new Date();
     const pfx2=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
     const ok=cloudCompare.map(r=>{
