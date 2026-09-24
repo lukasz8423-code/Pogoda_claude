@@ -5510,8 +5510,10 @@ function auraResolveCurrentFields(data,records,imgwData,satellite,nowcast){
           if(x){hit=x;source="IMGW Głodowo";break;}
         }
       }else if(src==="imgw_precip"){
-        const x=imgwField("precipitation","opad10minFresh","opad_10min","opad10minAgeMinutes");
-        if(x){hit=x;source="IMGW Głodowo · opad 10 min";break;}
+        // opad_10min jest sumą z 10 minut, więc nie jest bezpośrednio
+        // zamiennikiem current.precipitation (mm/h). Służy jako potwierdzenie,
+        // a wartość natężenia wybiera minutely/model.
+        continue;
       }else if(src==="satellite"){
         const v=toFiniteNumber(satellite?.cloudFraction??satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
         const ts=satellite?.generatedAt??satellite?.fetchedAt??satellite?.timestamp??satellite?.ts;
