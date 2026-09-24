@@ -6165,12 +6165,18 @@ async function loadWCore(lat,lng,name,isRef,token){
       const consensus=consensusCloudCover(cloudCompare);
       const cloudFusion=fuseCloudCover(cloudCompare,{
         lat,lng,
-        station:imgwResult.status==="fulfilled"?(imgwResult.value?.best||imgwResult.value||{}):{},
-        stationPrecipMm:imgwResult.status==="fulfilled"
-          ?stationFreshPrecipMm(imgwResult.value?.best||imgwResult.value||{})
+        // Do fuzji trafia wyłącznie realny rekord "best".
+        // Wrapper {best:null, nearby:[...]} jest diagnostyką i nie może
+        // zostać potraktowany jako obserwacja IMGW.
+        const imgwFusionStation=imgwResult.status==="fulfilled"
+          ?(imgwResult.value?.best||null)
+          :null;
+        station:imgwFusionStation||{},
+        stationPrecipMm:imgwFusionStation
+          ?stationFreshPrecipMm(imgwFusionStation)
           :null,
-        stationDry:imgwResult.status==="fulfilled"
-          ?stationHasFreshNoPrecip(imgwResult.value?.best||imgwResult.value||{})
+        stationDry:imgwFusionStation
+          ?stationHasFreshNoPrecip(imgwFusionStation)
           :false,
         modelPrecip:Number(data?.current?.precipitation??data?.current?.rain??data?.current?.showers),
         modelCode:Number(data?.current?.weather_code),
