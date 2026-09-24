@@ -3043,6 +3043,34 @@ function normalizeImgwOfficialWarnings(payload){
   };
 }
 
+function notifyOfficialImgwWarnings(warnings){
+  const list=Array.isArray(warnings)?warnings:[];
+  if(!list.length)return;
+  const city=String(S.city||"wybranej lokalizacji");
+  let previous=null;
+  try{ previous=JSON.parse(localStorage.getItem("aura_imgw_warning_state")||"null"); }catch{}
+  const locationKey=[Number(S.lat).toFixed(4),Number(S.lng).toFixed(4)].join(",");
+  const signature=list.map(w=>[
+    w.id,w.level,w.phenomenonCode,w.validFrom,w.validTo,w.releaseAt,
+    w.content||w.comments||w.short||""
+  ].join("|")).sort().join("||");
+  const stateKey=locationKey+"|"+signature;
+  if(previous?.key===stateKey)return;
+  try{localStorage.setItem("aura_imgw_warning_state",JSON.stringify({
+    key:stateKey,location:locationKey,updatedAt:Date.now(),count:list.length
+  }));}catch{}
+  if(getNotificationPermissionStatus()!=="granted")return;
+
+  const highest=list.reduce((m,w)=>Math.max(m,Math.min(3,Number(w.level)||1)),0);
+  const lead=list.slice().sort((a,b)=>(Number(b.level)||0)-(Number(a.level)||0))[0];
+  const title="📢 Aura · Oficjalne ostrzeżenie IMGW";
+  const phenomenon=lead?.phenomenon||"Ostrzeżenie meteorologiczne";
+  const body=(highest?("Stopień "+highest+" · "):"")+phenomenon+" · "+city+
+    (lead?.validTo?" · do "+String(lead.validTo):"");
+  showPushNotification(title,body);
+  if(typeof playAlertChime==="function")playAlertChime(Math.max(1,highest));
+}
+
 async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
   const seq=++IMGW_WARNINGS_SEQ;
   const startedAt=Date.now();
@@ -3058,6 +3086,7 @@ async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
     normalized.httpStatus=res.status;
     normalized.fetchMs=Date.now()-startedAt;
     S.imgwOfficialWarnings=normalized;
+    notifyOfficialImgwWarnings(normalized.warnings);
     S.pipelineDiag=S.pipelineDiag||{};
     S.pipelineDiag.imgwOfficialWarnings={
       status:"ONLINE",
