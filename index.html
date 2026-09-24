@@ -1748,157 +1748,63 @@ async function fetchIMGWMeteoAll(){
 
 // Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
 async function findNearestIMGW(lat,lng){
-  // Głodowo jest jedynym dopuszczonym źródłem stacyjnym Aura.
-  const meteoRes=await fetchIMGWMeteoAll();
+  const [all,meteoRes]=await Promise.all([fetchIMGWAll(),fetchIMGWMeteoAll()]);
   const fetchedAt=meteoRes?.fetchedAt||Date.now();
   const meteoAll=meteoRes?.list||(Array.isArray(meteoRes)?meteoRes:null);
   const isSnapshot=meteoRes?.isFallback===true;
-
-  // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
-  const rawGlodowo=Array.isArray(meteoAll)
-    ? meteoAll.find(s=>{
-        const code=String(s.kod_stacji??s.id_stacji??"").trim();
-        const name=String(s.nazwa_stacji??s.stacja??"").trim().toLowerCase();
-        return code==="252190030" || name==="głodowo" || name==="glodowo";
-      })
-    : null;
-
+  const rawGlodowo=Array.isArray(meteoAll)?meteoAll.find(s=>{
+    const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
+    const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
+    return code==="252190030"||name==="głodowo"||name==="glodowo";
+  }):null;
+  let glodowo=null;
   if(rawGlodowo){
-    const dist=stationDist(lat,lng,52.8306,19.2356);
-    const distRounded=Math.round(dist*10)/10;
-    const nowMs=Date.now();
-
-    const normalized=normalizeImgwStationRecord(rawGlodowo,nowMs,IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot);
+    const dist=Math.round(stationDist(lat,lng,52.8306,19.2356)*10)/10;
+    const normalized=normalizeImgwStationRecord(rawGlodowo,Date.now(),IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot);
+    if(normalized)normalized.dist=dist;
     if(normalized){
-      normalized.dist=distRounded;
+      glodowo=normalized;
+      S.imgwDiag={...(S.imgwDiag||{}),found:true,station:normalized.stacja||"Głodowo",dist,isFallback:isSnapshot,fetchedAt,normalized,
+        freshFields:normalized.freshFields,staleFields:normalized.staleFields,sourceType:normalized.sourceType,sourceLabel:normalized.sourceLabel,
+        temperature:normalized.temperatura,humidity:normalized.wilgotnosc_wzgledna,wind:normalized.predkosc_wiatru,rain:normalized.opad_10min,
+        observedAt:normalized.observedAt,ageMinutes:normalized.ageMinutes,rawStation:rawGlodowo,networkOk:!isSnapshot,snapshotUsed:isSnapshot};
     }
-
-    const anyUsable=normalized?.anyUsable===true;
-
-    // Diagnostyka telemetryczna per pole
-    const diagSummary=[
-      normalized.tempFresh?`temperatura ${normalized.tempAgeMinutes} min`:normalized.temperatura_data?`temperatura ${normalized.tempAgeMinutes} min (odrzucona >${IMGW_MAX_FIELD_AGE_MINUTES} min)`:null,
-      normalized.humidityFresh?`wilgotność ${normalized.humidityAgeMinutes} min`:normalized.wilgotnosc_wzgledna_data?`wilgotność ${normalized.humidityAgeMinutes} min (odrzucona)`:null,
-      normalized.windFresh?`wiatr ${normalized.windAgeMinutes} min`:normalized.predkosc_wiatru_data?`wiatr ${normalized.windAgeMinutes} min (odrzucony)`:null,
-      normalized.windDirFresh?`kierunek ${normalized.windDirAgeMinutes} min`:null,
-      normalized.opad10minFresh?`opad ${normalized.opad10minAgeMinutes} min`:null
-    ].filter(Boolean).join(", ");
-
-    S.imgwDiag={
-      ...(S.imgwDiag||{}),
-      found:true,
-      station:normalized.stacja||"Głodowo",
-      dist:distRounded,
-      isFallback:isSnapshot,
-      fetchedAt,
-      normalized,
-      fieldFreshnessTtlMinutes:IMGW_MAX_FIELD_AGE_MINUTES,
-      freshFields:normalized.freshFields,
-      staleFields:normalized.staleFields,
-      diagSummary,
-      sourceType:normalized.sourceType,
-      sourceLabel:normalized.sourceLabel,
-      temperature:normalized.temperatura,
-      humidity:normalized.wilgotnosc_wzgledna,
-      wind:normalized.predkosc_wiatru,
-      rain:normalized.opad_10min,
-      observedAt:normalized.observedAt,
-      ageMinutes:normalized.ageMinutes,
-      rawStation:rawGlodowo
-    };
-
-    if(dist<=30 && anyUsable){
-      S.imgwDiag={
-        ...S.imgwDiag,
-        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary} → ACCEPTED`,
-        used:true,
-        reason:null
-      };
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}° (fresh: ${normalized.freshFields.join(",")})`);
-      return {best:normalized,nearby:[normalized]};
+  }
+  const candidates=[];
+  if(Array.isArray(all)){
+    for(const st of all){
+      const name=String(st?.stacja??"").trim();
+      const id=String(st?.id_stacji??"").trim();
+      const known=IMGW_STATIONS.find(k=>{
+        const nm=name.toLowerCase(),kn=String(k.name||"").toLowerCase();
+        return (nm&&(nm===kn||nm.includes(kn)||kn.includes(nm)))||(id&&(id===k.id||id.includes(k.id)||k.id.includes(id)));
+      });
+      if(!known)continue;
+      const dist=Math.round(stationDist(lat,lng,known.lat,known.lng)*10)/10;
+      if(dist<=45)candidates.push({...st,...known,dist});
+    }
+  }
+  candidates.sort((a,b)=>a.dist-b.dist);
+  const nearest=candidates[0]||null;
+  const active=glodowo&&glodowo.dist<=10&&glodowo.anyUsable===true?glodowo:nearest;
+  if(active){
+    const isGlodowo=String(active.id_stacji||active.kod_stacji||"")==="252190030"||String(active.name||active.stacja||"").toLowerCase().includes("głodowo");
+    if(isGlodowo){
+      S.imgwDiag={...(S.imgwDiag||{}),station:active.stacja||"Głodowo",dist:active.dist,found:true,used:true,
+        status:"IMGW Głodowo ("+(isSnapshot?"snapshot":"na żywo")+") → ACTIVE",activeStation:active.stacja||"Głodowo",
+        activeDistanceKm:active.dist,glodowoDistanceKm:active.dist,reason:null};
     }else{
-      const rejectReason=dist>30?"za daleko (>30 km)":!anyUsable?`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`:"nieznany";
-      S.imgwDiag={
-        ...S.imgwDiag,
-        status:`IMGW Głodowo: ${diagSummary} → REJECTED (${rejectReason}) → Active Ensemble`,
-        used:false,
-        reason:rejectReason
-      };
-      window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,freshFields:normalized.freshFields,staleFields:normalized.staleFields});
-      // Jeżeli Głodowo zostało znalezione, ale nie spełnia warunków lokalnego
-      // źródła, NIE zastępuj go odległą stacją SYNOP (np. Toruń 49+ km).
-      // Aura ma przejść na Active Ensemble, a Głodowo pozostać widoczne
-      // wyłącznie w diagnostyce jako odrzucone źródło lokalne.
-      return {best:null,nearby:[normalized]};
+      S.imgwDiag={...(S.imgwDiag||{}),station:active.stacja||active.name,found:!!glodowo,used:true,
+        status:"IMGW "+(active.stacja||active.name)+" → ACTIVE",activeStation:active.stacja||active.name,activeDistanceKm:active.dist,
+        glodowoDistanceKm:glodowo?.dist??null,reason:glodowo?"Głodowo poza 10 km — użyto najbliższej stacji SYNOP.":"Głodowo niedostępne — użyto najbliższej stacji SYNOP."};
     }
-  }else{
-    if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:meteoAll?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false,reason:"brak stacji 252190030 w danych"};
     window.__AURA_IMGW_DIAG=S.imgwDiag;
+    return {best:active,nearby:[...(glodowo?[glodowo]:[]),...candidates.slice(0,5)]};
   }
-
-  // Głodowo jest jedyną stacją IMGW dopuszczoną jako lokalne źródło Aura.
-  // Jeśli Głodowo nie występuje w feedzie METEO, żadna stacja SYNOP nie może
-  // zostać podstawiona do fuzji ani pokazana jako lokalna stacja dla miejsca.
-  if(!rawGlodowo){
-    if(S.imgwDiag)S.imgwDiag={
-      ...(S.imgwDiag||{}),
-      status:"IMGW Głodowo niedostępne → Active Ensemble",
-      found:false,
-      used:false,
-      reason:"brak stacji Głodowo w feedzie METEO"
-    };
-    window.__AURA_IMGW_DIAG=S.imgwDiag;
-    return {best:null,nearby:[]};
-  }
-
-  const results=[];
-  all.forEach(s=>{
-    const known=IMGW_STATIONS.find(k=>{
-      const nameMatch=s.stacja&&(
-        s.stacja.toLowerCase()===k.name.toLowerCase()||
-        s.stacja.toLowerCase().includes(k.name.toLowerCase())||
-        k.name.toLowerCase().includes(s.stacja.toLowerCase())
-      );
-      const idMatch=s.id_stacji&&(s.id_stacji===k.id||s.id_stacji.includes(k.id)||k.id.includes(s.id_stacji));
-      return nameMatch||idMatch;
-    });
-    if(!known)return;
-    const dist=stationDist(lat,lng,known.lat,known.lng);
-    results.push({...s,...known,dist:Math.round(dist*10)/10});
-  });
-
-  results.sort((a,b)=>a.dist-b.dist);
-  if(results.length===0)return null;
-
-  const best=results[0];
-  // SYNOP nie może zastąpić lokalnego Głodowa jako źródła fuzji.
-  // Pozostawiamy go poza głównym wynikiem, żeby UI nie pokazywało
-  // odległej stacji jako "stacji IMGW dla lokalizacji".
-  if(Number(best.dist)>45){
-    console.log(`Najbliższa stacja SYNOP (${best.stacja||best.name}, ${best.dist} km) jest poza zasięgiem fuzji — Active Ensemble.`);
-    return {best:null,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
-  }
-  console.log(`Najblizsza stacja IMGW SYNOP: ${best.stacja||best.name} (${best.dist} km)`);
-  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
-
-  let ageMinutes=null,observedAt=null;
-  if(best.data_pomiaru&&best.godzina_pomiaru!=null){
-    const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
-    const hh=parseInt(best.godzina_pomiaru,10);
-    if(dm&&Number.isFinite(hh)&&hh>=0&&hh<=23){
-      observedAt=Date.UTC(+dm[1],+dm[2]-1,+dm[3],hh,0,0);
-      const rawAge=(fetchedAt-observedAt)/60000;
-      ageMinutes=rawAge < -30 ? null : Math.max(0,Math.round(rawAge));
-    }
-  }
-  best.observedAt=observedAt;
-  best.fetchedAt=fetchedAt;
-  best.ageMinutes=ageMinutes;
-  best.isFresh=ageMinutes===null ? true : ageMinutes<180;
-
-  return {best,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
+  S.imgwDiag={...(S.imgwDiag||{}),status:"IMGW brak używalnej stacji → Active Ensemble",found:!!glodowo,used:false,activeStation:null,activeDistanceKm:null,
+    glodowoDistanceKm:glodowo?.dist??null,reason:"Brak używalnej stacji w promieniu 45 km"};
+  window.__AURA_IMGW_DIAG=S.imgwDiag;
+  return {best:null,nearby:[...(glodowo?[glodowo]:[]),...candidates.slice(0,5)]};
 }
 
 
@@ -3857,9 +3763,9 @@ function heroHTML(X){
   else if(S.imgwData){
     const im=S.imgwData,stale=im.isFresh===false;
     const age=im.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek ostatniego pomiaru nieznany";
-    const obsAt=im.observedAt!=null?`ostatni pomiar z ${hhmm(im.observedAt)}, `:"";
-    const used=!stale&&im.dist<=80;
-    chips.push(`<span class="chip ${stale?"warn":used?"ok":""}">${mini("sat")}${esc(im.stacja||im.name)}, ${im.dist} km, ${obsAt}${age}${stale?" (nieaktualne)":""}</span>`);
+    const obsAt=im.observedAt!=null?hhmm(im.observedAt):"—";
+    const used=!stale&&Number(im.dist)<=45;
+    chips.push('<span class="chip '+(stale?'warn':used?'ok':'')+'">'+mini("station")+'<b>'+esc(im.stacja||im.name||"IMGW")+'</b> · '+(Number.isFinite(Number(im.dist))?fnum(im.dist,1):"—")+' km · ostatni pomiar: '+obsAt+' · wiek: '+age+(stale?' · NIEAKTUALNE':'')+'</span>');
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
@@ -6077,6 +5983,30 @@ async function handleGPS(){
   }
 }
 
+let IMGW_GLODOWO_POLL_TIMER=null;
+let IMGW_GLODOWO_POLL_RUNNING=false;
+async function pollGlodowoEvery60Min(){
+  if(IMGW_GLODOWO_POLL_RUNNING)return;
+  IMGW_GLODOWO_POLL_RUNNING=true;
+  try{
+    const res=await fetchIMGWMeteoAll();
+    const raw=res?.list?.find(st=>{
+      const code=String(st?.kod_stacji??st?.id_stacji??"").trim();
+      const name=String(st?.nazwa_stacji??st?.stacja??"").trim().toLowerCase();
+      return code==="252190030"||name==="głodowo"||name==="glodowo";
+    });
+    S.imgwDiag=S.imgwDiag||{};
+    S.imgwDiag.glodowoPoll={requestedAt:Date.now(),ok:!!raw,station:raw?.nazwa_stacji||raw?.stacja||"Głodowo",fetchedAt:res?.fetchedAt??null,snapshotUsed:res?.isFallback===true};
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+  }catch(e){
+    S.imgwDiag=S.imgwDiag||{};
+    S.imgwDiag.glodowoPoll={requestedAt:Date.now(),ok:false,station:"Głodowo",error:String(e?.message||e)};
+  }finally{IMGW_GLODOWO_POLL_RUNNING=false;}
+}
+function startGlodowo60MinPoll(){
+  if(IMGW_GLODOWO_POLL_TIMER)clearInterval(IMGW_GLODOWO_POLL_TIMER);
+  IMGW_GLODOWO_POLL_TIMER=setInterval(pollGlodowoEvery60Min,60*60*1000);
+}
 let LOAD_SEQ=0;
 
 // Każde odświeżenie ma własną generację. Stara odpowiedź async nie może
@@ -6124,6 +6054,7 @@ async function loadW(lat,lng,name,isRef){
   }
 }
 async function loadWCore(lat,lng,name,isRef,token){
+  startGlodowo60MinPoll();
   if(token!==LOAD_SEQ)return;
   // Nowa generacja może odblokować stan tylko dla siebie.
   S.isFusionLocked=false;
