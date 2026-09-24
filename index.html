@@ -3528,15 +3528,14 @@ function isPrecipCode(code){
 }
 function precipKindLabel(pr, pop, code){
   const p = Number(pr) || 0;
-  const pct = Math.round(Number(pop) || 0);
   const c = Number(code) || 0;
+
+  if (p <= 0.05) return "";
 
   if (isSnowCode(c)) {
     if (p >= 2.5) return "silny śnieg";
     if (p >= 0.5) return "śnieg";
-    if (p > 0.05) return "słaby śnieg";
-    if (pct >= 20) return "prószenie";
-    return "";
+    return "słaby śnieg";
   }
   if (isStormCode(c)) {
     return "burza";
@@ -3547,19 +3546,7 @@ function precipKindLabel(pr, pop, code){
   if (p >= 7.6) return "ulewa";
   if (p >= 2.5) return "silny deszcz";
   if (p >= 0.5) return "deszcz";
-  if (p > 0.05) return "słaby deszcz";
-
-  // Opad śladowy / mm <= 0.05 przy sygnale %:
-  const isExplicitDrizzle = c >= 51 && c <= 57;
-
-  if (isExplicitDrizzle) {
-    if (pct >= 50) return "mżawka";
-    if (pct >= 20) return "słaba mżawka";
-  } else {
-    if (pct >= 40) return "słaby deszcz";
-    if (pct >= 20) return "słaba mżawka";
-  }
-  return "";
+  return "słaby deszcz";
 }
 // Jeden wspólny sygnał "opad ciekły teraz" dla Hero, kafelków i alertów.
 // current/minutely_15 są wstecznie agregowane: używamy tylko bieżącego 15-min slotu,
@@ -3732,17 +3719,17 @@ function nowcastHTML(X){
       const popVal=x.pop==null?0:Math.round(x.pop);
       const pop=x.pop==null?"–":popVal+"%";
       const mm=Number(x.mm)||0;
-      const activeRain=activeNow;
-      const traceRain=(mm>=0.01 || popVal>=45 || activeRain) && mm<0.15;
-      const label=traceRain
+      const isRealPrecip=mm>0.005;
+      const isTrace=mm>=0.005&&mm<0.15;
+      const label=isTrace
         ? "< 0,1 mm"
         : mm<0.005
           ? "0"
           : fnum(mm,2)+" mm";
-      const displayMm=traceRain?Math.max(0.08, mm):mm;
-      const barH=Math.round(clamp(displayMm,0,1)*54+4);
-      const kind=precipKindLabel(mm, popVal, x.code);
-      return `<i class="${!traceRain&&mm<.005?"z":""}${traceRain?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b>${kind?`<span class="nc-kind">${kind}</span>`:""}<small>${label}</small><em>${hhmm(x.t)}</em></i>`;
+      const displayMm=isTrace?Math.max(0.08, mm):mm;
+      const barH=isRealPrecip?Math.round(clamp(displayMm,0,1)*54+4):0;
+      const kind=mm>0.05?precipKindLabel(mm, popVal, x.code):"";
+      return `<i class="${!isRealPrecip?"z":""}${isTrace?" trace":""}" style="--bar-h:${barH}px"><b>${pop}</b>${kind?`<span class="nc-kind">${kind}</span>`:""}<small>${label}</small><em>${hhmm(x.t)}</em></i>`;
     }).join("");
     ax="<span>Najbliższe 4 godziny · co 15 min</span><span>Przewiń →</span>";
     sub=(sub?sub+". ":"")+"% = prawdopodobieństwo opadu w danej godzinie, mm = opad w danym oknie 15 min.";
@@ -3896,8 +3883,8 @@ function meteogramHTML(X){
     const pop=Math.round(p.pop);
     const idx=currentIdx+i;
     const hourlyCode=getHourlyCode(hourly,idx);
-    const kind=precipKindLabel(p.pr, pop, hourlyCode);
-    const isTrace=(pop>=40||kind.length>0)&&displayPr===0;
+    const kind=displayPr>0.05?precipKindLabel(displayPr, pop, hourlyCode):"";
+    const isTrace=p.pr>0.005&&p.pr<=0.05;
     const bar=displayPr>0?Math.round(clamp(displayPr/maxPr,0,1)*38):(isTrace?3:0);
     const prLabel=displayPr>0?fnum(displayPr,1)+" mm":(isTrace?"< 0,1 mm":"0 mm");
 
@@ -3928,7 +3915,8 @@ function dailyRows(){
     const mn=daily.temperature_2m_min[i],mx=daily.temperature_2m_max[i];
     const dayPrecip=Number(daily.precipitation_sum?.[i]??0);
     const pop=Number(daily.precipitation_probability_max?.[i]??0);
-    const dailyCode=i===0&&X?.currentState?.code!=null?X.currentState.code:(daily.weather_code?.[i]??0);
+    const rawDailyCode=daily.weather_code?.[i]??0;
+    const dailyCode=i===0&&X?.currentState?.code!=null?X.currentState.code:((dayPrecip<=0.05&&isRainCode(rawDailyCode))?3:rawDailyCode);
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -3940,7 +3928,8 @@ function dailyRows(){
         if(!t.startsWith(dateStr))return;
         const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
         const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
-        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hourly.weather_code[k]??0,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
+        const hCode=getHourlyCode(hourly,k);
+        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hCode,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
       {
@@ -6138,8 +6127,7 @@ async function loadWCore(lat,lng,name,isRef,token){
       saveForecastHistory(lat,lng,city,data.hourly.temperature_2m[fi],data.hourly.weather_code?.[fi]??0);
     }
   }
-
-  if(cloudCompare.length>=2){
+  try{localStorage.setItem("aura_v8",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
     const now=new Date();
     const pfx2=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
     const ok=cloudCompare.map(r=>{
@@ -6285,7 +6273,7 @@ document.addEventListener("visibilitychange",()=>{
 (function init(){
   try{
     applyTheme();
-    ["aura","aura_v2","aura_v3","aura_v4","aura_v5","aura_v6"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+    ["aura","aura_v2","aura_v3","aura_v4","aura_v5","aura_v6","aura_v7"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
     if(!window.__auraAutoRefreshInterval){
       window.__auraAutoRefreshInterval=setInterval(()=>{
         if(!document.hidden&&S.phase==="weather"&&S.lat!=null&&S.lng!=null&&!S.loading&&!S.refreshing){
@@ -6293,7 +6281,7 @@ document.addEventListener("visibilitychange",()=>{
         }
       },3*60000);
     }
-    const c=localStorage.getItem("aura_v7");
+    const c=localStorage.getItem("aura_v8");
     if(c){
       const d=JSON.parse(c);
       if(d&&d.lat!=null&&d.lng!=null&&d.city){
