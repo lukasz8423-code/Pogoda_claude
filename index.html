@@ -6204,8 +6204,18 @@ async function loadWCore(lat,lng,name,isRef,token){
       };
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
-      imgwData=imgwResult.value.best||imgwResult.value;
-      stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
+      // findNearestIMGW() może zwrócić {best:null, nearby:[Głodowo]} przy starych danych.
+      // Tylko "best" jest rekordem stacji do renderowania/fuzji; nearby służy diagnostyce.
+      const imgwLookup=imgwResult.value;
+      imgwData=imgwLookup?.best||null;
+      const diagStation=Array.isArray(imgwLookup?.nearby)&&imgwLookup.nearby.length
+        ?imgwLookup.nearby[0]
+        :null;
+      stationInfo=imgwData
+        ?(imgwData.stacja||imgwData.name||"IMGW")+", "+imgwData.dist+" km"
+        :diagStation
+          ?(diagStation.stacja||diagStation.name||"Głodowo")+", "+(diagStation.dist??"—")+" km — dane nieaktualne"
+          :"IMGW Głodowo niedostępne — Active Ensemble";
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
       if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=45){
