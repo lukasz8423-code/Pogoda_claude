@@ -1061,13 +1061,14 @@ function fuseCloudCover(records,context={}){
   }
 
   const satellite=context.satellite||null;
-  const satCloud=Number(satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
+  const satCloud=Number(satellite?.cloudFraction??satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
   const satDistance=Number(satellite?.distanceKm);
-  const satFetched=Number(satellite?.fetchedAt??satellite?.timestamp??satellite?.ts);
-  const satAgeMin=Number.isFinite(satFetched)?(Date.now()-satFetched)/60000:null;
+  const satFetched=satellite?.generatedAt??satellite?.fetchedAt??satellite?.timestamp??satellite?.ts;
+  const satTime=satFetched!=null?new Date(satFetched).getTime():NaN;
+  const satAgeMin=Number.isFinite(satTime)?(Date.now()-satTime)/60000:null;
   const satelliteUsable=Number.isFinite(satCloud)&&satCloud>=0&&satCloud<=100&&
-    Number.isFinite(satDistance)&&satDistance<=15&&
-    (satAgeMin===null||(satAgeMin>=0&&satAgeMin<=30));
+    (satDistance===null||isNaN(satDistance)||(Number.isFinite(satDistance)&&satDistance<=15))&&
+    (satAgeMin===null||(Number.isFinite(satAgeMin)&&satAgeMin>=0&&satAgeMin<=1440));
 
   const key="aura_cloud_fusion_"+Number(context.lat).toFixed(3)+"_"+Number(context.lng).toFixed(3);
   let prior=null,priorAge=null;
@@ -1084,51 +1085,31 @@ function fuseCloudCover(records,context={}){
   let reason="weighted-model-median";
   let cloudDampeningFactor=1;
 
-  /*
-   * Satelita jest obserwacją nadrzędną wobec modelu, ale tylko gdy snapshot
-   * jest świeży, blisko lokalizacji i zawiera rzeczywisty cloud fraction.
-   * Nie wymuszamy wyniku satelity, tylko nadajemy mu 60% wagi.
-   */
   if(satelliteUsable){
     const satWeight=0.60;
     value=raw*(1-satWeight)+satCloud*satWeight;
     reason="model+satellite";
   }
 
-  const wind=Number(context.windKmh);
-  const moderateWind=Number.isFinite(wind)&&wind>=15;
-  const strongWind=Number.isFinite(wind)&&wind>=25;
-
-  if(recentRainConflict&&moderateWind){
-    cloudDampeningFactor=strongWind?0.70:0.80;
-    value*=cloudDampeningFactor;
-    reason+=" + post-rain wind dampening";
-  }
-
-  if(recentRainConflict&&prior!=null&&priorAge!=null){
-    const maxRise=priorAge<=20?8:priorAge<=45?14:22;
-    value=Math.min(value,prior+maxRise);
-    reason+=" + temporal continuity";
-  }
-
-  const visibility=Number(context.visibilityMeters);
-  const clearAir=Number.isFinite(visibility)&&visibility>=12000;
-  const veryClearAir=Number.isFinite(visibility)&&visibility>=18000;
-  // Przy suchej, bardzo dobrej widzialności modelowe 70–100% zachmurzenia
-  // jest traktowane jako konflikt z obserwacją lokalną. Nie pozwalamy, aby
-  // jeden model utrzymywał "Duże zachmurzenie", gdy powietrze jest wyraźnie przejrzyste.
-  if(clearAir && !precipitationConfirmed && !modelRainCode){
-    const clearCap=veryClearAir?35:40;
-    if(value>clearCap){
-      value=clearCap;
-      reason+=" + hard clear-sky cap";
+  /*
+   * KANONICZNA FUZJA ZACHMURZENIA:
+   * 1. Świeży, silny konsensus modeli (ICON-EU, ECMWF, GFS) ma pierwszeństwo.
+   * 2. Pomiary bezopadowe ze stacji IMGW wyzerowują deszcz, ale nie sztucznie redukują chmur.
+   * 3. Wygładzanie czasowe (prior) dostosowuje małe wahania, ale silny konsensus (np. 97/100/100, spread <= 25)
+   *    zachowuje wynik blisko konsensusu modeli (nie zrzuca go o ~50 pp.).
+   */
+  if(prior!=null&&priorAge!=null){
+    const diff=Math.abs(value-prior);
+    const isStrongConsensus=spread<=25||value>=80||value<=20;
+    if(isStrongConsensus){
+      const weightNew = diff > 40 && spread <= 10 ? 0.98 : (diff > 25 ? 0.95 : 0.90);
+      value = value * weightNew + prior * (1 - weightNew);
+      if(diff > 3) reason += " + temporal continuity";
+    }else{
+      const maxStep = priorAge <= 20 ? 30 : 45;
+      value = clamp(Math.max(prior - maxStep, Math.min(prior + maxStep, value)), 0, 100);
+      if(Math.abs(value - raw) > 0.5) reason += " + temporal continuity";
     }
-  }
-
-  if(prior!=null&&priorAge!=null&&!recentRainConflict){
-    const maxStep=priorAge<=20?15:priorAge<=45?25:35;
-    value=clamp(Math.max(prior-maxStep,Math.min(prior+maxStep,value)),0,100);
-    if(Math.abs(value-raw)>0.5)reason+=" + temporal continuity";
   }
 
   value=Math.round(clamp(value,0,100)*10)/10;
@@ -1138,13 +1119,14 @@ function fuseCloudCover(records,context={}){
   return {
     value,rawConsensus:Math.round(raw*10)/10,spread:Math.round(spread*10)/10,
     prior,priorAgeMinutes:priorAge==null?null:Math.round(priorAge*10)/10,
-    recentRainConflict,clearAir,precipitation,precipitationCorrected,
-    precipitationConfirmed,nowcastConfirmedRain,cloudDampeningFactor,
-    windKmh:Number.isFinite(wind)?wind:null,
+    recentRainConflict,clearAir:false,
+    precipitation,precipitationCorrected,precipitationConfirmed,nowcastConfirmedRain,
+    cloudDampeningFactor,
+    windKmh:Number.isFinite(Number(context.windKmh))?Number(context.windKmh):0,
     satelliteUsed:satelliteUsable,
     satelliteCloud:satelliteUsable?satCloud:null,
     satelliteDistanceKm:satelliteUsable?satDistance:null,
-    satelliteAgeMinutes:satelliteUsable&&satAgeMin!==null?Math.round(satAgeMin*10)/10:null,
+    satelliteAgeMinutes:satelliteUsable&&(satAgeMin!==null)?Math.round(satAgeMin*10)/10:null,
     reason
   };
 }

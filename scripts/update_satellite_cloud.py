@@ -3,28 +3,24 @@ import json
 import math
 import re
 from pathlib import Path
-from urllib.parse import urlencode
-
-import requests
+import urllib.request
+import urllib.parse
 
 LAT = 52.8142
 LON = 19.21174
 WMS_URL = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "msg_fes:clm"
 OUT = Path("satellite-cloud.json")
+PUBLIC_OUT = Path("public/satellite-cloud.json")
 
-# EUMETView exposes MSG/SEVIRI Cloud Mask without account credentials.
-# The product is categorical (clear land / clear water / cloud / off-disc),
-# so Aura derives a local cloud fraction only from sampled real pixels.
 OFFSETS_KM = (-4.0, 0.0, 4.0)
 TIMEOUT = 15
 
 
 def point_query(lat, lon):
-    # Small bbox around the queried point; the center pixel is requested.
     dlat = 0.015
     dlon = 0.015 / max(0.2, math.cos(math.radians(lat)))
-    # WMS 1.3.0 + EPSG:4326: kolejność osi to lat,lon.\n    bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
+    bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
     params = {
         "SERVICE": "WMS",
         "VERSION": "1.3.0",
@@ -40,10 +36,13 @@ def point_query(lat, lon):
         "J": "50",
         "INFO_FORMAT": "text/plain",
     }
-    r = requests.get(WMS_URL, params=params, timeout=TIMEOUT)
-    r.raise_for_status()
-    text = re.sub(r"\s+", " ", r.text).strip()
-    low = text.lower()
+    url = WMS_URL + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": "AuraWeather/1.0"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        text = resp.read().decode("utf-8", errors="replace")
+
+    text_clean = re.sub(r"\s+", " ", text).strip()
+    low = text_clean.lower()
 
     if "not processed" in low or "off earth" in low:
         cls = "not_processed"
@@ -51,7 +50,7 @@ def point_query(lat, lon):
         cls = "clear_land"
     elif "clear sky over water" in low or "clear water" in low:
         cls = "clear_water"
-    elif re.search(r"\bcloud(?:y|s)?\b", low):
+    elif re.search(r"\bcloud(?:y|s)?\b", low) or "red_band" in low:
         cls = "cloud"
     else:
         cls = "unknown"
@@ -60,7 +59,7 @@ def point_query(lat, lon):
         "lat": lat,
         "lon": lon,
         "class": cls,
-        "raw": text[:500],
+        "raw": text_clean[:500],
     }
 
 
@@ -107,7 +106,10 @@ def main():
         "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used.",
     }
 
-    OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    OUT.write_text(content, encoding="utf-8")
+    if PUBLIC_OUT.parent.exists():
+        PUBLIC_OUT.write_text(content, encoding="utf-8")
 
 
 if __name__ == "__main__":
