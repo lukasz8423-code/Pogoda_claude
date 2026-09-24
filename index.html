@@ -845,7 +845,7 @@ function locativeCity(city){
 
 function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   const currentState = currentStateOrX?.currentState || (currentStateOrX?.code != null ? currentStateOrX : null);
-  const code = currentState?.code ?? cur?.weather_code ?? 0;
+  const code = Number.isFinite(Number(currentState?.code)) ? Number(currentState.code) : 0;
   const t = Math.round(cur?.temperature_2m ?? 15);
   const place = locativeCity(city);
   const isStorm = isStormCode(code);
@@ -2718,7 +2718,9 @@ function computeCtx(){
 
   // Prawdziwy opad zachodzi tylko wtedy, gdy mamy realny dodatni opad mm (> 0.05 mm).
   // Sama prawdopodobieństwo opadu (pop) bez realnego opadu (0 mm) NIE tworzy opadu na żywo.
-  const isRainingActive = cloud > 15 && hasRealPrecipMm;
+  // Opad jest sygnałem kanonicznym niezależnym od zachmurzenia.
+  // Słońce/chmury nie mogą unieważnić potwierdzonego opadu z minutely_15/stacji/modelu.
+  const isRainingActive = hasRealPrecipMm;
 
   let currentStateCode;
   if (!isRainingActive) {
@@ -3548,8 +3550,9 @@ function currentRainMm(X){
   return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
-  const cloud=Number(X?.cloud??100);
-  if(cloud<=15)return false;
+  // Kanoniczny sygnał opadu jest wspólny dla Hero, nowcastu i karty „Na dziś”.
+  // Nie filtrujemy go zachmurzeniem: realny opad może występować także przy
+  // błędnym/słonecznym current.weather_code albo niskim cloud_cover.
   const mm=currentRainMm(X);
   return Number.isFinite(mm)&&mm>0.05;
 }
