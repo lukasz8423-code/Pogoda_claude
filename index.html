@@ -2710,9 +2710,13 @@ function computeCtx(){
   const curPrecip = Number(current.precipitation ?? 0);
   const stationNoPrecip = stationHasFreshNoPrecip(S.imgwData);
 
-  const hasRealPrecipMm = (Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
-    (stationPrecip !== null && stationPrecip > 0.05) ||
-    (Number.isFinite(curPrecip) && curPrecip > 0.05);
+  // Świeże Głodowo ma pierwszeństwo dla opadu bieżącego. Jeśli stacja
+  // potwierdza brak opadu, modelowe 0.2–0.4 mm nie może wywołać fałszywego deszczu.
+  const hasRealPrecipMm = stationNoPrecip
+    ? false
+    : ((Number.isFinite(timelineNowMm) && timelineNowMm > 0.05) ||
+       (stationPrecip !== null && stationPrecip > 0.05) ||
+       (Number.isFinite(curPrecip) && curPrecip > 0.05));
 
   const rawPrecipCode = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode);
 
@@ -2963,7 +2967,8 @@ function detectThreats(X){
   const ci = X?.ci ?? 0;
   
   // 1. Silny / intensywny deszcz: aktualny + prognozowany
-  const curPrecip = Number(X?.precip ?? current.precipitation ?? 0);
+  // Zagrożenia bieżące muszą korzystać z tego samego kanonicznego opadu co Hero/nowcast.
+  const curPrecip = Number.isFinite(currentRainMm(X)) ? currentRainMm(X) : 0;
   let next3hRain = 0;
   let maxHourlyRain3h = 0;
   if (Array.isArray(hourly.precipitation)) {
@@ -3078,7 +3083,10 @@ function detectThreats(X){
   };
 
   // 4. Burza: wykryta / zbliżająca się / prognozowana
-  const curCode = Number(X?.code ?? current.weather_code ?? 0);
+  // Kod bieżącej pogody: kanoniczny stan z computeCtx(), bez powrotu do surowego current.weather_code.
+  const curCode = Number.isFinite(Number(X?.currentState?.code))
+    ? Number(X.currentState.code)
+    : Number(X?.code ?? 0);
   const isStormNow = isStormCode(curCode);
   let nextStormHour = null;
   let maxCape = Number(hourly.cape?.[ci] ?? 0);
