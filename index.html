@@ -1657,7 +1657,7 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_M
 }
 
 async function fetchIMGWMeteoAll(){
-  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkAttempted:true,networkOk:false,networkFetchedAt:null,snapshotUsed:false};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   let list=null;
   let isFallback=false;
@@ -1680,6 +1680,8 @@ async function fetchIMGWMeteoAll(){
         list=data;
         isFallback=false;
         fetchedAt=Date.now();
+        S.imgwDiag.networkOk=true;
+        S.imgwDiag.networkFetchedAt=fetchedAt;
       }else{
         throw new Error("Stacja Głodowo nieodnaleziona w sieciowym feedzie IMGW");
       }
@@ -1712,6 +1714,7 @@ async function fetchIMGWMeteoAll(){
   }
 
   if(list&&list.length){
+    S.imgwDiag={...(S.imgwDiag||{}),networkAttempted:true,networkOk:!isFallback,networkFetchedAt:!isFallback?fetchedAt:(S.imgwDiag?.networkFetchedAt||null),snapshotUsed:isFallback};
     const station=list.find(s=>{
       const code=String(s?.kod_stacji??s?.id_stacji??"").trim();
       const name=String(s?.nazwa_stacji??s?.stacja??"").trim().toLowerCase();
@@ -1745,7 +1748,8 @@ async function fetchIMGWMeteoAll(){
 
 // Znajdz najblizsza stacje IMGW; dla Tomaszewa preferuj lokalne METEO Glodowo.
 async function findNearestIMGW(lat,lng){
-  const [all,meteoRes]=await Promise.all([fetchIMGWAll(),fetchIMGWMeteoAll()]);
+  // Głodowo jest jedynym dopuszczonym źródłem stacyjnym Aura.
+  const meteoRes=await fetchIMGWMeteoAll();
   const fetchedAt=meteoRes?.fetchedAt||Date.now();
   const meteoAll=meteoRes?.list||(Array.isArray(meteoRes)?meteoRes:null);
   const isSnapshot=meteoRes?.isFallback===true;
@@ -6164,7 +6168,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   const fusionNowcast=correctMinutelyPrecipitation(
     rawNowcast,
     imgwResult.status==="fulfilled"
-      ?(imgwResult.value?.best||imgwResult.value||{})
+      ?(imgwResult.value?.best||null)
       :null
   );
     if(cloudResult.status==="fulfilled")cloudCompare=cloudResult.value||[];
