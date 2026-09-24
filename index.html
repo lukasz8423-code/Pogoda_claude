@@ -3265,7 +3265,7 @@ function detectThreats(X){
     detail: tempDetail
   };
 
-  // 10. Oficjalne ostrzeżenie IMGW: stopień + zjawisko + ważność
+  // 10. Wykryte zagrożenia: lokalna ocena Aura. To NIE są oficjalne ostrzeżenia IMGW.
   const monitored = [rainThreat, windThreat, gustThreat, stormThreat, lightningThreat, stormTrendThreat, hailThreat, snowThreat, tempThreat];
   const maxLvl = Math.max(...monitored.map(x => x.level));
   
@@ -3314,14 +3314,14 @@ function detectThreats(X){
   }
 
   const imgwThreat = {
-    id: "imgw_official",
-    icon: "📢",
-    name: "Oficjalne ostrzeżenie IMGW",
-    what: "stopień + zjawisko + ważność",
+    id: "aura_warnings",
+    icon: "⚠️",
+    name: "Wykryte zagrożenia Aura",
+    what: "lokalna ocena zagrożenia + zjawisko + horyzont",
     level: maxLvl,
-    status: imgwAlertList.length > 0 ? `${imgwAlertList.length} ${imgwAlertList.length === 1 ? 'aktywne ostrzeżenie' : 'aktywne ostrzeżenia'} IMGW-PIB` : "Brak oficjalnych ostrzeżeń IMGW dla obszaru",
-    val: imgwAlertList.length > 0 ? imgwAlertList.map(a => `Stopień ${a.grade}: ${a.phenomenon}`).join(" · ") : "Stan bezpieczny (brak ostrzeżeń)",
-    detail: imgwAlertList.length > 0 ? imgwAlertList.map(a => `[Stopień ${a.grade}] ${a.phenomenon} (${a.time}). ${a.desc}`).join("\n\n") : "Instytut Meteorologii i Gospodarki Wodnej nie wydał aktualnie ostrzeżeń meteorologicznych dla tego obszaru.",
+    status: imgwAlertList.length > 0 ? `${imgwAlertList.length} ${imgwAlertList.length === 1 ? 'wykryte zagrożenie' : 'wykryte zagrożenia'} Aura` : "Brak wykrytych zagrożeń Aura",
+    val: imgwAlertList.length > 0 ? imgwAlertList.map(a => `Stopień ${a.grade}: ${a.phenomenon}`).join(" · ") : "Brak wykrytych zagrożeń",
+    detail: imgwAlertList.length > 0 ? imgwAlertList.map(a => `[Stopień ${a.grade}] ${a.phenomenon} (${a.time}). ${a.desc}`).join("\n\n") : "Aura nie wykryła lokalnie zagrożenia na podstawie dostępnych danych i prognoz. To nie jest status oficjalnych ostrzeżeń IMGW.",
     alerts: imgwAlertList
   };
 
@@ -3347,7 +3347,7 @@ function getAlerts(X, threatsData=null){
   const T = threatsData || detectThreats(X);
   const A = [];
 
-  // Ostrzeżenia oficjalne IMGW / zjawiska niebezpieczne
+  // Lokalne zagrożenia Aura. Oficjalne ostrzeżenia IMGW wymagają osobnego źródła ostrzeżeń.
   if (T.officialImgw.alerts && T.officialImgw.alerts.length > 0) {
     T.officialImgw.alerts.forEach(al => {
       A.push({
@@ -3355,7 +3355,7 @@ function getAlerts(X, threatsData=null){
         grade: al.grade,
         c: al.grade >= 2 ? "bad" : "warn",
         icon: al.grade === 3 ? "🔴" : (al.grade === 2 ? "🟠" : "🟡"),
-        badge: `Ostrzeżenie IMGW ${al.grade}. stopnia`,
+        badge: `Zagrożenie Aura — ${al.grade}. stopień`,
         title: al.phenomenon,
         sub: al.desc,
         time: al.time
