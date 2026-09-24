@@ -1146,25 +1146,19 @@ function fuseCloudCover(records,context={}){
   };
 }
 function discomfortIndex(temp,hum,windKmh=0,gustKmh=0){
-  const t=Number(temp),rh=clamp(Number(hum),0,100);
-  const w=Math.max(0,Number(windKmh)||0, (Number(gustKmh)||0)*0.7);
+  const t=Number(temp), rh=clamp(Number(hum),0,100);
+  const w=Math.max(0, Number(windKmh)||0, (Number(gustKmh)||0)*0.6);
   if(!Number.isFinite(t))return{value:null,label:"Brak danych",color:"rgba(255,255,255,.08)",emoji:"–"};
   
-  const e=6.105*Math.exp(17.27*t/(237.7+t))*rh/100;
-  const windMs=w/3.6;
-  let hi = t + 0.33*e - 0.70*windMs - 4.00;
+  // Wzór na temperaturę odczuwalną AT (Australian Apparent Temperature):
+  // AT = T + 0.33 * e - 0.70 * v - 4.00 (gdzie e to ciśnienie pary wodnej, v to wiatr w m/s)
+  const e = (rh / 100) * 6.105 * Math.exp((17.27 * t) / (237.7 + t));
+  const windMs = w / 3.6;
+  const at = t + 0.33 * e - 0.70 * windMs - 4.00;
 
-  // Dla chłodnych, wietrznych dni (T <= 11°C): uwzględniamy odczuwalność wiatru (Wind Chill)
-  if(t <= 11 && w >= 6){
-    const vKmh = Math.max(w, 8);
-    const v016 = Math.pow(vKmh, 0.16);
-    const wc = 13.12 + 0.6215*t - 11.37*v016 + 0.3965*t*v016;
-    hi = Math.min(hi, wc);
-  }
-
-  const value = Math.round(hi);
+  const value = Math.round(at);
   let label,color,emoji;
-  if(t<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
+  if(value<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
   else if(value<10){label="Zimno";color="rgba(56,189,248,.12)";emoji="🧊";}
   else if(value<17){label="Chłodno";color="rgba(99,102,241,.1)";emoji="😐";}
   else if(value<22){label="Komfortowo";color="rgba(52,211,153,.1)";emoji="😊";}
