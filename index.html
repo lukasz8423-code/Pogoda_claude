@@ -2731,21 +2731,23 @@ function computeCtx(){
 
   const rawPrecipCode = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode);
 
-  // Prawdziwy opad zachodzi tylko wtedy, gdy mamy realny dodatni opad mm (> 0.05 mm)
-  // LUB kod bieżący wskazuje na opad ORAZ brak stacyjnego potwierdzenia braku opadu (stationNoPrecip !== true) i opad mm > 0.
-  // Sama godzinowa prawdopodobieństwo (popNow >= 45%) bez realnego opadu (0 mm) NIE może wymuszać kafelka opadowego (Mżawka 51).
-  const isRainingActive = cloud > 15 && (hasRealPrecipMm || (rawPrecipCode && !stationNoPrecip && curPrecip > 0));
+  // Prawdziwy opad zachodzi tylko wtedy, gdy mamy realny dodatni opad mm (> 0.05 mm).
+  // Sama prawdopodobieństwo opadu (pop) bez realnego opadu (0 mm) NIE tworzy opadu na żywo.
+  const isRainingActive = cloud > 15 && hasRealPrecipMm;
 
   let currentStateCode;
   if (!isRainingActive) {
-    currentStateCode = (cloud <= 15 ? 0 : cloud <= 45 ? 1 : cloud <= 75 ? 2 : 3);
-  } else if (hasRealPrecipMm) {
-    currentStateCode = (isRainCode(hourlyNowCode) ? hourlyNowCode : (isRainCode(rawCurrentCode) ? rawCurrentCode : 61));
+    if (rawCurrentCode === 45 || rawCurrentCode === 48) {
+      currentStateCode = rawCurrentCode;
+    } else {
+      currentStateCode = (cloud <= 15 ? 0 : cloud <= 40 ? 1 : cloud <= 70 ? 2 : 3);
+    }
   } else {
-    currentStateCode = (rawCurrentCode >= 51 && rawCurrentCode <= 67 ? rawCurrentCode : 51);
+    currentStateCode = (isRainCode(hourlyNowCode) ? hourlyNowCode : (isRainCode(rawCurrentCode) ? rawCurrentCode : 61));
   }
 
   const code=currentStateCode;
+  if (current) current.weather_code = currentStateCode;
   const precip=+(current.precipitation??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
   const pop=g(hourly.precipitation_probability)??0;
   const uv=+(current.uv_index??g(hourly.uv_index)??0)||0;
@@ -3575,10 +3577,7 @@ function isRainingNow(X){
   const cloud=Number(X?.cloud??100);
   if(cloud<=15)return false;
   const mm=currentRainMm(X);
-  if(Number.isFinite(mm)&&mm>0.05)return true;
-  const code=X?.currentState?.code??X?.code??0;
-  const pop=Number(X?.pop??0);
-  return (isRainCode(code)||(code>=51&&code<=67)||pop>=45)&&cloud>20;
+  return Number.isFinite(mm)&&mm>0.05;
 }
 
 function heroHTML(X){
@@ -3595,7 +3594,12 @@ function heroHTML(X){
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
-  const heroCode=X.currentState?.code??X.code;
+  let heroCode=X.currentState?.code??X.code;
+  const rainMm=currentRainMm(X);
+  if(rainMm<=0.05&&isRainCode(heroCode)){
+    const cc=Number(X.cloud??100);
+    heroCode=cc<=15?0:cc<=40?1:cc<=70?2:3;
+  }
   const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
   return`<div id="s-hero">
   <section class="hero">
@@ -3792,18 +3796,17 @@ function getHourlyCode(hourlyData,idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
-  const pop=Number(hourlyData?.precipitation_probability?.[idx]??0);
 
-  if((pr<=0.1 && pop<45) || cloud<=15){
+  // Zasadnicza zasada: brak opadu (pr <= 0.05 mm) oznaczamy kodem zachmurzenia bezopadowym.
+  if(pr<=0.05 || cloud<=15){
     if(rawCode===45||rawCode===48)return rawCode;
-    // Spójność ikony z procentem zachmurzenia przy braku deszczu/mgły:
     if(cloud<=15)return 0;
-    if(cloud<=45)return 1;
-    if(cloud<=75)return 2;
+    if(cloud<=40)return 1;
+    if(cloud<=70)return 2;
     return 3;
   }
   if(isPrecipCode(rawCode))return rawCode;
-  return 61;
+  return pr>0.05?61:(cloud<=15?0:cloud<=40?1:cloud<=70?2:3);
 }
 
 function canonicalHourlyForRender(){
@@ -3827,16 +3830,19 @@ function hourlyHTML(X){
 
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
     const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
-    const code = (i === 0 && prNow > 0.1 && cloudNow > 15 && X.currentState?.code != null)
-      ? X.currentState.code
+    let code = (i === 0)
+      ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : (cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3))
       : getHourlyCode(hourly, idx);
+    if(prNow <= 0.05 && isRainCode(code)){
+      code = cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3;
+    }
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
     const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
       ?Number(X.cloud)
       :Number(hourly.cloud_cover?.[idx]??0);
     const cloud=Math.round(clamp(rawCloud,0,100));
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
-    const kind=precipKindLabel(prNow, pop, code);
+    const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
 
     out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
   }
@@ -3870,7 +3876,7 @@ function meteogramHTML(X){
     const hourlyIsRain=isRainCode(hourlyCode);
     let pr=(hourlyIsRain&&rawPr>0.05)?rawPr:0;
     if(i===0){
-      pr=currentIsRain ? (currentMm > 0.05 ? currentMm : Math.max(0.1, rawPr)) : 0;
+      pr=(currentIsRain && currentMm > 0.05)?currentMm:0;
     }
     pts.push({
       t:new Date(hourly.time[idx]),
