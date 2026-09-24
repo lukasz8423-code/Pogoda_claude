@@ -1,4 +1,4 @@
-// Aura Service Worker
+// Aura Service Worker v8 - 2026-09-24
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
