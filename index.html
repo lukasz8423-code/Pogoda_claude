@@ -3535,19 +3535,14 @@ function precipKindLabel(pr, pop, code){
   if (p >= 0.5) return "deszcz";
   if (p > 0.05) return "słaby deszcz";
 
-  // Opad śladowy / mm = 0 przy sygnale %:
+  // Opad śladowy / mm <= 0.05 przy sygnale %:
   const isExplicitDrizzle = c >= 51 && c <= 57;
-  const isExplicitRain = (c >= 61 && c <= 65) || (c >= 80 && c <= 82);
 
-  if (isExplicitRain) {
-    if (pct >= 70) return "deszcz";
-    if (pct >= 20) return "słaby deszcz";
-  } else if (isExplicitDrizzle) {
+  if (isExplicitDrizzle) {
     if (pct >= 50) return "mżawka";
     if (pct >= 20) return "słaba mżawka";
   } else {
-    if (pct >= 70) return "deszcz";
-    if (pct >= 50) return "słaby deszcz";
+    if (pct >= 40) return "słaby deszcz";
     if (pct >= 20) return "słaba mżawka";
   }
   return "";
@@ -3716,7 +3711,7 @@ function nowcastHTML(X){
 
     const v=X.timeline.slots.map(x=>x.mm*4);
     const peak=v.length?Math.max(...v):0;
-    if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"mżawka":peak<2.5?"słabe":peak<7.6?"umiarkowane":"silne")+" ("+fnum(peak,1)+" mm/h)";
+    if(peak>=.1)sub="Największe natężenie: "+(peak<.5?"słaby deszcz":peak<2.5?"słabe opady":peak<7.6?"umiarkowane opady":"silne opady")+" ("+fnum(peak,1)+" mm/h)";
     bars=X.timeline.slots.map(x=>{
       const popVal=x.pop==null?0:Math.round(x.pop);
       const pop=x.pop==null?"–":popVal+"%";
@@ -3785,9 +3780,10 @@ function getHourlyCode(hourlyData,idx){
   const pr=Number(hourlyData?.precipitation?.[idx]??0);
   const rawCode=Number(hourlyData?.weather_code?.[idx]??0);
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
-  if(pr<=0.1 || cloud<=15 || !isPrecipCode(rawCode)){
+  const pop=Number(hourlyData?.precipitation_probability?.[idx]??0);
+
+  if((pr<=0.1 && pop<45) || cloud<=15){
     if(rawCode===45||rawCode===48)return rawCode;
-    if(isPrecipCode(rawCode) && pr>0.1 && cloud>15)return rawCode;
     // Spójność ikony z procentem zachmurzenia przy braku deszczu/mgły:
     if(cloud<=15)return 0;
     if(cloud<=45)return 1;
@@ -3877,19 +3873,22 @@ function meteogramHTML(X){
   const cells=pts.map((p,i)=>{
     const day=i===0||p.t.toDateString()!==pts[i-1].t.toDateString();
     const displayPr=Number.isFinite(p.pr)&&p.pr>0.05?p.pr:0;
-    const bar=displayPr>0?Math.round(clamp(displayPr/maxPr,0,1)*38):0;
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
     const pop=Math.round(p.pop);
     const idx=currentIdx+i;
     const hourlyCode=getHourlyCode(hourly,idx);
     const kind=precipKindLabel(p.pr, pop, hourlyCode);
+    const isTrace=(pop>=40||kind.length>0)&&displayPr===0;
+    const bar=displayPr>0?Math.round(clamp(displayPr/maxPr,0,1)*38):(isTrace?3:0);
+    const prLabel=displayPr>0?fnum(displayPr,1)+" mm":(isTrace?"< 0,1 mm":"0 mm");
+
     return `<div class="mg-cell ${day?"mg-day":""}">
       <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
       <div class="mg-rain">
-        <span class="mg-rainbar ${displayPr>0?"on":""}" style="height:${Math.max(displayPr>0?3:0,bar)}px"></span>
-        <small>${displayPr>0?fnum(displayPr,1)+" mm":"0 mm"}</small>
+        <span class="mg-rainbar ${displayPr>0||isTrace?"on":""}" style="height:${Math.max(displayPr>0||isTrace?3:0,bar)}px"></span>
+        <small>${prLabel}</small>
         <em>${pop}%</em>
         ${kind?`<span class="mg-kind">${kind}</span>`:""}
       </div>
