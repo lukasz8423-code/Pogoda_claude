@@ -1541,6 +1541,11 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
   const groundTempAgeMinutes=calcAgeMin(groundTempObservedAt);
   const groundTempFresh=isFresh(groundTempRaw,groundTempObservedAt);
 
+  const allObservedTimestamps=[
+    tempObservedAt,humidityObservedAt,windObservedAt,windDirObservedAt,
+    gustObservedAt,rainObservedAt,groundTempObservedAt
+  ].filter(Number.isFinite);
+
   const freshObservedTimestamps=[
     tempFresh?tempObservedAt:null,
     humidityFresh?humidityObservedAt:null,
@@ -1549,7 +1554,12 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
     rainFresh?rainObservedAt:null
   ].filter(Number.isFinite);
 
-  const latestObservedAt=freshObservedTimestamps.length?Math.max(...freshObservedTimestamps):null;
+  // "Ostatni pomiar" jest informacją o ostatnim odebranym pomiarze,
+  // a nie tylko o polu, które mieści się w TTL. Dzięki temu Hero nie pokazuje
+  // "—" tylko dlatego, że Głodowo jest chwilowo stale.
+  const latestAnyObservedAt=allObservedTimestamps.length?Math.max(...allObservedTimestamps):null;
+  const latestAnyAgeMinutes=latestAnyObservedAt==null?null:calcAgeMin(latestAnyObservedAt);
+  const latestObservedAt=freshObservedTimestamps.length?Math.max(...freshObservedTimestamps):latestAnyObservedAt;
   const latestAgeMinutes=latestObservedAt==null?null:calcAgeMin(latestObservedAt);
 
   const anyUsable=tempFresh||humidityFresh||windFresh||windDirFresh||rainFresh;
@@ -1605,9 +1615,11 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
     cisnienie:null,
     observedAt:latestObservedAt,
     fetchedAt:rawStation.fetchedAt||nowMs,
-    ageMinutes:latestAgeMinutes,
+    ageMinutes:latestAnyAgeMinutes,
     latestObservedAt,
     latestAgeMinutes,
+    latestAnyObservedAt,
+    latestAnyAgeMinutes,
     isFresh:anyUsable,
     anyUsable,
     freshFields,
@@ -3765,8 +3777,10 @@ function heroHTML(X){
     const im=S.imgwData||S.imgwDiag?.normalized||null;
     const stationName=im?.stacja||im?.name||S.imgwDiag?.activeStation||"IMGW";
     const dist=Number(im?.dist??S.imgwDiag?.activeDistanceKm??S.imgwDiag?.dist);
-    const obsAt=im?.observedAt!=null?hhmm(im.observedAt):"—";
-    const age=im?.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek nieznany";
+    const obsTs=im?.latestAnyObservedAt??im?.observedAt;
+    const obsAt=obsTs!=null?hhmm(obsTs):"—";
+    const age=im?.latestAnyAgeMinutes!=null?fmtAge(im.latestAnyAgeMinutes)
+      :(im?.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek nieznany");
     const stale=im?.isFresh===false;
     const status=S.imgwStatus==="OFFLINE"?"IMGW offline":"IMGW online";
     const distText=Number.isFinite(dist)?fnum(dist,1)+" km":"odległość nieznana";
