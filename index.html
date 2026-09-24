@@ -2959,6 +2959,124 @@ window.onAndroidNotificationPermission = function(granted){
   }
 };
 
+/* ═══════════════════════════════════════════════
+   IMGW OFFICIAL WARNINGS — live PrOsMet / osmet-teryt
+   Źródło oficjalne IMGW-PIB; osobne od lokalnej oceny Aura.
+   ═══════════════════════════════════════════════ */
+const IMGW_OSMET_URL="https://meteo.imgw.pl/api/meteo/messages/v1/osmet/latest/osmet-teryt";
+const IMGW_TARGET_TERYT=["0408062","040806","0408"]; // gmina Lipno wiejska → powiat lipnowski → woj. kujawsko-pomorskie
+let IMGW_WARNINGS_SEQ=0;
+
+function parseImgwWarningDate(v){
+  if(!v)return null;
+  const t=Date.parse(v);
+  return Number.isFinite(t)?t:null;
+}
+
+function imgwWarningAppliesToTarget(terytMap,warnCode){
+  const ids=Object.keys(terytMap||{});
+  return ids.some(id=>IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target)));
+}
+
+function normalizeImgwOfficialWarnings(payload){
+  const warnings=payload?.warnings||{};
+  const teryt=payload?.teryt||{};
+  const codes=new Set();
+  Object.keys(teryt).forEach(id=>{
+    if(IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target))){
+      const list=Array.isArray(teryt[id])?teryt[id]:[];
+      list.forEach(code=>codes.add(String(code)));
+    }
+  });
+  const now=Date.now();
+  const items=[];
+  [...codes].forEach(code=>{
+    const w=warnings[code];
+    if(!w)return;
+    const from=parseImgwWarningDate(w.LxValidFrom||w.ValidFrom);
+    const to=parseImgwWarningDate(w.LxValidTo||w.ValidTo);
+    if(to!=null&&to<now)return;
+    items.push({
+      id:code,
+      level:Number(w.Level)||0,
+      probability:Number(w.Probability)||0,
+      phenomenonCode:w.PhenomenonCode||"",
+      phenomenon:w.PhenomenonName||w.SMS||"Ostrzeżenie meteorologiczne",
+      validFrom:w.ValidFrom||w.LxValidFrom||null,
+      validTo:w.ValidTo||w.LxValidTo||null,
+      fromMs:from,
+      toMs:to,
+      releaseAt:w.LxReleaseDateTime||w.ReleaseDateTime||null,
+      content:w.Content||"",
+      comments:w.Comments||"",
+      short:w.SMS||"",
+      forecaster:w.Name2||"IMGW-PIB"
+    });
+  });
+  items.sort((a,b)=>(b.level-a.level)||(a.fromMs??0)-(b.fromMs??0));
+  return {
+    source:"IMGW-PIB / PrOsMet",
+    endpoint:IMGW_OSMET_URL,
+    fetchedAt:Date.now(),
+    exportTime:payload?.program?.LxExportTime||payload?.program?.ExportTime||null,
+    lastChange:payload?.program?.LxLastChange||payload?.program?.LastChange||null,
+    warnings:items,
+    rawWarningCount:Object.keys(warnings).length,
+    matchedTeryt:Object.keys(teryt).filter(id=>IMGW_TARGET_TERYT.some(target=>id===target||id.startsWith(target)))
+  };
+}
+
+async function fetchImgwOfficialWarnings(token=LOAD_SEQ){
+  const seq=++IMGW_WARNINGS_SEQ;
+  const startedAt=Date.now();
+  try{
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),8000);
+    const res=await fetch(IMGW_OSMET_URL,{cache:"no-store",signal:ctrl.signal,headers:{Accept:"application/json"}});
+    clearTimeout(timer);
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    const payload=await res.json();
+    if(seq!==IMGW_WARNINGS_SEQ||token!==LOAD_SEQ)return;
+    const normalized=normalizeImgwOfficialWarnings(payload);
+    normalized.httpStatus=res.status;
+    normalized.fetchMs=Date.now()-startedAt;
+    S.imgwOfficialWarnings=normalized;
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.imgwOfficialWarnings={
+      status:"ONLINE",
+      source:normalized.source,
+      endpoint:IMGW_OSMET_URL,
+      fetchedAt:normalized.fetchedAt,
+      exportTime:normalized.exportTime,
+      lastChange:normalized.lastChange,
+      rawWarningCount:normalized.rawWarningCount,
+      matchedTeryt:normalized.matchedTeryt,
+      activeCount:normalized.warnings.length,
+      fetchMs:normalized.fetchMs
+    };
+    softUpdate();
+  }catch(e){
+    if(seq!==IMGW_WARNINGS_SEQ||token!==LOAD_SEQ)return;
+    S.imgwOfficialWarnings={
+      source:"IMGW-PIB / PrOsMet",
+      endpoint:IMGW_OSMET_URL,
+      fetchedAt:Date.now(),
+      warnings:[],
+      error:String(e?.message||e)
+    };
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.imgwOfficialWarnings={
+      status:"ERROR",
+      source:"IMGW-PIB / PrOsMet",
+      endpoint:IMGW_OSMET_URL,
+      fetchedAt:Date.now(),
+      activeCount:0,
+      error:String(e?.message||e)
+    };
+    softUpdate();
+  }
+}
+
 function detectThreats(X){
   const data = S.data || {};
   const current = data.current || {};
@@ -3347,7 +3465,23 @@ function getAlerts(X, threatsData=null){
   const T = threatsData || detectThreats(X);
   const A = [];
 
-  // Lokalne zagrożenia Aura. Oficjalne ostrzeżenia IMGW wymagają osobnego źródła ostrzeżeń.
+  // Rzeczywiste, oficjalne ostrzeżenia IMGW — niezależne od lokalnej oceny Aura.
+  const official = S.imgwOfficialWarnings?.warnings || [];
+  official.forEach(w => {
+    const lvl=Math.max(1,Math.min(3,Number(w.level)||1));
+    A.push({
+      id:"imgw_official_"+w.id,
+      grade:lvl,
+      c:lvl>=2?"bad":"warn",
+      icon:lvl===3?"🔴":(lvl===2?"🟠":"🟡"),
+      badge:"Oficjalne ostrzeżenie IMGW — "+lvl+". stopień",
+      title:w.phenomenon,
+      sub:w.content||w.comments||w.short||"Oficjalne ostrzeżenie IMGW-PIB.",
+      time:(w.validFrom&&w.validTo)?(w.validFrom+" – "+w.validTo):"Okres ważności podany przez IMGW"
+    });
+  });
+
+  // Lokalne zagrożenia Aura — niezależne od oficjalnych ostrzeżeń IMGW.
   if (T.officialImgw.alerts && T.officialImgw.alerts.length > 0) {
     T.officialImgw.alerts.forEach(al => {
       A.push({
@@ -6244,6 +6378,9 @@ async function loadWCore(lat,lng,name,isRef,token){
   render();
 
   if(isDemo)return;
+  // Oficjalne ostrzeżenia IMGW pobieramy osobnym kanałem. Nie blokują renderu pogody.
+  fetchImgwOfficialWarnings(token);
+
   // Dane dochodzące w tle — aktualizują tylko swoje sekcje
   const same=()=>token===LOAD_SEQ&&S.lat===lat&&S.lng===lng;
   apiMinutely(lat,lng).then(m=>{
