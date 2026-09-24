@@ -5471,8 +5471,19 @@ function auraSourceFresh(ageMin,ttlMin){
   return ageMin==null || (!Number.isFinite(Number(ageMin)) ? false : Number(ageMin)>=0 && Number(ageMin)<=ttlMin);
 }
 function auraModelCurrent(records,id,field){
-  const row=(records||[]).find(r=>String(r?.model||"").toLowerCase()===String(id).toLowerCase());
-  const value=toFiniteNumber(row?.data?.current?.[field]);
+  // fetchAllModelsCompare może zwrócić tablicę albo wrapper z polem models/rows.
+  // Normalizujemy oba warianty, żeby hierarchia pól faktycznie widziała świeże modele.
+  const list=Array.isArray(records)
+    ?records
+    :(Array.isArray(records?.models)?records.models:
+      Array.isArray(records?.rows)?records.rows:[]);
+  const wanted=String(id||"").toLowerCase();
+  const row=list.find(r=>{
+    const rid=String(r?.model||r?.name||r?.id||"").toLowerCase();
+    return rid===wanted;
+  });
+  const current=row?.data?.current||row?.current||row?.aktualne||null;
+  const value=toFiniteNumber(current?.[field]);
   return value===null?null:{value,row};
 }
 function auraResolveCurrentFields(data,records,imgwData,satellite,nowcast){
@@ -6199,6 +6210,21 @@ async function loadWCore(lat,lng,name,isRef,token){
     const fieldResolution=auraResolveCurrentFields(
       data,modelRecords,imgwCandidate,S.satelliteCloud,fusionNowcast
     );
+    // Jeśli aktywny best_match nie występuje w porównaniu modeli, jego własny
+    // LIVE snapshot nadal jest legalnym fallbackiem dla pola.
+    if(Number.isFinite(Number(data?.current?.cloud_cover)) &&
+       !fieldResolution.sources?.cloud_cover){
+      fieldResolution.fields.cloud_cover=Number(data.current.cloud_cover);
+      fieldResolution.sources.cloud_cover={
+        source:"Open-Meteo best_match",
+        ageMinutes:0,
+        ttlMinutes:AURA_FIELD_SOURCE_POLICY.cloud_cover.ttlMin,
+        fallbackLevel:"best_match-live"
+      };
+      fieldResolution.warnings=(fieldResolution.warnings||[]).filter(
+        w=>w!=="Brak świeżego źródła dla cloud_cover"
+      );
+    }
     S.fieldSourceDiag={
       capturedAt:Date.now(),
       policy:AURA_FIELD_SOURCE_POLICY,
