@@ -2679,9 +2679,10 @@ function computeCtx(){
   const isDay=current.is_day!=null?current.is_day===1:sun.day;
   const T=current.temperature_2m??g(hourly.temperature_2m)??15;
   const hum=Math.round(current.relative_humidity_2m??g(hourly.relative_humidity_2m)??0);
-  const wind=Math.round(current.wind_speed_10m??g(hourly.wind_speed_10m)??0);
+  const wind=Math.round(Math.max(current.wind_speed_10m??0, g(hourly.wind_speed_10m)??0));
   const stationGust=stationFreshGustKmH(S.imgwData);
-  const gusts=Math.round(stationGust??current.wind_gusts_10m??wind);
+  const modelGust=Math.max(current.wind_gusts_10m??0, g(hourly.wind_gusts_10m)??0);
+  const gusts=Math.round(Math.max(wind, stationGust??(modelGust>0?modelGust:(wind*1.35))));
   const rawApparent=current.apparent_temperature??g(hourly.apparent_temperature);
   const computedFeels=discomfortIndex(T,hum,wind,gusts).value;
   const feels=computedFeels??(Number.isFinite(Number(rawApparent))?Math.round(Number(rawApparent)):T);
@@ -5106,6 +5107,12 @@ function applyObservationFusion(data,imgwData){
   if(weights.temperature>0)cur.temperature_2m=+fuseObservedValue(model.temperature,obs.temperature,weights.temperature).toFixed(1);
   if(weights.humidity>0)cur.relative_humidity_2m=+fuseObservedValue(model.humidity,obs.humidity,weights.humidity).toFixed(0);
   if(weights.wind>0)cur.wind_speed_10m=+fuseObservedValue(model.wind,obs.wind,weights.wind).toFixed(1);
+  const stationGust=stationFreshGustKmH(imgwData);
+  if(stationGust!=null){
+    cur.wind_gusts_10m=Math.round(Math.max(cur.wind_gusts_10m??0, stationGust));
+  }else if(cur.wind_speed_10m!=null){
+    cur.wind_gusts_10m=Math.round(Math.max(cur.wind_gusts_10m??0, cur.wind_speed_10m*1.35));
+  }
   if(weights.windDirection>0)cur.wind_direction_10m=Math.round(circularBlendDegrees(model.windDirection,obs.windDirection,weights.windDirection))%360;
   const completeness={
     temperature:valid.temperature?1:0,
