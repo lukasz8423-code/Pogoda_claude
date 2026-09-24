@@ -1456,8 +1456,35 @@ function parseImgwMeteoTimestamp(value){
   }
   const raw=String(value).trim();
   if(!raw)return null;
+
+  // IMGW METEO zwraca znaczniki czasu bez strefy, jako czas lokalny Polski.
+  // Nie wolno traktować ich jako UTC — w CEST dawało to sztucznie zaniżony wiek
+  // pomiaru o 2 godziny (np. 11:10 lokalnie wyglądało jak 11:10 UTC).
   const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if(m)return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  if(m){
+    const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+    const h=Number(m[4]),mi=Number(m[5]),s=Number(m[6]||0);
+    const wallUtc=Date.UTC(y,mo-1,d,h,mi,s);
+    if(!Number.isFinite(wallUtc))return null;
+
+    // Ustal aktualny offset Europe/Warsaw dla daty pomiaru (+01:00 zimą / +02:00 latem).
+    try{
+      const parts=new Intl.DateTimeFormat("en-US",{
+        timeZone:"Europe/Warsaw",
+        timeZoneName:"longOffset",
+        hour12:false
+      }).formatToParts(new Date(wallUtc));
+      const tzName=parts.find(p=>p.type==="timeZoneName")?.value||"";
+      const off=tzName.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+      if(off){
+        const offsetMin=(Number(off[2])*60)+(Number(off[3]||0));
+        const signedOffsetMin=off[1]==="-"?-offsetMin:offsetMin;
+        return wallUtc-signedOffsetMin*60000;
+      }
+    }catch(e){}
+    return wallUtc;
+  }
+
   const parsed=Date.parse(raw);
   return Number.isFinite(parsed)?parsed:null;
 }
