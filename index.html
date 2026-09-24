@@ -5902,7 +5902,7 @@ async function loadWCore(lat,lng,name,isRef,token){
             stationAgeMinutes:imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
             stationDistanceKm:imgwData.dist??null,
             imgwForecastAvailable:false,
-            imgwForecastNote:"Brak strukturalnego feedu godzinowej prognozy IMGW Hybrid w aktualnym źródle aplikacji; produkt IMGW Hybrid/INCA/MERGE nie jest jeszcze zintegrowany jako API wartości punktowych.",
+            imgwForecastNote:"Brak publicznego API punktowej prognozy IMGW Hybrid (INCA-PL2/MERGE) na danepubliczne.imgw.pl; prognoza godzinowa korzysta z fuzji modeli Open-Meteo oraz obserwacji stacji IMGW Głodowo.",
             rows:diagRows,
             nullFlags,
             weights:fusion.weights||{},
