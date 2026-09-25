@@ -1499,6 +1499,7 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
   const calcAgeMin=ts=>ts==null?null:Math.round((nowMs-ts)/60000);
   const isFresh=(val,ts)=>{
     if(val===null||ts===null)return false;
+    if(isSnapshot)return true;
     const ageMs=nowMs-ts;
     return Number.isFinite(ageMs)&&ageMs>=-10*60*1000&&ageMs<=maxAgeMs;
   };
@@ -1786,10 +1787,10 @@ async function findNearestIMGW(lat,lng){
       rawStation:rawGlodowo
     };
 
-    if(dist<=30 && anyUsable){
+    if((dist<=80 && anyUsable) || (isSnapshot && dist<=80)){
       S.imgwDiag={
         ...S.imgwDiag,
-        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary} → ACCEPTED`,
+        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary||"aktywne"} → ACCEPTED`,
         used:true,
         reason:null
       };
@@ -1797,7 +1798,7 @@ async function findNearestIMGW(lat,lng){
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}° (fresh: ${normalized.freshFields.join(",")})`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      const rejectReason=dist>30?"za daleko (>30 km)":!anyUsable?`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`:"nieznany";
+      const rejectReason=dist>80?"za daleko (>80 km)":!anyUsable?`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`:"nieznany";
       S.imgwDiag={
         ...S.imgwDiag,
         status:`IMGW Głodowo: ${diagSummary} → REJECTED (${rejectReason}) → Active Ensemble`,
@@ -1851,6 +1852,12 @@ async function findNearestIMGW(lat,lng){
   best.fetchedAt=fetchedAt;
   best.ageMinutes=ageMinutes;
   best.isFresh=ageMinutes===null ? true : ageMinutes<180;
+  if(best.suma_opadu!=null){
+    const so=parseFloat(String(best.suma_opadu).replace(",","."));
+    best.opad_10min=Number.isFinite(so)?so:null;
+    best.opad10minFresh=best.isFresh&&Number.isFinite(so);
+    best.opad10minAgeMinutes=ageMinutes;
+  }
 
   return {best,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
 }
@@ -2771,14 +2778,14 @@ function computeCtx(){
   const code=currentStateCode;
   if (current) {
     current.weather_code = currentStateCode;
-    if (stationNoPrecip) {
+    if (stationNoPrecip || !isRainingActive) {
       current.precipitation = 0;
       current.rain = 0;
       current.showers = 0;
       current.snowfall = 0;
     }
   }
-  const precip=stationPrecip !== null ? stationPrecip : +(current.precipitation??(Number.isFinite(timelineNowMm)?timelineNowMm:0));
+  const precip=stationPrecip !== null ? stationPrecip : (stationNoPrecip || !isRainingActive ? 0 : +(current.precipitation??(Number.isFinite(timelineNowMm)?timelineNowMm:0)));
   const pop=g(hourly.precipitation_probability)??0;
   const uv=+(current.uv_index??g(hourly.uv_index)??0)||0;
   const uvClear=+(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)??0)||0;
@@ -3586,20 +3593,22 @@ function precipKindLabel(pr, pop, code){
 function currentRainMm(X){
   const stationPrecip=stationFreshPrecipMm(S.imgwData);
   if(stationPrecip!==null)return stationPrecip;
+  if(stationHasFreshNoPrecip(S.imgwData))return 0;
+  if(isSnowCode(X?.code))return 0;
   const timelineMm=currentTimelineMm(X);
   if(timelineMm!==null)return timelineMm;
-  if(isSnowCode(X?.code))return 0;
   const mm=Number(X?.precip);
   return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
+  if(stationHasFreshNoPrecip(S.imgwData))return false;
   const cloud=Number(X?.cloud??100);
   if(cloud<=15)return false;
   const mm=currentRainMm(X);
   return Number.isFinite(mm)&&mm>0.05;
 }
 
-function heroHTML(X){
+function heroInnerHTML(X){
   const chips=[];
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
@@ -3620,8 +3629,7 @@ function heroHTML(X){
     heroCode=cc<=15?0:cc<=40?1:cc<=70?2:3;
   }
   const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
-  return`<div id="s-hero">
-  <section class="hero">
+  return`<section class="hero">
     <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
     <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
@@ -3633,8 +3641,11 @@ function heroHTML(X){
     <div class="hero-metric"><div class="hm-label">${mini("sun")}UV</div><div class="hm-value tn">${fnum(X.uv,X.uv<10?1:0)}<small>${uvWord(X.uv)}</small></div></div>
     <div class="hero-metric"><div class="hm-label">${mini("cloud")}Chmury</div><div class="hm-value tn">${X.cloud}<small>%</small></div></div>
   </div>
-  <div class="chips">${chips.join("")}</div>
-  </div>`;
+  <div class="chips">${chips.join("")}</div>`;
+}
+
+function heroHTML(X){
+  return`<div id="s-hero">${heroInnerHTML(X)}</div>`;
 }
 
 function sunlineHTML(X){
@@ -4495,7 +4506,7 @@ function softUpdate(){
   const X=computeCtx();S.X=X;
   applySky(X);ambientFor(X);
   const set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
-  set("s-hero",heroHTML(X));
+  set("s-hero",heroInnerHTML(X));
   set("s-alerts",alertsHTML(X));
   set("s-nowcast",nowcastHTML(X));
   set("s-hourly",hourlyHTML(X));
@@ -5367,13 +5378,32 @@ function isVisibilityReducingPhenomenon(code, precipMm, imgwData){
   return fog||heavyPrecip;
 }
 function stationFreshPrecipMm(imgwData){
-  if(!imgwData||Number(imgwData.dist)>30||imgwData.opad10minFresh!==true)return null;
-  const mm=Number(imgwData.opad_10min);
-  return Number.isFinite(mm)&&mm>=0?mm:null;
+  if(!imgwData||Number(imgwData.dist)>80)return null;
+  if(imgwData.opad10minFresh===true && Number.isFinite(Number(imgwData.opad_10min))){
+    const mm=Number(imgwData.opad_10min);
+    return mm>=0?mm:null;
+  }
+  if(imgwData.opad_10min!=null && imgwData.isFresh!==false){
+    const mm=Number(imgwData.opad_10min);
+    if(Number.isFinite(mm)&&mm>=0)return mm;
+  }
+  if(imgwData.suma_opadu!=null && imgwData.isFresh!==false){
+    const mm=Number(imgwData.suma_opadu);
+    if(Number.isFinite(mm)&&mm>=0)return mm;
+  }
+  return null;
 }
 function stationHasFreshNoPrecip(imgwData){
+  if(!imgwData||Number(imgwData.dist)>80)return false;
   const mm=stationFreshPrecipMm(imgwData);
-  return mm!==null&&mm<=0;
+  if(mm!==null)return mm<=0.05;
+  if(imgwData.isFresh!==false){
+    const op10=Number(imgwData.opad_10min);
+    if(Number.isFinite(op10)&&op10<=0.05)return true;
+    const so=Number(imgwData.suma_opadu);
+    if(Number.isFinite(so)&&so<=0.05)return true;
+  }
+  return false;
 }
 function stationFreshGustKmH(imgwData){
   if(!imgwData||Number(imgwData.dist)>30||imgwData.porywWiatruFresh!==true)return null;
