@@ -1,0 +1,128 @@
+diff --git a/index.html b/index.html
+index 7aedea1..753650a 100644
+--- a/index.html
++++ b/index.html
+@@ -600,6 +600,7 @@ async function fetchIMGWAll(){
+ // Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
+ async function findNearestIMGW(lat,lng){
+   const all=await fetchIMGWAll();
++  const fetchedAt=Date.now(); // moment, w którym Aura dostała odpowiedź IMGW (nie wiek obserwacji)
+   if(!all||!Array.isArray(all)||all.length===0)return null;
+ 
+   const results=[];
+@@ -634,13 +635,22 @@ async function findNearestIMGW(lat,lng){
+ 
+   // Sprawdz swiezosc danych - IMGW aktualizuje co godzine
+   // pole data_pomiaru = "2026-08-07", godzina_pomiaru = "10"
+-  let ageMinutes = null;
++  // WAZNE: API IMGW (synop) podaje godzine pomiaru w UTC (bez minut i bez oznaczenia strefy).
++  // Wczesniej data byla parsowana jako czas lokalny urzadzenia, wiec wiek obserwacji byl zawyzony
++  // o przesuniecie strefy (2 h latem, 1 h zima) i stacja czesto byla bledne uznawana za nieaktualna.
++  let ageMinutes = null, observedAt = null;
+   if(best.data_pomiaru && best.godzina_pomiaru!=null){
+-    try{
+-      const obsDate = new Date(`${best.data_pomiaru}T${String(best.godzina_pomiaru).padStart(2,"0")}:00:00`);
+-      ageMinutes = Math.round((Date.now()-obsDate.getTime())/60000);
+-    }catch(e){}
++    const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
++    const hh=parseInt(best.godzina_pomiaru,10);
++    if(dm && Number.isFinite(hh) && hh>=0 && hh<=23){
++      observedAt = Date.UTC(+dm[1],+dm[2]-1,+dm[3],hh,0,0);
++      const rawAge=(fetchedAt-observedAt)/60000;
++      // obserwacja "z przyszlosci" (>30 min) oznacza zly zegar/strefe - nie udajemy, ze znamy wiek
++      ageMinutes = rawAge < -30 ? null : Math.max(0,Math.round(rawAge));
++    }
+   }
++  best.observedAt = observedAt;   // ms epoch (UTC) obserwacji IMGW
++  best.fetchedAt = fetchedAt;     // ms epoch pobrania przez Aure
+   best.ageMinutes = ageMinutes;
+   // Jesli dane starsze niz 3h - traktuj jako nieaktualne, nie uzywaj do nadpisywania
+   best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
+@@ -834,6 +844,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
+ const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+ const hhmm=iso=>new Date(iso).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"});
+ const dash=v=>v==null||Number.isNaN(v)?"–":v;
++const fmtAge=min=>{const m=Math.max(0,Math.round(min));if(m<60)return`${m} min temu`;const h=Math.floor(m/60),r=m%60;return r?`${h} h ${r} min temu`:`${h} h temu`;};
+ const fnum=(v,d=0)=>v==null||Number.isNaN(+v)?"–":(+v).toFixed(d).replace(".",",");
+ 
+ // Skala Beauforta w km/h (progi dolne dla 1..12)
+@@ -1133,9 +1144,11 @@ function heroHTML(X){
+   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
+   else if(S.imgwData){
+     const im=S.imgwData,stale=im.isFresh===false;
+-    const age=im.ageMinutes!=null?(im.ageMinutes<60?`${im.ageMinutes} min temu`:`${Math.round(im.ageMinutes/60)} h temu`):"";
++    // Wiek liczony z czasu OBSERWACJI IMGW (UTC), a nie z czasu pobrania przez Aurę
++    const age=im.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek pomiaru nieznany";
++    const obsAt=im.observedAt!=null?`pomiar z ${hhmm(im.observedAt)}, `:"";
+     const used=!stale&&im.dist<=80;
+-    chips.push(`<span class="chip ${stale?"warn":used?"ok":""}">${mini("sat")}${esc(im.stacja||im.name)}, ${im.dist} km${age?", "+age:""}${stale?" (nieaktualne)":""}</span>`);
++    chips.push(`<span class="chip ${stale?"warn":used?"ok":""}">${mini("sat")}${esc(im.stacja||im.name)}, ${im.dist} km, ${obsAt}${age}${stale?" (nieaktualne)":""}</span>`);
+   }
+   const o=oknoStats();
+   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
+@@ -1324,11 +1337,53 @@ function wFeels(X){
+   const txt=diff<=-2?"Chłodniej niż wskazuje termometr, głównie przez wiatr.":diff>=2?"Cieplej niż wskazuje termometr, dokłada się wilgotność lub słońce.":"Zbliżona do temperatury rzeczywistej.";
+   return`<div class="w"><div class="wh">${mini("thermo")}Odczuwalna</div><div class="wv tn">${Math.round(X.feels)}°<small>${d.label}</small></div><div class="ws">${txt}</div></div>`;
+ }
++// Rosa x/15 — przywrócona istniejąca logika calculateLeafWetness() z Aura Pogoda v1.0
++// (repo Pogoda-API, src/utils/weatherUtils.ts, skala 0–15 zwilżenia/rosy). Progi i przedziały punktów bez zmian.
++// Wartość wynika przede wszystkim z różnicy T − punkt rosy; pomocniczo: wilgotność, wiatr, zachmurzenie, dzień/noc, opad.
++// Jedyna zmiana względem oryginału: zachmurzenie osłabia nocne/dzienne wychładzanie radiacyjne (wcześniej nieużywane).
++// Punkt rosy pochodzi z istniejącej dewPoint() albo ze stacji IMGW — nie ma tu drugiego algorytmu.
++function dewWetness(o){
++  const temp=o.temp,dew=o.dew;
++  if(!Number.isFinite(temp)||!Number.isFinite(dew))return null;
++  const h=Number.isFinite(o.hum)?clamp(o.hum,0,100):50;
++  const w=Number.isFinite(o.wind)?Math.max(0,o.wind):10;
++  const night=o.isDay===false||o.isDay===0;
++  const code=Number.isFinite(o.code)?o.code:null;
++  const p=Number.isFinite(o.precip)?Math.max(0,o.precip):0;
++  const isPrecipCode=code!=null&&code>=50&&code<=99;
++  const isRecentPrecipCode=code!=null&&code>=20&&code<=29;
++  const isFogCode=code===45||code===48;
++  // 1. Opad ma pierwszeństwo (jak w oryginale)
++  if(p>0.05)return{score:Math.min(15,Math.max(12,Math.round(12+Math.min(3,p*2)))),label:"Zwilżenie deszczowe"};
++  if(p>0)return{score:11,label:"Śladowy opad"};
++  if(isPrecipCode)return{score:10,label:"Mokry liść, mżawka"};
++  // 2. Kondensacja: efektywna różnica T − Td (po odjęciu wychładzania radiacyjnego liścia)
++  const rawDepression=Math.max(0,temp-dew);
++  const calmFactor=Math.max(0.15,1-Math.min(1,w/28));                  // wiatr miesza powietrze i osusza liście
++  const clearFactor=Number.isFinite(o.cloud)?1-0.75*clamp(o.cloud,0,100)/100:1; // chmury ograniczają wychładzanie
++  const radiativeDrop=(night?2.3:0.4)*calmFactor*clearFactor;
++  const eff=Math.max(0,rawDepression-radiativeDrop);
++  let sc=0;
++  if(eff<=0.5||h>=95||(isFogCode&&h>=88)){
++    sc=Math.min(11,Math.max(8,eff<=0.2?11:eff<=0.4?10:9));
++  }else if(eff<=1.8||h>=84||(isFogCode&&h>=75)){
++    sc=Math.min(7,Math.max(4,Math.round(7-((eff-0.5)/1.3)*3)));
++  }else if(eff<=3.8||(night&&h>=68)||(!night&&h>=74)){
++    sc=Math.min(3,Math.max(2,eff<=2.8||h>=75?3:2));
++  }else if(eff<=5.0&&night&&w<=12){
++    sc=1;
++  }
++  if(isRecentPrecipCode&&sc<6&&h>=70)sc=Math.min(8,sc+3);
++  if(w>20&&sc>0&&sc<=7)sc=Math.max(0,sc-1);
++  sc=Math.min(15,Math.max(0,sc));
++  const label=sc>=12?"Mokry liść":sc>=8?(night?"Obfita rosa nocna":"Obfita rosa poranna"):sc>=4?"Lekka rosa":sc>=2?(night?"Możliwa rosa nocna":"Śladowa wilgoć"):sc===1?"Prawie sucho":"Sucho";
++  return{score:sc,label};
++}
+ function wHum(X){
+-  const dp=X.dewStation!=null?X.dewStation:X.dew,w=dp==null?"":dp<5?"Bardzo sucho":dp<10?"Sucho":dp<16?"Komfortowo":dp<20?"Parno":"Duszno";
+-  const txt=X.dewStation!=null
+-    ?`Punkt rosy ${Math.round(X.dewStation)}° · stacja IMGW${w?`<br>${w}`:""}.`
+-    :`Punkt rosy ${dp==null?"–":Math.round(dp)+"°"}${w?`, ${w.toLowerCase()}`:""}.`;
++  const dp=X.dewStation!=null?X.dewStation:X.dew;
++  const r=dewWetness({temp:X.T,dew:dp,hum:X.hum,wind:X.wind,cloud:X.cloud,isDay:X.isDay,code:X.code,precip:X.precip});
++  const dpTxt=dp==null?"–":Math.round(dp)+"°C";
++  const txt=`<b style="color:var(--ink);font-weight:600">Rosa ${r?r.score+"/15":"–"}</b> · punkt rosy ${dpTxt}${r?`<br>${r.label}`:""}${X.dewStation!=null?`<br>Punkt rosy ze stacji IMGW`:""}`;
+   return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">${txt}</div></div>`;
+ }
+ function wPress(X){
+@@ -1429,6 +1484,7 @@ function stationHTML(){
+   const stale=im.isFresh===false;
+   return`<section class="card"><div class="ch">${mini("sat")}<span class="grow">Stacja IMGW, ${esc(im.stacja||im.name)}</span><span class="chip ${stale?"warn":"ok"}">${im.dist} km</span></div>
+     <div class="stg">${rows.map(r=>`<div><small>${r[0]}</small><b class="tn">${esc(r[1])}</b></div>`).join("")}</div>
++    ${im.observedAt!=null?`<div class="note">Pomiar IMGW z ${hhmm(im.observedAt)} (czas lokalny)${im.ageMinutes!=null?`, ${fmtAge(im.ageMinutes)}`:""}. Aura pobrała dane o ${hhmm(im.fetchedAt)}.</div>`:""}
+     <div class="note">${stale?"Pomiar jest starszy niż 3 godziny, więc nie nadpisuje prognozy. ":im.dist>80?"Stacja jest dalej niż 80 km, więc pokazujemy jej pomiar, ale nie nadpisujemy nim prognozy. ":"Świeży pomiar zastępuje temperaturę, wilgotność, wiatr i ciśnienie z modelu. "}Stacje IMGW raportują co godzinę.</div></section>`;
+ }
+ 

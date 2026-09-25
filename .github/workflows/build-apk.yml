@@ -1,0 +1,43 @@
+name: Buduj Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    name: Budowanie gotowego pliku APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Klonowanie repozytorium
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Konfiguracja Gradle 8.5
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Kompilacja i budowanie pliku APK
+        run: |
+          cd android
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          gradle assembleDebug --stacktrace --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../Aura-Pogoda.apk
+          cd ..
+          ls -lh Aura-Pogoda.apk
+
+      - name: Zapisz gotowy plik APK jako artefakt do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aura-Pogoda-Android-APK
+          path: Aura-Pogoda.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="theme-color" content="#141a27"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Zza okna"/>
+<link rel="icon" href="icon-192.png"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<title>Zza okna</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--wall:#141a27;--wall2:#1b2233;--ink:#F3F6FB;--ink2:rgba(243,246,251,.74);--ink3:rgba(243,246,251,.5);--line:rgba(255,255,255,.12);--card:rgba(255,255,255,.06);--sun:#FFC857;--ok:#63E6A4;--warn:#FFB454;--bad:#FF7B7B}
+html{background:var(--wall)}
+body{overflow-x:clip;min-height:100dvh;font-family:Figtree,"Segoe UI Variable Text","Segoe UI",Roboto,system-ui,-apple-system,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.35;font-size:15px;background:radial-gradient(120% 60% at 50% 0%,#232c44 0%,var(--wall) 60%)}
+button,input{font:inherit;color:inherit;border:0;outline:0;background:none}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--sun);outline-offset:2px;border-radius:10px}
+svg{display:block}
+[hidden]{display:none!important}
+.tn{font-variant-numeric:tabular-nums}
+#app{max-width:520px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top)) 14px calc(48px + env(safe-area-inset-bottom))}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.bar .grow{flex:1}
+.ib{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;background:var(--card);border:1px solid var(--line);flex:none;text-decoration:none;color:inherit}
+.ib svg{width:19px;height:19px}
+.locb{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-weight:600;font-size:14px;max-width:60%}
+.locb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.locb svg{width:15px;height:15px;flex:none}
+h1{font-size:34px;font-weight:300;letter-spacing:-1px;line-height:1.05;margin:2px 2px 6px}
+.lead{color:var(--ink2);margin:0 2px 16px;max-width:36ch}
+
+/* okno */
+.win{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px;border-radius:20px;background:#EFEAE0;box-shadow:0 26px 60px rgba(0,0,0,.5),inset 0 0 0 2px rgba(0,0,0,.07)}
+.pane{position:relative;border-radius:9px;overflow:hidden;aspect-ratio:1/1.05;background:#0d1322;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35),inset 0 6px 14px rgba(0,0,0,.25)}
+.pane svg{position:absolute;inset:0;width:100%;height:100%}
+.cap{position:absolute;left:8px;top:8px;z-index:2;padding:3px 10px;border-radius:999px;background:rgba(10,15,28,.62);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);font-size:12.5px;font-weight:600}
+.ph{position:absolute;inset:0;display:grid;place-items:center;padding:16px;text-align:center;color:var(--ink2);font-size:14px}
+.winw{position:sticky;top:0;z-index:6;padding:6px 0 10px;margin:0 -4px;background:linear-gradient(var(--wall) 82%,transparent)}
+.winw .win{margin:0 4px}
+.rr{padding:12px 0;border-top:1px solid var(--line)}
+.rr:first-of-type{border-top:0}
+.rn{font-weight:600;margin-bottom:6px}
+#res{scroll-margin-top:236px}
+.rl{display:grid;grid-template-columns:54px 1fr auto;gap:8px;align-items:baseline;font-size:14px;padding:2px 0}
+.rl span:first-child{color:var(--ink3);font-size:12.5px}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 2px 0;font-size:12.5px;color:var(--ink2)}
+.readout div:last-child{text-align:left}
+
+@keyframes fall{from{transform:translateY(-20px)}to{transform:translateY(170px)}}
+@keyframes flake{0%{transform:translate(0,-10px)}50%{transform:translate(6px,80px)}100%{transform:translate(-2px,170px)}}
+@keyframes sway{0%,100%{transform:rotate(calc(var(--amp)*-1))}50%{transform:rotate(var(--amp))}}
+@keyframes drift{from{transform:translateX(-50px);opacity:0}20%,80%{opacity:.6}to{transform:translateX(170px);opacity:0}}
+@keyframes flash{0%,86%,100%{opacity:0}88%,94%{opacity:1}91%{opacity:.2}}
+@keyframes fog{0%,100%{transform:translateX(-6px)}50%{transform:translateX(6px)}}
+.drop{animation:fall linear infinite}
+.flake{animation:flake linear infinite}
+.tree{transform-origin:60px 124px;animation:sway var(--dur) ease-in-out infinite}
+.streak{animation:drift linear infinite}
+.bolt{animation:flash 5s linear infinite}
+.fogb{animation:fog 9s ease-in-out infinite}
+
+/* wybór */
+.grp{margin:20px 2px 0}
+.gt{font-weight:600;font-size:15px;margin-bottom:2px}
+.gh{color:var(--ink3);font-size:12.5px;margin-bottom:9px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{padding:10px 14px;border-radius:16px;background:var(--card);border:1px solid var(--line);text-align:left;font-weight:500;font-size:14.5px;line-height:1.2}
+.opt small{display:block;color:var(--ink3);font-size:12px;font-weight:400;margin-top:2px}
+.opt[aria-pressed="true"]{background:var(--sun);border-color:transparent;color:#1a1300}
+.opt[aria-pressed="true"] small{color:rgba(26,19,0,.7)}
+.numf{display:flex;align-items:center;gap:10px;margin-top:10px}
+.numf input{width:130px;padding:11px 14px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:16px}
+.numf label{color:var(--ink2);font-size:13.5px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 18px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-weight:600;font-size:14.5px}
+.btn:active{transform:scale(.98)}
+.btn.pri{background:var(--sun);color:#1a1300;border-color:transparent}
+.btn.wide{width:100%;padding:16px;font-size:16px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn svg{width:18px;height:18px}
+a.btn{text-decoration:none;color:inherit}
+.card{background:var(--card);border:1px solid var(--line);border-radius:26px;padding:16px;margin-top:16px}
+.ch{display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--ink2);font-size:13.5px;font-weight:600}
+.ch svg{width:16px;height:16px}
+.ch .grow{flex:1}
+.verdict{font-size:24px;font-weight:500;letter-spacing:-.4px;line-height:1.15}
+.vsub{color:var(--ink2);margin:6px 0 14px;font-size:14px}
+.rt{width:100%;border-collapse:collapse;font-size:14px}
+.rt th{font-weight:500;color:var(--ink3);text-align:left;font-size:12.5px;padding:0 6px 8px 0}
+.rt td{padding:10px 6px 10px 0;border-top:1px solid var(--line);vertical-align:top}
+.rt td:first-child{font-weight:600}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.st i{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block}
+.st.ok{color:var(--ok)}.st.mid{color:var(--warn)}.st.no{color:var(--bad)}
+.note{font-size:12.5px;color:var(--ink3);margin-top:10px;line-height:1.45}
+.stg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stg div{background:rgba(255,255,255,.06);border-radius:16px;padding:10px 12px}
+.stg small{display:block;color:var(--ink3);font-size:12px;margin-bottom:2px}
+.stg b{font-size:20px;font-weight:600}
+.bars{margin-top:14px;display:grid;gap:9px}
+.brow{display:grid;grid-template-columns:96px 1fr 40px;gap:10px;align-items:center;font-size:13.5px;color:var(--ink2)}
+.brow div{height:7px;border-radius:7px;background:rgba(255,255,255,.12);overflow:hidden}
+.brow b{display:block;height:100%;border-radius:7px;background:var(--sun)}
+.brow span:last-child{text-align:right}
+.hist{display:grid;gap:0}
+.hrow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.hrow:first-child{border-top:0}
+.hrow small{display:block;color:var(--ink3);font-size:12px}
+.x{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;color:var(--ink3)}
+.x svg{width:16px;height:16px}
+.field{position:relative;margin:10px 0 6px}
+.field input{width:100%;padding:14px 16px;border-radius:16px;background:var(--card);border:1px solid var(--line);font-size:16px}
+.ddi{display:flex;width:100%;gap:10px;align-items:center;padding:12px 10px;border-radius:12px;text-align:left}
+.ddi:active{background:rgba(255,255,255,.08)}
+.err{padding:12px 14px;border-radius:16px;background:rgba(255,123,123,.15);border:1px solid rgba(255,123,123,.35);font-size:14px;margin:0 0 12px}
+.sk{border-radius:20px;height:120px;background:linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.05) 75%);background-size:200% 100%;animation:sh 1.5s infinite}
+@keyframes sh{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.busy svg{animation:spin .8s linear infinite}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+const IMGW_STATIONS = [
+  // Kujawsko-Pomorskie (Twoj region)
+  {id:"152170010",name:"Toruń",lat:53.0583,lng:18.5983},
+  {id:"152160020",name:"Włocławek",lat:52.6500,lng:19.0667},
+  {id:"152170040",name:"Chojnice",lat:53.7000,lng:17.5500},
+  {id:"152160030",name:"Bydgoszcz",lat:53.1333,lng:18.0000},
+  {id:"152170050",name:"Grudziądz",lat:53.4833,lng:18.7500},
+  // Mazowieckie
+  {id:"152200010",name:"Warszawa Okęcie",lat:52.1667,lng:20.9667},
+  {id:"152200020",name:"Legionowo",lat:52.4000,lng:20.9667},
+  {id:"152200030",name:"Siedlce",lat:52.1667,lng:22.2833},
+  // Lodzkie
+  {id:"152210010",name:"Łódź",lat:51.7333,lng:19.3833},
+  {id:"152210020",name:"Wieluń",lat:51.2167,lng:18.5667},
+  // Wielkopolskie
+  {id:"152140010",name:"Poznań",lat:52.4000,lng:16.8333},
+  {id:"152140020",name:"Kalisz",lat:51.7500,lng:18.0833},
+  {id:"152140030",name:"Koło",lat:52.2000,lng:18.6333},
+  // Pomorskie
+  {id:"152110010",name:"Gdańsk",lat:54.3833,lng:18.6333},
+  {id:"152110020",name:"Hel",lat:54.6000,lng:18.8000},
+  {id:"152110030",name:"Leba",lat:54.7500,lng:17.5333},
+  // Warminsko-Mazurskie
+  {id:"152120010",name:"Olsztyn",lat:53.7667,lng:20.4333},
+  {id:"152120020",name:"Giżycko",lat:54.0333,lng:21.7667},
+  // Slaskie
+  {id:"152250010",name:"Katowice",lat:50.2333,lng:19.0333},
+  {id:"152250020",name:"Częstochowa",lat:50.8167,lng:19.1333},
+  // Malopolskie
+  {id:"152260010",name:"Kraków",lat:50.0667,lng:19.9167},
+  {id:"152260020",name:"Zakopane",lat:49.3000,lng:19.9500},
+  // Dolnoslaskie
+  {id:"152230010",name:"Wrocław",lat:51.1000,lng:16.8833},
+  {id:"152230020",name:"Jelenia Góra",lat:50.9000,lng:15.7333},
+  // Lubelskie
+  {id:"152220010",name:"Lublin",lat:51.2333,lng:22.3833},
+  // Podkarpackie
+  {id:"152270010",name:"Rzeszów",lat:50.1167,lng:22.0333},
+  // Podlaskie
+  {id:"152130010",name:"Białystok",lat:53.1000,lng:23.1667},
+  {id:"152130020",name:"Suwałki",lat:54.1000,lng:22.9500},
+  // Zachodniopomorskie
+  {id:"152100010",name:"Szczecin",lat:53.4167,lng:14.6167},
+  {id:"152100020",name:"Koszalin",lat:54.2000,lng:16.1500},
+  // Lubuskie
+  {id:"152150010",name:"Zielona Góra",lat:51.9333,lng:15.5000},
+  // Swietokrzyskie
+  {id:"152240010",name:"Kielce",lat:50.8667,lng:20.6333},
+  // Opolskie
+  {id:"152320010",name:"Opole",lat:50.6833,lng:17.9500},
+];
+
+// Haversine distance w km
+function stationDist(lat1,lng1,lat2,lng2){
+  const R=6371,d2r=Math.PI/180;
+  const dLat=(lat2-lat1)*d2r,dLng=(lng2-lng1)*d2r;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*d2r)*Math.cos(lat2*d2r)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// Pobierz dane ze wszystkich stacji IMGW
+async function fetchIMGWAll(){
+  try{
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/synop/",{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    console.log(`IMGW: pobrano ${data.length} stacji`);
+    return data;
+  }catch(e){console.warn("IMGW API niedostepne:",e.message);return null;}
+}
+
+// Znajdz najblizsze stacje IMGW i zwroc liste posortowana wg odleglosci
+async function findNearestIMGW(lat,lng){
+  const all=await fetchIMGWAll();
+  if(!all||!Array.isArray(all)||all.length===0)return null;
+
+  const results=[];
+  all.forEach(s=>{
+    // Dopasuj dane API do wspolrzednych ze slownika
+    const known=IMGW_STATIONS.find(k=>{
+      const nameMatch=s.stacja&&(
+        s.stacja.toLowerCase()===k.name.toLowerCase()||
+        s.stacja.toLowerCase().includes(k.name.toLowerCase())||
+        k.name.toLowerCase().includes(s.stacja.toLowerCase())
+      );
+      const idMatch=s.id_stacji&&(s.id_stacji===k.id||s.id_stacji.includes(k.id)||k.id.includes(s.id_stacji));
+      return nameMatch||idMatch;
+    });
+    if(!known)return;
+    const dist=stationDist(lat,lng,known.lat,known.lng);
+    results.push({
+      ...s,
+      ...known,
+      dist:Math.round(dist*10)/10
+    });
+  });
+
+  // Sortuj od najblizszej
+  results.sort((a,b)=>a.dist-b.dist);
+
+  if(results.length===0)return null;
+
+  const best=results[0];
+  console.log(`Najblizsa stacja IMGW: ${best.stacja||best.name} (${best.dist} km)`);
+  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
+
+  // Sprawdz swiezosc danych - IMGW aktualizuje co godzine
+  // pole data_pomiaru = "2026-08-07", godzina_pomiaru = "10"
+  let ageMinutes = null;
+  if(best.data_pomiaru && best.godzina_pomiaru!=null){
+    try{
+      const obsDate = new Date(`${best.data_pomiaru}T${String(best.godzina_pomiaru).padStart(2,"0")}:00:00`);
+      ageMinutes = Math.round((Date.now()-obsDate.getTime())/60000);
+    }catch(e){}
+  }
+  best.ageMinutes = ageMinutes;
+  // Jesli dane starsze niz 3h - traktuj jako nieaktualne, nie uzywaj do nadpisywania
+  best.isFresh = ageMinutes===null ? true : ageMinutes < 180;
+
+  // Zwroc najblizsa stacje + liste wszystkich w promieniu 100km
+  return {
+    best,
+    nearby:results.filter(r=>r.dist<=100).slice(0,5)
+  };
+}
+
+// ═══════════════════════════════════════════════
+// Zza okna — sprawdza prognozę i stację IMGW z tym, co widać naprawdę
+// Dziennik: localStorage "okno_log" (czyta go też Aura Pogoda)
+// ═══════════════════════════════════════════════
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad=n=>String(n).padStart(2,"0");
+const f1=v=>v==null||Number.isNaN(+v)?"–":(+v).toFixed(1).replace(".",",");
+const LOG_KEY="okno_log";
+
+const IC={
+  back:'<path d="M15 5l-7 7 7 7"/>',pin:'<path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.500C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/>',
+  refresh:'<path d="M20 11a8 8 0 1 0-2.300 5.700"/><path d="M20 4v7h-7"/>',close:'<path d="M6 6l12 12M18 6L6 18"/>',
+  chart:'<path d="M4 19V5M4 19h16M8 15l4-5 3 3 5-6"/>',clock:'<circle cx="12" cy="12" r="8.500"/><path d="M12 7.500V12l3 2"/>',
+  check:'<path d="M5 12.500l4.500 4.500L19 7.500"/>',copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'
+};
+const ic=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
+
+// ── kategorie
+const SKY=[{k:"clear",l:"Bezchmurnie",h:"prawie samo niebieskie"},{k:"few",l:"Małe zachmurzenie",h:"kilka obłoków"},{k:"many",l:"Duże zachmurzenie",h:"więcej chmur niż nieba"},{k:"overcast",l:"Pochmurno",h:"jednolita szara pokrywa"},{k:"fog",l:"Mgła",h:"widać tylko bliskie rzeczy"}];
+const PRE=[{k:"none",l:"Brak opadów"},{k:"drizzle",l:"Mżawka",h:"ledwo czuć"},{k:"rain",l:"Deszcz"},{k:"heavy",l:"Ulewa",h:"leje"},{k:"snow",l:"Śnieg"},{k:"storm",l:"Burza"}];
+const WND=[{l:"Cisza",h:"dym idzie prosto w górę"},{l:"Lekki",h:"liście szeleszczą"},{l:"Umiarkowany",h:"gałęzie się kołyszą"},{l:"Silny",h:"duże gałęzie, drzewa się uginają"},{l:"Bardzo silny",h:"trudno iść pod wiatr"}];
+const FEEL=[{l:"Mróz",h:"do 0°"},{l:"Zimno",h:"1–8°"},{l:"Chłodno",h:"9–15°"},{l:"Przyjemnie",h:"16–22°"},{l:"Ciepło",h:"23–28°"},{l:"Upał",h:"od 29°"}];
+const lab=(arr,k)=>{const x=arr.find(a=>a.k===k);return x?x.l:"–";};
+
+const skyOf=(cloud,code,visKm)=>(code===45||code===48||(visKm!=null&&visKm<1))?"fog":cloud<15?"clear":cloud<40?"few":cloud<80?"many":"overcast";
+const preOf=(code,mm)=>code>=95?"storm":((code>=71&&code<=77)||code===85||code===86)?"snow":(mm>=2.5||code===65||code===82)?"heavy":(mm>=.2||[61,63,66,67,80,81].includes(code))?"rain":((code>=51&&code<=57)||mm>0)?"drizzle":"none";
+const windIdx=k=>k<6?0:k<20?1:k<39?2:k<62?3:4;
+const feelIdx=t=>t<1?0:t<9?1:t<16?2:t<23?3:t<29?4:5;
+
+const distSky=(o,m)=>{
+  if(o===m)return 0;
+  if(o==="fog"||m==="fog")return(o==="overcast"||m==="overcast")?1:2;
+  const ord={clear:0,few:1,many:2,overcast:3};return Math.abs(ord[o]-ord[m])>=2?2:1;
+};
+const distPre=(o,m)=>{
+  if(o===m)return 0;
+  const ord={none:0,drizzle:1,rain:2,heavy:3};
+  if(o in ord&&m in ord)return Math.abs(ord[o]-ord[m])===1?1:2;
+  if(o==="storm"||m==="storm"){const x=o==="storm"?m:o;return(x==="heavy"||x==="rain")?1:2;}
+  const x=o==="snow"?m:o;return(x==="rain"||x==="drizzle")?1:2;
+};
+const distOrd=(a,b)=>{const d=Math.abs(a-b);return d>=2?2:d;};
+const distTemp=e=>{const a=Math.abs(e);return a<=1.5?0:a<=3?1:2;};
+const STW=["trafione","blisko","pudło"],STC=["ok","mid","no"];
+const stHTML=d=>d==null?"":`<span class="st ${STC[d]}"><i></i>${STW[d]}</span>`;
+
+// ── scena za oknem (SVG)
+let SID=0;
+function scene(sky,pre,windI,isDay){
+  const id="s"+(++SID);
+  const rnd=i=>{const x=Math.sin(i*127.1+SID*31.7)*43758.5453;return x-Math.floor(x);};
+  const PAL={day:{clear:["#2F80DA","#9CD2F4"],few:["#4590DC","#A6D3F0"],many:["#688FB6","#B3C5D5"],overcast:["#77858F","#AAB4BC"],fog:["#A3ADB4","#D2D8DC"]},
+             night:{clear:["#0A1230","#22335E"],few:["#0F1838","#2A3A63"],many:["#1B2338","#3A465D"],overcast:["#1D2430","#3B4655"],fog:["#2D3640","#55606A"]}};
+  const [t,b]=PAL[isDay?"day":"night"][sky];
+  const wet=pre==="drizzle"||pre==="rain"||pre==="heavy"||pre==="storm";
+  const dim=pre==="storm"?.38:pre==="heavy"?.28:pre==="rain"?.18:pre==="drizzle"?.08:0;
+  const cf=isDay?(sky==="overcast"?(wet?"#7B8794":"#94A1AD"):"#F4F7FA"):(sky==="overcast"?"#3A4556":"#465267");
+  const cloud=(x,y,s,o=1)=>`<g transform="translate(${x} ${y}) scale(${s})" fill="${cf}" opacity="${o}"><circle cx="0" cy="0" r="8"/><circle cx="10" cy="-4" r="10"/><circle cx="21" cy="1" r="7"/><rect x="0" y="0" width="21" height="8"/></g>`;
+  let g=`<defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${t}"/><stop offset="1" stop-color="${b}"/></linearGradient>
+    <mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="150"><rect width="120" height="150" fill="#fff"/><circle cx="92" cy="30" r="10" fill="#000"/></mask>
+    <linearGradient id="${id}f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity=".75"/></linearGradient></defs>
+    <rect width="120" height="150" fill="url(#${id}g)"/>`;
+  if(sky==="clear"||sky==="few"||(sky==="many"&&!wet)){
+    g+=isDay?`<circle cx="86" cy="34" r="22" fill="#FFE9A0" opacity=".28"/><circle cx="86" cy="34" r="11" fill="#FFD25A"/>`
+            :`<circle cx="86" cy="34" r="10.500" fill="#F4F1DC" mask="url(#${id}m)" transform="translate(-6 4)"/>`;
+    if(!isDay&&sky==="clear")for(let i=0;i<14;i++)g+=`<circle cx="${(rnd(i)*110+4).toFixed(1)}" cy="${(rnd(i+40)*70+4).toFixed(1)}" r=".7" fill="#fff" opacity="${(.4+rnd(i+9)*.6).toFixed(2)}"/>`;
+  }
+  if(sky==="few")g+=cloud(14,44,1)+cloud(70,62,.8,.9);
+  if(sky==="many")g+=cloud(8,34,1.2)+cloud(56,50,1.3)+cloud(84,24,1)+cloud(24,68,1.1);
+  if(sky==="overcast")g+=cloud(4,30,1.7)+cloud(52,22,1.8)+cloud(86,40,1.5)+cloud(16,58,1.6)+cloud(66,64,1.5);
+  if(sky==="fog")g+=`<rect y="40" width="120" height="110" fill="url(#${id}f)"/><rect class="fogb" x="-10" y="70" width="140" height="14" rx="7" fill="#fff" opacity=".35"/><rect class="fogb" x="-4" y="92" width="140" height="12" rx="6" fill="#fff" opacity=".3" style="animation-delay:-3s"/>`;
+  if(dim)g+=`<rect width="120" height="150" fill="#000" opacity="${dim}"/>`;
+  const drops=(n,len,w,dur,op)=>{let s="";for(let i=0;i<n;i++){const x=(rnd(i)*125-2).toFixed(1);s+=`<line class="drop" x1="${x}" y1="0" x2="${(x-len*.18).toFixed(1)}" y2="${len}" stroke="rgba(205,228,255,${op})" stroke-width="${w}" style="animation-duration:${(dur*(.8+rnd(i+7)*.5)).toFixed(2)}s;animation-delay:-${(rnd(i+3)*dur*2).toFixed(2)}s"/>`;}return s;};
+  if(pre==="drizzle")g+=drops(18,6,.7,1.3,.55);
+  if(pre==="rain")g+=drops(26,10,1,.8,.7);
+  if(pre==="heavy"||pre==="storm")g+=drops(44,14,1.2,.55,.75);
+  if(pre==="snow"){for(let i=0;i<26;i++)g+=`<circle class="flake" cx="${(rnd(i)*118+1).toFixed(1)}" cy="0" r="${(1+rnd(i+5)*1.2).toFixed(1)}" fill="#fff" opacity=".9" style="animation-duration:${(5+rnd(i+2)*4).toFixed(1)}s;animation-delay:-${(rnd(i+8)*9).toFixed(1)}s"/>`;}
+  if(pre==="storm")g+=`<polygon class="bolt" points="62,30 50,66 59,66 53,98 76,54 65,54 71,30" fill="#FFF3A6"/>`;
+  if(windI>=2)for(let i=0;i<3+windI;i++){const y=(28+rnd(i+11)*70).toFixed(1);g+=`<line class="streak" x1="0" y1="${y}" x2="${(14+rnd(i)*14).toFixed(1)}" y2="${y}" stroke="#fff" stroke-width=".8" stroke-linecap="round" opacity=".6" style="animation-duration:${(2.6-windI*.3+rnd(i+4)).toFixed(2)}s;animation-delay:-${(rnd(i+2)*3).toFixed(1)}s"/>`;}
+  const AMP=[.4,1.8,4,7.5,11][windI],DUR=[6,3.6,2.3,1.4,.9][windI];
+  const leaf=isDay?"#2E6B3E":"#173323",trunk=isDay?"#4A392C":"#231b15";
+  g+=`<rect y="122" width="120" height="28" fill="${wet?(isDay?"#2A3B44":"#141d24"):(isDay?"#26382C":"#0f1a14")}"/>
+    <g class="tree" style="--amp:${AMP}deg;--dur:${DUR}s"><rect x="58" y="92" width="4" height="32" fill="${trunk}"/><circle cx="60" cy="84" r="15" fill="${leaf}"/><circle cx="49" cy="95" r="10" fill="${leaf}"/><circle cx="71" cy="95" r="10" fill="${leaf}"/></g>`;
+  return`<svg viewBox="0 0 120 150" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Widok za oknem: ${lab(SKY,sky)}, ${lab(PRE,pre)}">${g}</svg>`;
+}
+
+// ── dane
+const St={loc:null,now:null,loading:true,err:"",obs:{sky:null,pre:null,wind:null,feel:null,temp:""},res:null,locOpen:false,search:[],confirmClear:false,gpsBusy:false};
+
+function initLoc(){
+  try{const c=JSON.parse(localStorage.getItem("aura_v6")||"null");if(c&&c.lat!=null)return{lat:c.lat,lng:c.lng,city:c.city};}catch{}
+  try{const c=JSON.parse(localStorage.getItem("okno_loc")||"null");if(c&&c.lat!=null)return c;}catch{}
+  return null;
+}
+async function fetchNow(lat,lng){
+  const p=new URLSearchParams({latitude:lat,longitude:lng,current:"temperature_2m,apparent_temperature,relative_humidity_2m,is_day,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m",hourly:"visibility",forecast_days:"1",timezone:"auto",models:"best_match"});
+  const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  const d=await r.json(),c=d.current;
+  const hi=(d.hourly?.time||[]).findIndex(t=>t.startsWith(`${new Date().getFullYear()}-${pad(new Date().getMonth()+1)}-${pad(new Date().getDate())}T${pad(new Date().getHours())}`));
+  const vis=hi>=0&&d.hourly.visibility?d.hourly.visibility[hi]/1000:null;
+  const m={temp:c.temperature_2m,app:c.apparent_temperature,cloud:c.cloud_cover,code:c.weather_code,mm:+(c.precipitation||0),kmh:c.wind_speed_10m,gust:c.wind_gusts_10m,hum:c.relative_humidity_2m,isDay:c.is_day===1,vis,ts:Date.now()};
+  m.sky=skyOf(m.cloud,m.code,vis);m.pre=preOf(m.code,m.mm);m.wind=windIdx(m.kmh);m.feel=feelIdx(m.app);
+  let st=null;
+  try{
+    const im=await findNearestIMGW(lat,lng);
+    if(im&&im.best){const b=im.best,t=parseFloat(b.temperatura),w=parseFloat(b.predkosc_wiatru)*3.6;
+      if(b.isFresh!==false&&b.dist<=80&&!isNaN(t))st={name:b.stacja||b.name,dist:b.dist,age:b.ageMinutes,temp:t,kmh:isNaN(w)?null:w};}
+  }catch{}
+  return{m,st};
+}
+async function loadNow(){
+  if(!St.loc)return;
+  St.loading=true;St.err="";render();
+  try{St.now=await fetchNow(St.loc.lat,St.loc.lng);}
+  catch(e){St.err="Nie udało się pobrać prognozy. Sprawdź połączenie i spróbuj ponownie.";}
+  St.loading=false;render();
+}
+
+// ── dziennik
+const getLog=()=>{try{return JSON.parse(localStorage.getItem(LOG_KEY)||"[]");}catch{return[];}};
+const setLog=a=>{try{localStorage.setItem(LOG_KEY,JSON.stringify(a.slice(-300)));}catch{}};
+const PTS=v=>v===0?1:v===1?.5:0;
+
+function compare(){
+  const {m,st}=St.now,o=St.obs;
+  const tn=o.temp!==""&&!isNaN(parseFloat(o.temp.replace(",",".")))?parseFloat(o.temp.replace(",",".")):null;
+  const score={sky:distSky(o.sky,m.sky),precip:distPre(o.pre,m.pre),wind:distOrd(o.wind,m.wind),temp:tn!=null?distTemp(m.temp-tn):distOrd(o.feel,m.feel)};
+  const stScore=st?{wind:st.kmh!=null?distOrd(o.wind,windIdx(st.kmh)):null,temp:tn!=null?distTemp(st.temp-tn):distOrd(o.feel,feelIdx(st.temp))}:null;
+  return{ts:Date.now(),lat:St.loc.lat,lng:St.loc.lng,city:St.loc.city,
+    obs:{sky:o.sky,pre:o.pre,wind:o.wind,feel:o.feel,temp:tn},
+    model:{sky:m.sky,pre:m.pre,wind:m.wind,feel:m.feel,temp:m.temp,app:m.app,cloud:m.cloud,mm:m.mm,kmh:m.kmh,code:m.code},
+    st:st?{name:st.name,dist:st.dist,temp:st.temp,kmh:st.kmh}:null,
+    score,stScore,tempErr:tn!=null?+(m.temp-tn).toFixed(2):null,stErr:tn!=null&&st?+(st.temp-tn).toFixed(2):null,tempSrc:tn!=null?"termometr":"odczucie"};
+}
+function stats(){
+  const log=getLog();if(!log.length)return null;
+  const dims=["sky","precip","wind","temp"],names={sky:"Niebo",precip:"Opady",wind:"Wiatr",temp:"Temperatura"};
+  const per={};let sum=0,n=0;
+  dims.forEach(d=>{let s=0,c=0;log.forEach(x=>{if(x.score&&x.score[d]!=null){s+=PTS(x.score[d]);c++;}});per[d]=c?Math.round(s/c*100):null;sum+=s;n+=c;});
+  const errs=log.filter(x=>x.tempErr!=null),serrs=log.filter(x=>x.stErr!=null);
+  const mae=a=>a.length?a.reduce((s,x)=>s+Math.abs(x),0)/a.length:null;
+  const bias=errs.length?errs.reduce((s,x)=>s+x.tempErr,0)/errs.length:null;
+  let sw=0,sc=0,mw=0,mc=0;
+  log.forEach(x=>{if(x.stScore&&x.stScore.wind!=null&&x.score.wind!=null){sw+=PTS(x.stScore.wind);mw+=PTS(x.score.wind);sc++;}});
+  return{count:log.length,acc:n?Math.round(sum/n*100):null,per,names,mae:mae(errs.map(x=>x.tempErr)),maeSt:mae(serrs.map(x=>x.stErr)),nT:errs.length,nSt:serrs.length,bias,stWind:sc?Math.round(sw/sc*100):null,mdWind:sc?Math.round(mw/sc*100):null,nW:sc};
+}
+function syncBias(){
+  try{const s=stats();if(s&&s.bias!=null&&s.nT>=5)localStorage.setItem("okno_bias",JSON.stringify({temp:+s.bias.toFixed(2),n:s.nT,ts:Date.now()}));}catch{}
+}
+
+// ── widoki
+function opts(arr,key,sel,keyed){
+  return`<div class="opts">${arr.map((a,i)=>{const v=keyed?a.k:i;return`<button class="opt" data-g="${key}" data-v="${v}" aria-pressed="${sel===v}">${esc(a.l)}${a.h?`<small>${esc(a.h)}</small>`:""}</button>`;}).join("")}</div>`;
+}
+function windowHTML(){
+  const o=St.obs,n=St.now,m=n&&n.m;
+  const left=o.sky&&o.pre&&o.wind!=null?scene(o.sky,o.pre,o.wind,m?m.isDay:true)
+    :o.sky?scene(o.sky,o.pre||"none",o.wind??1,m?m.isDay:true):`<div class="ph">Wybierz poniżej, co widzisz. Okno pokaże Twoją wersję.</div>`;
+  const right=m?scene(m.sky,m.pre,m.wind,m.isDay):`<div class="ph">Pobieram prognozę…</div>`;
+  return`<div class="winw"><div class="win"><div class="pane"><span class="cap">Ty widzisz</span>${left}</div><div class="pane"><span class="cap">Model mówi</span>${right}</div></div></div>
+    ${m?`<div class="readout tn"><div>Twój opis</div><div>${m.cloud}% chmur, ${lab(PRE,m.pre).toLowerCase()}, wiatr ${Math.round(m.kmh)} km/h, ${f1(m.temp)}°</div></div>`:""}`;
+}
+function formHTML(){
+  const o=St.obs;
+  return`<div class="grp"><div class="gt">Niebo</div><div class="gh">Jak wygląda zachmurzenie?</div>${opts(SKY,"sky",o.sky,true)}</div>
+  <div class="grp"><div class="gt">Opady</div><div class="gh">Co spada z nieba w tej chwili?</div>${opts(PRE,"pre",o.pre,true)}</div>
+  <div class="grp"><div class="gt">Wiatr</div><div class="gh">Po czym go poznajesz?</div>${opts(WND,"wind",o.wind,false)}</div>
+  <div class="grp"><div class="gt">Temperatura</div><div class="gh">Wpisz odczyt z termometru albo wybierz odczucie.</div>
+    <div class="numf"><label for="tmp">Termometr</label><input id="tmp" type="text" inputmode="decimal" placeholder="np. 14,5" value="${esc(o.temp)}" autocomplete="off"/><label>°C</label></div>
+    <div style="height:10px"></div>${opts(FEEL,"feel",o.feel,false)}</div>
+  <div style="margin-top:22px"><button class="btn pri wide" id="go" data-act="compare" disabled>Porównaj z prognozą</button></div>`;
+}
+function ready(){const o=St.obs;const tOk=o.feel!=null||(o.temp!==""&&!isNaN(parseFloat(o.temp.replace(",","."))));return!!(o.sky&&o.pre&&o.wind!=null&&tOk&&St.now);}
+function syncBtn(){const b=$("#go");if(b)b.disabled=!ready();}
+
+function resultHTML(){
+  const r=St.res;if(!r)return"";
+  const zeros=["sky","precip","wind","temp"].filter(k=>r.score[k]===0).length;
+  const head=zeros===4?"Prognoza trafia w całości":zeros===3?"Prawie idealnie":zeros===2?"Prognoza trafia połowicznie":"Za oknem jest inaczej niż w prognozie";
+  const bad=["sky","precip","wind","temp"].filter(k=>r.score[k]===2).map(k=>({sky:"niebo",precip:"opady",wind:"wiatr",temp:"temperatura"}[k]));
+  const sub=bad.length?`Największy rozjazd: ${bad.join(", ")}.`:zeros===4?"Wszystkie cztery elementy się zgadzają.":"Różnice są niewielkie.";
+  const tO=r.obs.temp!=null?`${f1(r.obs.temp)}° z termometru`:FEEL[r.obs.feel].l;
+  const tM=r.obs.temp!=null?`${f1(r.model.temp)}°`:`${FEEL[r.model.feel].l} (${f1(r.model.app)}°)`;
+  const tS=r.st?(r.obs.temp!=null?`${f1(r.st.temp)}°`:FEEL[feelIdx(r.st.temp)].l):"";
+  const rows=[
+    ["Niebo",lab(SKY,r.obs.sky),`${lab(SKY,r.model.sky)}, ${r.model.cloud}% chmur`,"",r.score.sky,null],
+    ["Opady",lab(PRE,r.obs.pre),`${lab(PRE,r.model.pre)}, ${f1(r.model.mm)} mm/h`,"",r.score.precip,null],
+    ["Wiatr",WND[r.obs.wind].l,`${WND[r.model.wind].l}, ${Math.round(r.model.kmh)} km/h`,r.st&&r.st.kmh!=null?`${WND[windIdx(r.st.kmh)].l}, ${Math.round(r.st.kmh)} km/h`:"",r.score.wind,r.stScore&&r.stScore.wind],
+    ["Temperatura",tO,tM,tS,r.score.temp,r.stScore&&r.stScore.temp],
+  ];
+  const hasSt=!!r.st;
+  return`<section class="card" id="res"><div class="ch">${ic("check")}<span class="grow">Wynik i zapis w dzienniku</span></div>
+    <div class="verdict">${head}</div><div class="vsub">${sub}</div>
+    ${rows.map(x=>`<div class="rr"><div class="rn">${x[0]}</div>
+      <div class="rl"><span>Ty</span><b style="font-weight:500">${esc(x[1])}</b><span></span></div>
+      <div class="rl"><span>Model</span><b style="font-weight:500">${esc(x[2])}</b>${stHTML(x[4])}</div>
+      ${hasSt&&x[3]?`<div class="rl"><span>Stacja</span><b style="font-weight:500">${esc(x[3])}</b>${stHTML(x[5])}</div>`:""}</div>`).join("")}
+    <div class="note">Model to prognoza Open-Meteo dla Twojej lokalizacji.${hasSt?` Stacja: ${esc(r.st.name)}, ${f1(r.st.dist)} km od Ciebie.`:" Brak świeżego pomiaru ze stacji IMGW w promieniu 80 km."}${r.tempSrc==="odczucie"?" Bez termometru temperaturę oceniamy tylko z grubsza, więc korekta modelu nie będzie liczona.":""}</div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-act="undo">Usuń ten wpis</button><button class="btn" data-act="again">Nowa obserwacja</button></div></section>`;
+}
+function statsHTML(){
+  const s=stats();
+  if(!s)return`<section class="card"><div class="ch">${ic("chart")}<span class="grow">Jak często prognoza się sprawdza</span></div><div class="note" style="margin:0">Zapisz pierwszą obserwację, a tu pojawi się trafność modelu i stacji. Po kilku odczytach z termometru aplikacja policzy, o ile model myli się w Twoim miejscu.</div></section>`;
+  const bars=["sky","precip","wind","temp"].map(k=>s.per[k]==null?"":`<div class="brow"><span>${s.names[k]}</span><div><b style="width:${s.per[k]}%"></b></div><span class="tn">${s.per[k]}%</span></div>`).join("");
+  let extra="";
+  if(s.bias!=null&&s.nT>=5)extra+=`<div class="note">Na podstawie ${s.nT} odczytów z termometru model średnio ${s.bias>0?"zawyża":"zaniża"} temperaturę o ${f1(Math.abs(s.bias))}°. Aura Pogoda pokazuje już temperaturę skorygowaną o tę różnicę.</div>`;
+  else if(s.nT>0)extra+=`<div class="note">Odczytów z termometru: ${s.nT}. Od pięciu aplikacja zacznie liczyć korektę temperatury.</div>`;
+  if(s.maeSt!=null&&s.mae!=null&&s.nSt>=3)extra+=`<div class="note">Średni błąd temperatury: model ${f1(s.mae)}°, stacja IMGW ${f1(s.maeSt)}° (${s.nSt} porównań). ${s.maeSt<s.mae?"Stacja jest bliżej Twojego termometru.":"Model jest bliżej Twojego termometru."}</div>`;
+  if(s.stWind!=null&&s.nW>=3)extra+=`<div class="note">Wiatr: stacja trafia w ${s.stWind}% obserwacji, model w ${s.mdWind}%.</div>`;
+  const last=getLog().slice(-20);
+  const dots=`<svg viewBox="0 0 ${last.length*16} 16" width="${Math.min(320,last.length*16)}" height="16" aria-label="Ostatnie obserwacje">${last.map((x,i)=>{const z=["sky","precip","wind","temp"].filter(k=>x.score[k]===0).length;const c=z>=3?"#63E6A4":z===2?"#FFB454":"#FF7B7B";return`<circle cx="${i*16+8}" cy="8" r="5" fill="${c}"/>`;}).join("")}</svg>`;
+  return`<section class="card"><div class="ch">${ic("chart")}<span class="grow">Jak często prognoza się sprawdza</span></div>
+    <div class="stg"><div><small>Trafność łącznie</small><b class="tn">${s.acc==null?"–":s.acc+"%"}</b></div><div><small>Obserwacji</small><b class="tn">${s.count}</b></div></div>
+    <div class="bars">${bars}</div>
+    <div style="margin-top:14px"><div class="note" style="margin:0 0 6px">Ostatnie obserwacje: zielone to co najmniej 3 z 4 trafione, żółte 2, czerwone mniej.</div>${dots}</div>${extra}</section>`;
+}
+function histHTML(){
+  const log=getLog().slice(-8).reverse();if(!log.length)return"";
+  return`<section class="card"><div class="ch">${ic("clock")}<span class="grow">Dziennik</span></div><div class="hist">${log.map(x=>{
+    const z=["sky","precip","wind","temp"].filter(k=>x.score[k]===0).length,d=new Date(x.ts);
+    return`<div class="hrow"><div>${d.toLocaleDateString("pl-PL",{day:"numeric",month:"short"})}, ${pad(d.getHours())}:${pad(d.getMinutes())}<small>${esc(x.city||"")}, ${lab(SKY,x.obs.sky).toLowerCase()}, ${lab(PRE,x.obs.pre).toLowerCase()}${x.obs.temp!=null?", "+f1(x.obs.temp)+"°":""}</small></div><span class="tn" style="font-weight:600">${z}/4</span><button class="x" data-act="del" data-ts="${x.ts}" aria-label="Usuń wpis">${ic("close")}</button></div>`;}).join("")}</div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" data-act="export">${ic("copy")}Kopiuj dziennik</button><button class="btn" data-act="clear">${St.confirmClear?"Na pewno? Kliknij jeszcze raz":"Wyczyść dziennik"}</button></div></section>`;
+}
+function locPanel(){
+  return`<div class="card" style="margin-top:0;margin-bottom:14px"><div class="ch"><span class="grow">Gdzie jesteś?</span></div>
+    <button class="btn pri wide ${St.gpsBusy?"busy":""}" data-act="gps" ${St.gpsBusy?"disabled":""}>${ic("pin")}${St.gpsBusy?"Ustalam lokalizację…":"Użyj mojej lokalizacji"}</button>
+    <div class="field"><input id="q" type="search" placeholder="Wpisz miejscowość" autocomplete="off" aria-label="Szukaj miejscowości"/></div>
+    <div id="res-list">${St.search.map((r,i)=>`<button class="ddi" data-act="pick" data-i="${i}">${ic("pin").replace("<svg","<svg width='16' height='16'")}<span>${esc(r.n)}</span></button>`).join("")}</div></div>`;
+}
+function render(){
+  const y=window.scrollY,app=$("#app");
+  const bar=`<div class="bar"><a class="ib" href="index.html" aria-label="Wróć do Aura Pogoda">${ic("back")}</a><span class="grow"></span>${St.loc?`<button class="locb" data-act="loc">${ic("pin")}<span>${esc(St.loc.city||"Miejsce")}</span></button>`:""}<button class="ib ${St.loading?"busy":""}" data-act="reload" aria-label="Odśwież prognozę" ${St.loc?"":"hidden"}>${ic("refresh")}</button></div>`;
+  let h=bar+`<h1>Co widzisz za oknem?</h1><p class="lead">Opisz, co dzieje się na zewnątrz. Porównamy to z prognozą i z pomiarem ze stacji IMGW.</p>`;
+  if(!St.loc||St.locOpen)h+=locPanel();
+  if(St.loc){
+    if(St.err)h+=`<div class="err">${esc(St.err)}</div>`;
+    h+=(St.loading&&!St.now?`<div class="sk"></div>`:windowHTML())+formHTML()+resultHTML()+statsHTML()+histHTML();
+  }
+  app.innerHTML=h;
+  syncBtn();
+  window.scrollTo(0,y);
+}
+
+// ── zdarzenia
+document.addEventListener("click",async e=>{
+  const g=e.target.closest("[data-g]");
+  if(g){
+    const k=g.dataset.g,v=g.dataset.v;
+    St.obs[k]=(k==="sky"||k==="pre")?v:+v;
+    if(k==="feel")St.obs.temp="";
+    St.res=null;render();return;
+  }
+  const t=e.target.closest("[data-act]");if(!t)return;
+  switch(t.dataset.act){
+    case"loc":St.locOpen=!St.locOpen;render();break;
+    case"reload":loadNow();break;
+    case"gps":
+      if(!navigator.geolocation){St.err="Ta przeglądarka nie udostępnia lokalizacji. Wpisz miejscowość.";render();break;}
+      St.gpsBusy=true;render();
+      navigator.geolocation.getCurrentPosition(async p=>{
+        const lat=p.coords.latitude,lng=p.coords.longitude;let city=null;
+        try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`);if(r.ok){const d=await r.json(),a=d.address||{};city=a.city||a.town||a.village||a.hamlet||a.locality;}}catch{}
+        setLoc({lat,lng,city:city||`${lat.toFixed(2)}, ${lng.toFixed(2)}`});
+      },()=>{St.gpsBusy=false;St.err="Nie udało się ustalić lokalizacji. Wpisz miejscowość.";render();},{enableHighAccuracy:false,timeout:10000});
+      break;
+    case"pick":{const r=St.search[+t.dataset.i];if(r)setLoc({lat:r.lat,lng:r.lng,city:r.n.split(",")[0]});break;}
+    case"compare":{
+      if(!ready())break;
+      // odśwież model, jeśli dane są starsze niż 10 minut
+      if(Date.now()-St.now.m.ts>10*60000){try{St.now=await fetchNow(St.loc.lat,St.loc.lng);}catch{}}
+      const rec=compare();const log=getLog();
+      const last=log[log.length-1];
+      if(last&&rec.ts-last.ts<5*60000)log.pop();  // druga obserwacja w ciągu 5 min zastępuje pierwszą
+      log.push(rec);setLog(log);syncBias();St.res=rec;St.confirmClear=false;render();
+      setTimeout(()=>{const r=$("#res");if(r)r.scrollIntoView({behavior:"smooth",block:"start"});},50);
+      break;
+    }
+    case"undo":if(St.res){setLog(getLog().filter(x=>x.ts!==St.res.ts));St.res=null;syncBias();render();}break;
+    case"again":St.res=null;St.obs={sky:null,pre:null,wind:null,feel:null,temp:""};render();window.scrollTo(0,0);break;
+    case"del":setLog(getLog().filter(x=>String(x.ts)!==t.dataset.ts));if(St.res&&String(St.res.ts)===t.dataset.ts)St.res=null;syncBias();render();break;
+    case"clear":
+      if(!St.confirmClear){St.confirmClear=true;render();}
+      else{setLog([]);St.confirmClear=false;St.res=null;try{localStorage.removeItem("okno_bias");}catch{}render();}
+      break;
+    case"export":try{await navigator.clipboard.writeText(JSON.stringify(getLog(),null,2));t.lastChild.textContent="Skopiowano";}catch{}break;
+  }
+});
+document.addEventListener("input",e=>{
+  if(e.target.id==="tmp"){St.obs.temp=e.target.value;if(St.obs.temp!=="")St.obs.feel=null;
+    document.querySelectorAll('[data-g="feel"]').forEach(b=>b.setAttribute("aria-pressed","false"));syncBtn();}
+  else if(e.target.id==="q"){
+    clearTimeout(St._t);const v=e.target.value.trim();
+    if(v.length<2){St.search=[];const l=$("#res-list");if(l)l.innerHTML="";return;}
+    St._t=setTimeout(async()=>{
+      try{
+        const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(v)}&count=6&language=pl`);
+        const d=await r.json();St.search=(d.results||[]).map(x=>({n:[x.name,x.admin2||x.admin1].filter(Boolean).join(", "),lat:x.latitude,lng:x.longitude}));
+      }catch{St.search=[];}
+      const l=$("#res-list");if(l)l.innerHTML=St.search.map((r,i)=>`<button class="ddi" data-act="pick" data-i="${i}">${esc(r.n)}</button>`).join("");
+    },350);
+  }
+});
+function setLoc(l){
+  St.loc=l;St.locOpen=false;St.gpsBusy=false;St.search=[];St.now=null;
+  try{localStorage.setItem("okno_loc",JSON.stringify(l));}catch{}
+  loadNow();
+}
+
+(function init(){
+  St.loc=initLoc();
+  if(St.loc)loadNow();else{St.loading=false;render();}
+  if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
+})();
+
+</script>
+</body>
+</html>

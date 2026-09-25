@@ -1,0 +1,46 @@
+--- index.orig.html	2026-09-20 05:45:12.182777084 +0000
++++ index.html	2026-09-20 05:46:21.475434500 +0000
+@@ -1063,12 +1063,15 @@
+   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
+   const rad=g(hourly.shortwave_radiation)??uv*80;
+   const dew=dewPoint(T,hum);
++  // Punkt rosy ze stacji IMGW: tylko przy świeżym pomiarze, stacji w zasięgu i faktycznie użytym pomiarze (patrz loadW)
++  const stImgw=S.imgwData;
++  const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
+   const p0=ci>=3?hourly.pressure_msl?.[ci-3]:null,p1=g(hourly.pressure_msl);
+   const pDelta=p0!=null&&p1!=null?p1-p0:null;
+   const visKm=g(hourly.visibility)!=null?g(hourly.visibility)/1000:null;
+   const cloudBase=dew!=null&&cloud>=15?Math.round(clamp((T-dew)*125,50,6000)):null;
+   return{
+-    ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvMax,rad,dew,pDelta,visKm,cloudBase,
++    ci,now,sun,isDay,T,feels,hum,wind,gusts,wdeg,press,cloud,code,precip,pop,uv,uvMax,rad,dew,dewStation,pDelta,visKm,cloudBase,
+     low:g(hourly.cloud_cover_low),mid:g(hourly.cloud_cover_mid),high:g(hourly.cloud_cover_high),
+     maxT:Math.round(daily.temperature_2m_max?.[0]??T),minT:Math.round(daily.temperature_2m_min?.[0]??T),
+     rainToday:+(daily.precipitation_sum?.[0]??0),popMax:daily.precipitation_probability_max?.[0]??0,
+@@ -1322,8 +1325,11 @@
+   return`<div class="w"><div class="wh">${mini("thermo")}Odczuwalna</div><div class="wv tn">${Math.round(X.feels)}°<small>${d.label}</small></div><div class="ws">${txt}</div></div>`;
+ }
+ function wHum(X){
+-  const dp=X.dew,w=dp==null?"":dp<5?"Bardzo sucho":dp<10?"Sucho":dp<16?"Komfortowo":dp<20?"Parno":"Duszno";
+-  return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">Punkt rosy ${dp==null?"–":Math.round(dp)+"°"}${w?`, ${w.toLowerCase()}`:""}.</div></div>`;
++  const dp=X.dewStation!=null?X.dewStation:X.dew,w=dp==null?"":dp<5?"Bardzo sucho":dp<10?"Sucho":dp<16?"Komfortowo":dp<20?"Parno":"Duszno";
++  const txt=X.dewStation!=null
++    ?`Punkt rosy ${Math.round(X.dewStation)}° · stacja IMGW${w?`<br>${w}`:""}.`
++    :`Punkt rosy ${dp==null?"–":Math.round(dp)+"°"}${w?`, ${w.toLowerCase()}`:""}.`;
++  return`<div class="w"><div class="wh">${mini("drop")}Wilgotność</div><div class="wv tn">${X.hum}<small>%</small></div><div class="ws">${txt}</div></div>`;
+ }
+ function wPress(X){
+   const p=X.press;if(!p)return"";
+@@ -1715,6 +1721,12 @@
+             data.current.apparent_temperature=Math.round(newFeels*10)/10;
+           }else data.current.apparent_temperature=imgwTemp;
+           if(!isNaN(imgwHum))data.current.relative_humidity_2m=imgwHum;
++          // Punkt rosy z rzeczywistego pomiaru stacji (te same świeże wartości stacyjne, istniejąca funkcja dewPoint()).
++          // Ustawiany wyłącznie tutaj, czyli gdy pomiar IMGW jest faktycznie użyty; w każdym innym wypadku pole nie istnieje.
++          if(!isNaN(imgwHum)&&imgwHum>0&&imgwHum<=100){
++            const stationDew=dewPoint(imgwTemp,imgwHum);
++            if(stationDew!=null&&Number.isFinite(stationDew))imgwData.dewPointStation=Math.round(stationDew*10)/10;
++          }
+           if(!isNaN(imgwWind))data.current.wind_speed_10m=imgwWind;
+           if(!isNaN(imgwPress)&&imgwPress>0)data.current.pressure_msl=imgwPress;
+         }else if(!plausible)console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);

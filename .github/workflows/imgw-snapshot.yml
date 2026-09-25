@@ -1,0 +1,97 @@
+name: Update IMGW METEO Snapshot
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/imgw-snapshot.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: imgw-snapshot
+  cancel-in-progress: false
+
+jobs:
+  update-imgw-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pobierz i zweryfikuj dane telemetryczne IMGW METEO
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Pobieranie feedu telemetrycznego IMGW METEO..."
+          
+          if curl --fail-with-body --retry 3 --retry-all-errors --retry-delay 3 --max-time 30 -sS \
+            -H "Accept: application/json" \
+            -H "User-Agent: AuraPogoda/1.0 (+https://danepubliczne.imgw.pl)" \
+            "https://danepubliczne.imgw.pl/api/data/meteo/" \
+            -o /tmp/imgw_raw.json; then
+
+            python3 - <<'PY'
+          import json, pathlib, time, sys
+
+          raw_path = pathlib.Path("/tmp/imgw_raw.json")
+          try:
+              content = json.loads(raw_path.read_text(encoding="utf-8"))
+          except Exception as e:
+              print(f"ERROR: Nieprawidłowy format JSON z IMGW API: {e}")
+              sys.exit(1)
+
+          if not isinstance(content, list) or len(content) == 0:
+              print(f"ERROR: Pusta odpowiedź lub niepoprawny typ z IMGW API (długość={len(content) if isinstance(content, list) else 0})")
+              sys.exit(1)
+
+          # Weryfikacja obecności stacji Głodowo (kod 252190030)
+          glodowo = next((s for s in content if str(s.get("kod_stacji") or s.get("id_stacji") or "").strip() == "252190030" or (str(s.get("nazwa_stacji") or s.get("stacja") or "").strip().lower() in ["głodowo", "glodowo"])), None)
+
+          if not glodowo:
+              print("WARNING: Stacja Głodowo (252190030) nie została odnaleziona w pobranym feedzie IMGW. Zatrzymuję nadpisywanie snapshotu.")
+              sys.exit(0)
+
+          now_ms = int(time.time() * 1000)
+          snapshot_payload = {
+              "fetchedAt": now_ms,
+              "source": "IMGW_METEO",
+              "count": len(content),
+              "glodowo": glodowo,
+              "data": content
+          }
+
+          json_str = json.dumps(snapshot_payload, ensure_ascii=False, indent=2)
+
+          # Zapisz do obu lokalizacji (root oraz public/)
+          for target in ["imgw-meteo.json", "public/imgw-meteo.json"]:
+              p = pathlib.Path(target)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(json_str, encoding="utf-8")
+              print(f"Zapisano snapshot do: {target}")
+
+          print(f"Sukces: Głodowo T={glodowo.get('temperatura_powietrza')}°C ({glodowo.get('temperatura_powietrza_data')}), RH={glodowo.get('wilgotnosc_wzgledna')}% ({glodowo.get('wilgotnosc_wzgledna_data')})")
+          PY
+
+          else
+            echo "WARNING: Curl do IMGW API nie powiódł się — zachowuję dotychczasowy snapshot."
+            exit 0
+          fi
+
+      - name: Commit i push snapshotu
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add imgw-meteo.json public/imgw-meteo.json
+          if git diff --cached --quiet; then
+            echo "Brak zmian w danych IMGW METEO — pomijam commit."
+            exit 0
+          fi
+          git commit -m "Aktualizuj snapshot IMGW METEO (Głodowo)"
+          git pull --rebase origin main || true
+          git push
