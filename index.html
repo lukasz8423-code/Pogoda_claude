@@ -727,30 +727,36 @@ function pad(n){return String(n).padStart(2,"0");}
 // Temperatura na słońcu i w cieniu
 // Na podstawie temperatury powietrza, temperatury odczuwalnej, promieniowania słonecznego, wiatru i wilgotności
 function calcSunShadeTemp(tempC, feelsC, radiation, windKmh, humidity){
-  const windMs = Math.max(0, (Number(windKmh) || 0) / 3.6);
-  const rad = Math.max(0, Number(radiation) || 0);
-  const hum = Math.min(100, Math.max(0, Number(humidity) || 50));
-  const t = Number.isFinite(Number(tempC)) ? Number(tempC) : 0;
-  const f = Number.isFinite(Number(feelsC)) ? Number(feelsC) : t;
+  const tRaw = Number(tempC);
+  const fRaw = Number(feelsC);
+  const radRaw = Number(radiation);
+  const windRaw = Number(windKmh);
 
-  // Efekt promieniowania słonecznego na człowieka / ciało nasłonecznione (W/m² -> °C)
-  const baseDelta = (rad / 1000) * 10 * (1 - hum / 250);
+  const t = Number.isFinite(tRaw) ? tRaw : 0;
+  const f = Number.isFinite(fRaw) ? fRaw : t;
+  const rad = clamp(Number.isFinite(radRaw) ? radRaw : 0, 0, 1200);
+  const windMs = Math.max(0, (Number.isFinite(windRaw) ? windRaw : 0) / 3.6);
 
-  // Wiatr chłodzi konwekcyjnie — odprowadza ciepło z nasłonecznionej powierzchni
-  const windDamping = 1 + 0.35 * Math.sqrt(windMs);
-  const solarGain = Math.max(0, baseDelta / windDamping);
-
+  // Cień = główna temperatura odczuwalna Aury. Nie przeliczamy jej ponownie.
   const shadeFeels = Math.round(f * 10) / 10;
-  const sunFeels = Math.round((f + solarGain) * 10) / 10;
+
+  // Promieniowanie zwiększa obciążenie cieplne osoby wystawionej na Słońce.
+  // Krzywa nasycenia ogranicza sztuczny skok przy wysokim GHI.
+  const solarFraction = Math.pow(clamp(rad / 1000, 0, 1), 0.8);
+  const windDamping = 1 + 0.12 * Math.sqrt(windMs);
+  const solarGain = clamp((7.0 * solarFraction) / windDamping, 0, 8);
+
+  // Wilgotności nie mnożymy ponownie: jej wpływ jest już zawarty w feels-like.
+  const sunFeels = Math.round((shadeFeels + solarGain) * 10) / 10;
   const shadeAir = Math.round(t * 10) / 10;
   const sunAir = Math.round((t + solarGain) * 10) / 10;
 
-  return { 
-    sun: sunFeels, 
-    shade: shadeFeels, 
-    airShade: shadeAir, 
-    airSun: sunAir, 
-    gain: Math.round(solarGain * 10) / 10 
+  return {
+    sun: sunFeels,
+    shade: shadeFeels,
+    airShade: shadeAir,
+    airSun: sunAir,
+    gain: Math.round(solarGain * 10) / 10
   };
 }
 
