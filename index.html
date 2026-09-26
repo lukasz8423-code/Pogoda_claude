@@ -5904,11 +5904,14 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
       const m=byModel.find(mm=>mm.id===x.id);
       const p1=m?.map.get(String(hourly.time[row.i-1]));
       const p2=m?.map.get(String(hourly.time[row.i-2]));
-      if(!p1||!Number.isFinite(p1.optical))return;
-      const d1=x.optical-p1.optical;
+      // Trend prognozy musi być liczony z tego samego pola, z którego
+      // budujemy przyszły konsensus: surowego cloud_cover (total).
+      // Nie mieszamy tu optycznego current-sky estimate z prognozą godzinową.
+      if(!p1||!Number.isFinite(p1.total))return;
+      const d1=x.total-p1.total;
       let score=d1;
-      if(p2&&Number.isFinite(p2.optical)){
-        const d2=p1.optical-p2.optical;
+      if(p2&&Number.isFinite(p2.total)){
+        const d2=p1.total-p2.total;
         score=0.65*d1+0.35*d2;
       }
       directionScores.push({id:x.id,score,w:x.w});
@@ -5957,7 +5960,7 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
   hourly.__auraHourlyCloudConsensus={
     applied:true,
     modelCount:models.length,
-    source:"weighted_multi_model_optical_2h_trend",
+    source:"weighted_multi_model_total_2h_trend",
     weights,
     currentExcluded:true,
     artificialStepLimit:false,
