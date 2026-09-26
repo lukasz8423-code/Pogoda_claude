@@ -573,7 +573,9 @@ document.addEventListener("click",async e=>{
   }
   const t=e.target.closest("[data-act]");if(!t)return;
   switch(t.dataset.act){
-    case"gemini-photo":{$("#geminiPhoto")?.click();break;}\n    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}\n    case"loc":St.locOpen=!St.locOpen;render();break;
+    case"gemini-photo":{$("#geminiPhoto")?.click();break;}
+    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}
+    case"loc":St.locOpen=!St.locOpen;render();break;
     case"reload":loadNow();break;
     case"gps":
       if(!navigator.geolocation){St.err="Ta przeglądarka nie udostępnia lokalizacji. Wpisz miejscowość.";render();break;}
@@ -606,7 +608,8 @@ document.addEventListener("click",async e=>{
     case"export":try{await navigator.clipboard.writeText(JSON.stringify(getLog(),null,2));t.lastChild.textContent="Skopiowano";}catch{}break;
   }
 });
-document.addEventListener("change",e=>{if(e.target.id==="geminiPhoto"){const file=e.target.files?.[0];if(!file)return;if(file.size>12*1024*1024){St.gemini.error="Zdjęcie jest za duże (maks. 12 MB).";render();return;}const reader=new FileReader();reader.onload=()=>{const s=String(reader.result||"");const m=s.match(/^data:([^;]+);base64,(.+)$/);if(!m)return;St.gemini.mimeType=m[1];St.gemini.imageData=m[2];St.gemini.result=null;St.gemini.error="";render();};reader.readAsDataURL(file);}});\ndocument.addEventListener("input",e=>{if(e.target.id==="geminiVisionKey"){setGeminiVisionKey(e.target.value.trim());return;}
+document.addEventListener("change",e=>{if(e.target.id==="geminiPhoto"){const file=e.target.files?.[0];if(!file)return;if(file.size>12*1024*1024){St.gemini.error="Zdjęcie jest za duże (maks. 12 MB).";render();return;}const reader=new FileReader();reader.onload=()=>{const s=String(reader.result||"");const m=s.match(/^data:([^;]+);base64,(.+)$/);if(!m)return;St.gemini.mimeType=m[1];St.gemini.imageData=m[2];St.gemini.result=null;St.gemini.error="";render();};reader.readAsDataURL(file);}});
+document.addEventListener("input",e=>{if(e.target.id==="geminiVisionKey"){setGeminiVisionKey(e.target.value.trim());return;}
   if(e.target.id==="tmp"){St.obs.temp=e.target.value;if(St.obs.temp!=="")St.obs.feel=null;
     document.querySelectorAll('[data-g="feel"]').forEach(b=>b.setAttribute("aria-pressed","false"));syncBtn();}
   else if(e.target.id==="q"){
