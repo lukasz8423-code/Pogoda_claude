@@ -1250,12 +1250,14 @@ function fuseCloudCover(records,context={}){
   const satellite=context.satellite||null;
   const satCloud=Number(satellite?.cloudFraction??satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
   const satDistance=Number(satellite?.distanceKm);
-  const satFetched=satellite?.generatedAt??satellite?.fetchedAt??satellite?.timestamp??satellite?.ts;
-  const satTime=satFetched!=null?new Date(satFetched).getTime():NaN;
+  const satObservedAt=satellite?.observationAt??satellite?.observedAt??satellite?.acquisitionAt??satellite?.sensingStart;
+  const satTime=satObservedAt!=null?new Date(satObservedAt).getTime():NaN;
   const satAgeMin=Number.isFinite(satTime)?(Date.now()-satTime)/60000:null;
+  const satelliteHasObservationTime=Number.isFinite(satTime);
   const satelliteUsable=Number.isFinite(satCloud)&&satCloud>=0&&satCloud<=100&&
+    satelliteHasObservationTime&&
     (satDistance===null||isNaN(satDistance)||(Number.isFinite(satDistance)&&satDistance<=15))&&
-    (satAgeMin===null||(Number.isFinite(satAgeMin)&&satAgeMin>=0&&satAgeMin<=180));
+    Number.isFinite(satAgeMin)&&satAgeMin>=0&&satAgeMin<=180;
 
   if(satelliteUsable){
     const satWeight=0.50;
@@ -1302,7 +1304,9 @@ function fuseCloudCover(records,context={}){
     satelliteUsed:satelliteUsable,
     satelliteCloud:satelliteUsable?satCloud:null,
     satelliteDistanceKm:satelliteUsable?satDistance:null,
-    satelliteAgeMinutes:satelliteUsable&&(satAgeMin!==null)?Math.round(satAgeMin*10)/10:null,
+    satelliteAgeMinutes:satelliteUsable?Math.round(satAgeMin*10)/10:null,
+    satelliteObservationTimeKnown:satelliteHasObservationTime,
+    satelliteObservationTime:satelliteHasObservationTime?satObservedAt:null,
     reason
   };
 }
