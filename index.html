@@ -3089,17 +3089,23 @@ function computeCtx(){
 function publishAuraDisplayedState(X){
   try{
     if(!X)return;
+    const hero=document.querySelector("#s-hero");
+    const vals=hero?.querySelectorAll(".hero-metric .hm-value");
+    const read=(el,fallback)=>{
+      const m=String(el?.textContent||"").replace(",",".").match(/-?\d+(?:\.\d+)?/);
+      return m?Number(m[0]):(fallback??null);
+    };
     localStorage.setItem("aura_displayed_state",JSON.stringify({
       resultAt:new Date().toISOString(),
       city:S.city||"",
       state:{
-        temp:X.T??null,
-        feels:X.feels??null,
-        cloud:X.cloud??null,
-        wind:X.wind??null,
-        gust:X.gusts??null,
-        uv:X.uv??null,
-        weather:X.meta?.t??null,
+        temp:read(hero?.querySelector(".hero-temp"),X.T),
+        feels:read(hero?.querySelector(".subline b"),X.feels),
+        cloud:read(vals?.[3],X.cloud),
+        wind:read(vals?.[0],X.wind),
+        gust:read(vals?.[1],X.gusts),
+        uv:read(vals?.[2],X.uv),
+        weather:hero?.querySelector(".cond")?.textContent?.trim()||X.meta?.t||null,
         weatherCode:X.code??null,
         isDay:X.isDay??null
       }
@@ -4775,10 +4781,11 @@ function alertsHTML(X){
 // aktualizacja sekcji, które dochodzą z opóźnieniem (bez przerysowania całej strony)
 function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
-  const X=computeCtx();S.X=X;publishAuraDisplayedState(X);
+  const X=computeCtx();S.X=X;
   applySky(X);ambientFor(X);
   const set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
   set("s-hero",heroInnerHTML(X));
+  publishAuraDisplayedState(X);
   set("s-alerts",alertsHTML(X));
   set("s-nowcast",nowcastHTML(X));
   set("s-hourly",hourlyHTML(X));
@@ -6875,7 +6882,7 @@ function render(){
   }else if(S.phase==="error"){
     app.innerHTML=loadErrorHTML();
   }else if(S.phase==="weather"&&S.data){
-    try{app.innerHTML=weatherHTML();}
+    try{app.innerHTML=weatherHTML();publishAuraDisplayedState(S.X); }
     catch(err){
       console.error("weatherHTML:",err);
       app.innerHTML=`<div class="intro"><div class="err">Nie udało się wyświetlić danych. Wybierz miejsce jeszcze raz.</div><button class="btn pri wide" data-act="back">Wybierz miejsce</button></div>`;
