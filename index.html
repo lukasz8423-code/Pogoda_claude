@@ -5797,6 +5797,60 @@ function sanitizePrecipitationConsistency(data,imgwData){
   return;
 }
 
+function applyFutureHourlyCloudConsensus(data, modelResults){
+  const hourly=data?.hourly;
+  if(!hourly?.time?.length || !Array.isArray(modelResults)||!modelResults.length) return;
+
+  const ci=currentHourIndex({hourly},new Date());
+  const weights={icon_eu:0.40,ecmwf_ifs025:0.30,gfs_seamless:0.20,dmi_harmonie_arome_europe:0.10};
+  const models=modelResults.filter(r=>r?.data?.hourly?.time?.length&&weights[r.model]!=null);
+  if(models.length<2)return;
+
+  const byModel=models.map(r=>{
+    const map=new Map();
+    r.data.hourly.time.forEach((t,i)=>{
+      const v=Number(r.data.hourly.cloud_cover?.[i]);
+      if(Number.isFinite(v)&&v>=0&&v<=100)map.set(String(t),v);
+    });
+    return {id:r.model,map};
+  });
+
+  const originalCurrent=Number(data?.current?.cloud_cover);
+  const diagnostics=[];
+  for(let i=Math.max(ci+1,0);i<hourly.time.length;i++){
+    const t=String(hourly.time[i]);
+    const vals=byModel.map(m=>({id:m.id,v:m.map.get(t),w:weights[m.id]})).filter(x=>Number.isFinite(x.v));
+    if(vals.length<2)continue;
+
+    const wsum=vals.reduce((s,x)=>s+x.w,0);
+    const consensus=vals.reduce((s,x)=>s+x.v*x.w,0)/wsum;
+    const min=Math.min(...vals.map(x=>x.v));
+    const max=Math.max(...vals.map(x=>x.v));
+
+    // Przyszłość korzysta z konsensusu modeli, nie z pojedynczego Best Match.
+    // Nie dotykamy bieżącego "TERAZ".
+    hourly.cloud_cover[i]=Math.round(clamp(consensus,0,100));
+
+    diagnostics.push({
+      time:t,
+      value:hourly.cloud_cover[i],
+      min,
+      max,
+      models:vals.map(x=>({model:x.id,value:x.v}))
+    });
+  }
+
+  hourly.__auraHourlyCloudConsensus={
+    applied:true,
+    modelCount:models.length,
+    source:"weighted_multi_model",
+    weights,
+    currentExcluded:true,
+    originalCurrent:Number.isFinite(originalCurrent)?originalCurrent:null,
+    rows:diagnostics
+  };
+}
+
 function sanitizeHourlyCloudCover(data){
   const hourly = data?.hourly;
   if(!hourly?.cloud_cover || !Array.isArray(hourly.cloud_cover) || hourly.cloud_cover.length < 1) return;
@@ -6457,6 +6511,9 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   syncDailyExtremes(data);
   sanitizeVisibility(data,imgwData);
+  // TERAZ pozostaje z obecnej fuzji. Tylko przyszłe godziny dostają
+  // wielomodelowy konsensus ICON/ECMWF/GFS.
+  applyFutureHourlyCloudConsensus(data,cloudCompare);
   sanitizeHourlyCloudCover(data);
 
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
