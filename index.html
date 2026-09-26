@@ -1127,17 +1127,51 @@ function optiCloudFromModels(records){
     const high=Number(cur.cloud_cover_high);
     if(![total,low,mid,high].every(Number.isFinite))return null;
     const l=clamp(low,0,100),m=clamp(mid,0,100),h=clamp(high,0,100);
-    // cloud_cover pozostaje bazą. Warstwy opisują strukturę, nie są sumowane
-    // jako niezależne obszary (co może zaniżać wynik względem totalu).
+    const isDay=Number(cur.is_day??1)===1;
+    const sunSec=Number(cur.sunshine_duration);
+    const intervalSec=Number(cur.interval)||900;
+    const dni=Number(cur.direct_normal_irradiance);
+    const swRad=Number(cur.shortwave_radiation);
+
+    let optical=total;
+    let opticalMethod="layers";
+
+    if(isDay && !isRainCode(Number(cur.weather_code))){
+      const sunFrac=Number.isFinite(sunSec)?clamp(sunSec/intervalSec,0,1):null;
+      const dniNorm=Number.isFinite(dni)?clamp(dni/550,0,1):null;
+      const swNorm=Number.isFinite(swRad)?clamp(swRad/450,0,1):null;
+      const solarClear=sunFrac!==null
+        ?(dniNorm!==null?Math.max(sunFrac,dniNorm*0.95):sunFrac)
+        :(dniNorm!==null?dniNorm:(swNorm!==null?swNorm*0.85:null));
+
+      if(solarClear!==null && solarClear>=0.25){
+        // Bezpośrednie słońce dociera do powierzchni:
+        // Cienkie chmury wysokie (Cirrus) są optycznie półprzezroczyste i nie tworzą powłoki całkowitej.
+        // Chmury niskie/średnie to rozproszone obłoki kłębiaste (Cumulus humilis).
+        const highContrib=h*0.06;
+        const midContrib=m*0.18;
+        const lowContrib=l*0.30;
+        const visualEstimate=clamp(Math.round(8 + lowContrib + midContrib + highContrib), 10, 50);
+        const opticalCap=Math.round(100 - (solarClear * 68)); // dla pełnego słońca cap wynosi ok. 32%
+        optical=clamp(Math.min(total, Math.max(visualEstimate, Math.round(opticalCap * 0.95))), 5, 100);
+        opticalMethod="solar-optical";
+      } else {
+        const lowDominance=l-Math.max(m,h);
+        const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
+        optical=clamp(total+structuralAdjustment,0,100);
+      }
+    } else {
+      const lowDominance=l-Math.max(m,h);
+      const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
+      optical=clamp(total+structuralAdjustment,0,100);
+    }
+
     const layerActivity=(l+m+h)/3;
-    const lowDominance=l-Math.max(m,h);
-    const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
-    const optical=clamp(total+structuralAdjustment,0,100);
     return {
       model:r.model||r.name||null,
       total:clamp(total,0,100),low:l,mid:m,high:h,
       layerActivity:Math.round(layerActivity*10)/10,
-      structuralAdjustment,
+      opticalMethod,
       optical:Math.round(optical*10)/10
     };
   }).filter(Boolean);
@@ -1206,6 +1240,11 @@ function fuseCloudCover(records,context={}){
     precipitationCorrected=true;
   }
 
+  const opti=optiCloudFromModels(records);
+  let value=opti&&Number.isFinite(opti.value)?opti.value:raw;
+  let reason="optical-model-consensus";
+  let cloudDampeningFactor=1;
+
   const satellite=context.satellite||null;
   const satCloud=Number(satellite?.cloudFraction??satellite?.cloud_cover??satellite?.cloudCover??satellite?.cloud_fraction);
   const satDistance=Number(satellite?.distanceKm);
@@ -1215,6 +1254,12 @@ function fuseCloudCover(records,context={}){
   const satelliteUsable=Number.isFinite(satCloud)&&satCloud>=0&&satCloud<=100&&
     (satDistance===null||isNaN(satDistance)||(Number.isFinite(satDistance)&&satDistance<=15))&&
     (satAgeMin===null||(Number.isFinite(satAgeMin)&&satAgeMin>=0&&satAgeMin<=1440));
+
+  if(satelliteUsable){
+    const satWeight=0.50;
+    value=value*(1-satWeight)+satCloud*satWeight;
+    reason="optical+satellite";
+  }
 
   const key="aura_cloud_fusion_"+Number(context.lat).toFixed(3)+"_"+Number(context.lng).toFixed(3);
   let prior=null,priorAge=null;
@@ -1227,23 +1272,6 @@ function fuseCloudCover(records,context={}){
     }
   }catch{}
 
-  let value=raw;
-  let reason="weighted-model-median";
-  let cloudDampeningFactor=1;
-
-  if(satelliteUsable){
-    const satWeight=0.60;
-    value=raw*(1-satWeight)+satCloud*satWeight;
-    reason="model+satellite";
-  }
-
-  /*
-   * KANONICZNA FUZJA ZACHMURZENIA:
-   * 1. Świeży, silny konsensus modeli (ICON-EU, ECMWF, GFS) ma pierwszeństwo.
-   * 2. Pomiary bezopadowe ze stacji IMGW wyzerowują deszcz, ale nie sztucznie redukują chmur.
-   * 3. Wygładzanie czasowe (prior) dostosowuje małe wahania, ale silny konsensus (np. 97/100/100, spread <= 25)
-   *    zachowuje wynik blisko konsensusu modeli (nie zrzuca go o ~50 pp.).
-   */
   if(prior!=null&&priorAge!=null){
     const diff=Math.abs(value-prior);
     const isStrongConsensus=spread<=25||value>=80||value<=20;
@@ -1387,7 +1415,8 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   const commonCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
     "precipitation","weather_code","cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high","visibility","pressure_msl",
-    "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers"
+    "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers",
+    "sunshine_duration","direct_normal_irradiance","shortwave_radiation"
   ];
   const commonHourly=[
     "temperature_2m","weather_code","precipitation_probability","precipitation","snowfall",
