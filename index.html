@@ -5865,7 +5865,11 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     }).filter(Boolean);
     if(vals.length<2)continue;
     const wsum=vals.reduce((s,x)=>s+x.w,0);
-    const consensus=vals.reduce((s,x)=>s+x.optical*x.w,0)/wsum;
+    // Przyszła prognoza opisuje zachmurzenie modelowe, więc dla T+1... używamy
+    // bezpośrednio cloud_cover. Optyka pozostaje diagnostyką bieżącego nieba.
+    // Dzięki temu nie przenosimy dzisiejszej obserwacji 30% do przyszłej
+    // trajektorii i nie tłumimy wzrostu zachmurzenia przez solarClear.
+    const consensus=vals.reduce((s,x)=>s+x.total*x.w,0)/wsum;
     rows.push({i,t,vals,consensus});
   }
   if(!rows.length)return;
