@@ -6895,7 +6895,50 @@ document.addEventListener("click",e=>{
     case"raw":openRawSheet();break;
     case"pipeline":openPipelineInspector();break;
     case"pipeline-refresh":if(S.lat!=null){closeSheet();loadW(S.lat,S.lng,S.city,true);}break;
-    case"copy-pipeline":{if(navigator.clipboard)navigator.clipboard.writeText(pipelineDiagnosticsText()).catch(()=>{});break;}
+    case"copy-pipeline":{
+  const copyButton=t;
+  const originalLabel=copyButton.dataset.copyOriginal||copyButton.textContent.trim()||"Kopiuj diagnostykę";
+  copyButton.dataset.copyOriginal=originalLabel;
+  const textToCopy=pipelineDiagnosticsText();
+  const showCopied=()=>{
+    copyButton.textContent="✓ Skopiowano";
+    copyButton.classList.add("ok");
+    clearTimeout(copyButton._copyTimer);
+    copyButton._copyTimer=setTimeout(()=>{
+      copyButton.textContent=originalLabel;
+      copyButton.classList.remove("ok");
+    },2200);
+  };
+  const fallbackCopy=()=>{
+    try{
+      const ta=document.createElement("textarea");
+      ta.value=textToCopy;
+      ta.setAttribute("readonly","");
+      ta.style.position="fixed";
+      ta.style.left="-9999px";
+      ta.style.top="0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok=document.execCommand("copy");
+      ta.remove();
+      if(ok)showCopied();
+      else throw new Error("execCommand copy failed");
+    }catch(err){
+      console.warn("[AURA COPY DIAGNOSTICS]",err);
+      copyButton.textContent="✕ Nie skopiowano";
+      copyButton.classList.remove("ok");
+      clearTimeout(copyButton._copyTimer);
+      copyButton._copyTimer=setTimeout(()=>{copyButton.textContent=originalLabel;},2200);
+    }
+  };
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(textToCopy).then(showCopied).catch(fallbackCopy);
+  }else{
+    fallbackCopy();
+  }
+  break;
+}
     case"copy":{const el=$("#rawtxt");if(el&&navigator.clipboard)navigator.clipboard.writeText(el.textContent).then(()=>{t.lastChild.textContent="Skopiowano";}).catch(()=>{});break;}
     case"open-threats":openThreatsSheet(S.X||computeCtx());break;
     case"theme-toggle":toggleThemeMode();break;
