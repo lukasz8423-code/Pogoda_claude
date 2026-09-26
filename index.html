@@ -5313,6 +5313,7 @@ function pipelineDiagnosticsText(){
     liveHealth:S.liveHealth||null,
     solarPosition:solarPositionDiagnostic(S.lat,S.lng,new Date()),
     uvControl:{model:S.data?.current?.uv_index??null,clearSky:S.data?.current?.uv_index_clear_sky??null,cloudCover:S.data?.current?.cloud_cover??null},
+    geminiLatest:latestGeminiObservationDiagnostic(),
     geminiObservations:geminiObservations()
   },null,2);
 }
