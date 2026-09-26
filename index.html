@@ -566,8 +566,16 @@ a.btn{text-decoration:none;color:inherit}
 .ws{font-size:12.5px;color:var(--ink2);margin-top:auto;padding-top:8px;line-height:1.4}
 .uvbar{position:relative;height:6px;border-radius:6px;margin:10px 0 2px;background:linear-gradient(90deg,#5BD98C 0%,#F3D64A 32%,#F59B3B 55%,#EE5A4B 78%,#9B5DE5 100%)}
 .uvbar u{position:absolute;top:-3px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(8,15,32,.55)}
-.cmp{width:104px;height:104px;margin:0 auto}
-.cmp text{fill:var(--ink2);font-family:inherit}
+.cmp{width:110px;height:110px;margin:0 auto;display:block;overflow:visible}
+.cmp text{fill:var(--ink2);font-family:inherit;user-select:none}
+.cmp .cmp-n{fill:#ef4444;font-weight:700}
+.cmp-arrow-group{transform-origin:50px 50px;transition:transform 1.2s cubic-bezier(.34,1.35,.64,1);will-change:transform}
+.cmp-arrow-pulse{animation:cmpWindBreeze 3.2s ease-in-out infinite alternate}
+@keyframes cmpWindBreeze{
+  0%{filter:drop-shadow(0 0 2px rgba(251,191,36,.35))}
+  50%{filter:drop-shadow(0 0 6px rgba(56,189,248,.65))}
+  100%{filter:drop-shadow(0 0 3px rgba(251,191,36,.5))}
+}
 .gauge{width:118px;margin:0 auto -4px}
 .layer{display:grid;grid-template-columns:52px 1fr 34px;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:8px}
 .layer div{height:6px;border-radius:6px;background:rgba(255,255,255,.14);overflow:hidden}
@@ -770,7 +778,8 @@ function buildNowcast(hourly,ci,precipitationModelWeight=1){
     const modelFactor=idx===ci?w:1;
     const precip=Math.max(0,rawPrecip*modelFactor);
     const pop=Math.max(0,rawPop*modelFactor);
-    const rain=isRainCode(code)&&((precip>=0.1)||rawPrecip===0);
+    const isRealPrecip = precip >= 0.1 || (precip > 0.05 && pop >= 25);
+    const rain = isRainCode(code) && isRealPrecip;
     points.push({
       h:idx-ci,
       time:hourly.time?.[idx],
@@ -849,9 +858,10 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   const t = Math.round(cur?.temperature_2m ?? 15);
   const appT = Math.round(cur?.apparent_temperature ?? t);
   const place = locativeCity(city);
-  const isStorm = isStormCode(code);
-  const isSnow = isSnowCode(code);
-  const isRain = isRainCode(code);
+  const rainActive = currentStateOrX ? isRainingNow(currentStateOrX) : (Number(cur?.precipitation ?? 0) > 0.05);
+  const isStorm = isStormCode(code) && (rainActive || code >= 95);
+  const isSnow = isSnowCode(code) && (rainActive || t <= 1);
+  const isRain = isRainCode(code) && rainActive;
   const isMist = code >= 45 && code <= 48;
   const wind = Number(currentStateOrX?.wind ?? cur?.wind_speed_10m ?? 10);
   const gusts = Number(cur?.wind_gusts_10m ?? (wind * 1.4));
@@ -909,10 +919,10 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   }):null).filter(Boolean);
 
   const blockedOutdoor = nextHours.some(h =>
-    h.precipitationMm > 0.4 ||
+    (h.precipitationMm > 0.4 && h.precipitationProbability > 25) ||
     h.precipitationProbability > 45 ||
-    isRainCode(h.weatherCode) ||
-    isStormCode(h.weatherCode)
+    (isRainCode(h.weatherCode) && h.precipitationMm > 0.1 && h.precipitationProbability >= 20) ||
+    (isStormCode(h.weatherCode) && (h.precipitationMm > 0.1 || h.precipitationProbability > 35))
   );
 
   const maxNextTemp = nextHours.length ? Math.max(...nextHours.map(h=>h.temp)) : t;
@@ -1084,7 +1094,7 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
       ? "Kawa wypita przy oknie smakuje o 20% lepiej, a pierwszy łyk rześkiego powietrza zastępuje drugie espresso."
       : daypart === "evening"
         ? "Wieczorny reset na świeżym powietrzu obniża poziom stresu szybciej niż bezcelowe przewijanie social mediów."
-        : "Ruch na świeżym powietrzu liczy się potrójnie, jeśli nie musiałeś przy tym uciekać przed deszczem.",
+        : "Ruch na świeżym powietrzu przy stabilnej aurze doskonale dotlenia i czyści głowę.",
     isOvercast
       ? "Brak bezpośredniego słońca to wymarzona pogoda dla fotografów i ekranów telefonów – zero irytujących odblasków!"
       : isClear
@@ -2789,12 +2799,13 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
     });
   }
 
-  // 2. Strict rule: pr <= 0.05 -> non-rain weather_code; pr > 0.05 -> rain weather_code
+  // 2. Strict rule: pr <= 0.05 or (pop <= 15 && pr < 0.25) -> non-rain weather_code
   const stationNoPrecip = imgwData ? stationHasFreshNoPrecip(imgwData) : false;
   const stationPrecipVal = imgwData ? stationFreshPrecipMm(imgwData) : null;
 
   for(let i = 0; i < hourly.time.length; i++){
     let pr = Number(hourly.precipitation?.[i] ?? 0);
+    let pop = Number(hourly.precipitation_probability?.[i] ?? 0);
     let code = Number(hourly.weather_code?.[i] ?? 0);
 
     if(i === ci && stationNoPrecip){
@@ -2805,10 +2816,12 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
       hourly.precipitation[i] = stationPrecipVal;
     }
 
-    if(pr <= 0.05 && isRainCode(code)){
+    const isReal = (pr > 0.05) && (pop > 15 || pr >= 0.25 || (i === ci && stationPrecipVal !== null && stationPrecipVal > 0));
+
+    if(!isReal && isRainCode(code)){
       const cloud = Number(hourly.cloud_cover?.[i] ?? 0);
       hourly.weather_code[i] = cloud <= 20 ? 0 : cloud <= 70 ? 2 : 3;
-    } else if(pr > 0.05 && !isRainCode(code)){
+    } else if(isReal && !isRainCode(code)){
       hourly.weather_code[i] = 61;
     }
   }
@@ -2819,7 +2832,9 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
     let curCode = Number(hourly.weather_code[ci] ?? 0);
     const curPop = Number(hourly.precipitation_probability[ci] ?? 0);
 
-    if(stationNoPrecip || curPr <= 0.05){
+    const isRealCur = (curPr > 0.05) && (curPop > 15 || curPr >= 0.25 || (stationPrecipVal !== null && stationPrecipVal > 0));
+
+    if(stationNoPrecip || !isRealCur){
       curPr = 0;
       if(isRainCode(curCode)){
         const cloud = Number(data.current.cloud_cover ?? hourly.cloud_cover?.[ci] ?? 0);
@@ -2856,9 +2871,10 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
     if(hasTodayHours){
       data.daily.precipitation_sum[0] = +todaySum.toFixed(1);
       data.daily.precipitation_probability_max[0] = Math.round(todayMaxPop);
-      if(todaySum <= 0.05 && isRainCode(data.daily.weather_code?.[0])){
+      const todayRealRain = todaySum > 0.1 && todayMaxPop > 15;
+      if(!todayRealRain && isRainCode(data.daily.weather_code?.[0])){
         data.daily.weather_code[0] = 2;
-      } else if(todaySum > 0.05 && !isRainCode(data.daily.weather_code?.[0])){
+      } else if(todayRealRain && !isRainCode(data.daily.weather_code?.[0])){
         data.daily.weather_code[0] = 61;
       }
     }
@@ -2920,6 +2936,7 @@ function computeCtx(){
   const rawCurrentCode=Number(current.weather_code??hourly.weather_code?.[ci]??0);
   const stationPrecip = stationFreshPrecipMm(S.imgwData);
   const curPrecip = Number(current.precipitation ?? 0);
+  const curPop = Number(current.precipitation_probability ?? hourly.precipitation_probability?.[ci] ?? 0);
   const stationNoPrecip = stationHasFreshNoPrecip(S.imgwData);
 
   let hasRealPrecipMm = false;
@@ -2928,9 +2945,9 @@ function computeCtx(){
   } else if (stationPrecip !== null) {
     hasRealPrecipMm = stationPrecip > 0.05;
   } else if (timelineNowMm !== null && Number.isFinite(timelineNowMm)) {
-    hasRealPrecipMm = timelineNowMm > 0.05;
+    hasRealPrecipMm = timelineNowMm > 0.05 && (curPop > 15 || timelineNowMm >= 0.25);
   } else {
-    hasRealPrecipMm = Number.isFinite(curPrecip) && curPrecip > 0.05;
+    hasRealPrecipMm = Number.isFinite(curPrecip) && curPrecip > 0.05 && (curPop > 15 || curPrecip >= 0.25);
   }
 
   const rawPrecipCode = isRainCode(hourlyNowCode) || isRainCode(rawCurrentCode);
@@ -3771,8 +3788,14 @@ function currentRainMm(X){
   if(stationHasFreshNoPrecip(S.imgwData))return 0;
   if(isSnowCode(X?.code))return 0;
   const timelineMm=currentTimelineMm(X);
-  if(timelineMm!==null)return timelineMm;
+  if(timelineMm!==null){
+    const pop=Number(X?.pop??X?.timeline?.current?.pop??0);
+    if(Number.isFinite(pop) && pop<=15 && timelineMm<0.25) return 0;
+    return timelineMm;
+  }
   const mm=Number(X?.precip);
+  const pop=Number(X?.pop??0);
+  if(Number.isFinite(pop) && pop<=15 && mm<0.25) return 0;
   return Number.isFinite(mm)&&mm>0?mm:0;
 }
 function isRainingNow(X){
@@ -3780,6 +3803,10 @@ function isRainingNow(X){
   const cloud=Number(X?.cloud??100);
   if(cloud<=15)return false;
   const mm=currentRainMm(X);
+  const pop=Number(X?.pop??0);
+  const stationPrecip=stationFreshPrecipMm(S.imgwData);
+  if(stationPrecip!==null && stationPrecip>0) return true;
+  if(Number.isFinite(pop) && pop<=15 && mm<0.25) return false;
   return Number.isFinite(mm)&&mm>0.05;
 }
 
@@ -4209,7 +4236,7 @@ function wWind(X){
   const gustForecast=maxG>X.gusts
     ? " Najsilniejsze porywy: "+Math.round(maxG)+" km/h"+(maxGTime?" około "+hhmm(maxGTime):".")
     : "";
-  return`<div id="w-wind" class="w"><div class="wh">${mini("wind")}Wiatr</div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
+  return`<div id="w-wind" class="w"><div class="wh">${mini("wind")}Wiatr <span class="chip ok" style="margin-left:auto;font-size:11px;padding:2px 7px;font-weight:600">${Math.round(X.wdeg)}° · ${wdir(X.wdeg)}</span></div><div style="position:relative">${compass(X.wdeg,X.wind)}<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none"><div><div class="tn" style="font-size:24px;font-weight:600;line-height:1;margin-top:10px">${X.wind}</div><div style="font-size:11px;color:var(--ink2)">km/h</div></div></div></div><div class="ws" style="text-align:center">${BFT_PL[bft(X.wind)]}, porywy ${X.gusts} km/h z ${wdir(X.wdeg)}. ${impact}. ${forecast}${gustForecast}</div></div>`;
 }
 function wFeels(X){
   const d=discomfortIndex(X.T,X.hum,X.wind),diff=Math.round(X.feels-X.T);
