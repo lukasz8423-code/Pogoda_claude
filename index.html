@@ -5857,8 +5857,19 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     }).filter(Boolean);
     if(vals.length<2)continue;
     const wsum=vals.reduce((s,x)=>s+x.w,0);
-    const consensus=vals.reduce((s,x)=>s+x.total*x.w,0)/wsum;
-    rows.push({i,t,vals,consensus});
+    const weightedMean=vals.reduce((s,x)=>s+x.total*x.w,0)/wsum;
+    const sortedTotals=vals.map(x=>x.total).sort((a,b)=>a-b);
+    const median=sortedTotals.length%2
+      ? sortedTotals[Math.floor(sortedTotals.length/2)]
+      : (sortedTotals[sortedTotals.length/2-1]+sortedTotals[sortedTotals.length/2])/2;
+    const spread=sortedTotals.length?sortedTotals[sortedTotals.length-1]-sortedTotals[0]:0;
+    // Przy dużym rozrzucie modeli zwykła średnia może zostać mocno
+    // pociągnięta przez jeden skrajny model. Używamy wtedy odpornego
+    // blendu średniej ważonej i mediany; przy zgodnych modelach pozostaje
+    // dokładnie dotychczasowa średnia ważona.
+    const disagreement=clamp((spread-35)/55,0,1);
+    const consensus=weightedMean*(1-disagreement*0.55)+median*(disagreement*0.55);
+    rows.push({i,t,vals,consensus,weightedMean,median,spread,disagreement});
   }
   if(!rows.length)return;
 
@@ -5927,6 +5938,10 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
       time:row.t,
       value,
       modelConsensus:Math.round(row.consensus),
+      weightedMean:Math.round(row.weightedMean),
+      median:Math.round(row.median),
+      modelSpread:Math.round(row.spread),
+      disagreement:Math.round(row.disagreement*100),
       trend1:delta1==null?null:Math.round(delta1*10)/10,
       trend2:delta2==null?null:Math.round(delta2*10)/10,
       persistentTrend:Math.round(persistentTrend*10)/10,
