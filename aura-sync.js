@@ -106,12 +106,15 @@
       const ci=typeof currentHourIndex==='function'?currentHourIndex(d,new Date()):0;
       const num=v=>Number.isFinite(Number(v))?Number(v):null;
       const time=c.time||h.time?.[ci]||null;
-      const cloudFinal=num(S.X?.cloud??c.cloud_cover??h.cloud_cover?.[ci]);
-      const tempFinal=num(S.X?.T??c.temperature_2m??h.temperature_2m?.[ci]);
-      const feelsFinal=num(S.X?.feels??c.apparent_temperature??h.apparent_temperature?.[ci]);
-      const windFinal=num(S.X?.wind??c.wind_speed_10m??h.wind_speed_10m?.[ci]);
-      const gustFinal=num(S.X?.gusts??c.wind_gusts_10m??h.wind_gusts_10m?.[ci]);
-      const uvFinal=num(S.X?.uv??c.uv_index??h.uv_index?.[ci]);
+      // KANONICZNA WARTOŚĆ AURY: diagnostyka Gemini ma czytać dokładnie
+      // ten sam kanał S.X, który zasila Hero. Nie używamy fallbacku do
+      // Open-Meteo current/hourly, bo mógłby pokazać inną wartość niż UI.
+      const cloudFinal=num(S.X?.cloud);
+      const tempFinal=num(S.X?.T);
+      const feelsFinal=num(S.X?.feels);
+      const windFinal=num(S.X?.wind);
+      const gustFinal=num(S.X?.gusts);
+      const uvFinal=num(S.X?.uv);
       const weatherFinal=S.X?.wm?.t||S.X?.weatherText||null;
       return {
         capturedAt:new Date().toISOString(),
@@ -119,7 +122,11 @@
         auraFinal:{
           temperatureC:tempFinal,
           feelsLikeC:feelsFinal,
+          // To jest dokładnie wartość renderowana w Hero: X.cloud.
+          // Jeśli kanał Aura nie jest jeszcze gotowy, zwracamy null zamiast
+          // podstawiać surowy model i tworzyć pozorną zgodność.
           cloudCoverPercent:cloudFinal,
+          cloudSource:'Aura X.cloud (Hero)',
           windKmh:windFinal,
           gustKmh:gustFinal,
           uv:uvFinal,
