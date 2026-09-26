@@ -5865,13 +5865,12 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
       ?Math.round(clamp(opticalValue,0,100))
       :Math.round(clamp(rawConsensus,0,100));
 
-    // Przyszłość nie może wykonywać absurdalnych skoków między sąsiednimi
-    // godzinami tylko dlatego, że jeden model zmienił scenariusz. Nie
-    // zakotwiczamy tego do "TERAZ": ograniczamy wyłącznie pojedynczy krok
-    // prognozy do 40 pp/h, zostawiając możliwość dojścia do 98-100% w kolejnych
-    // godzinach, jeśli modele nadal będą to podtrzymywać.
+    // Nie zakotwiczamy prognozy do bieżących 30%. Dla najbliższych 2 godzin
+    // używamy jednak krótkoterminowej ciągłości: duża zmiana ma być potwierdzona
+    // przez kolejne kroki modeli, a nie pojedynczym odległym skokiem.
+    const horizonHours=Math.max(0,i-ci);
     const prevForecast=Number(hourly.cloud_cover[i-1]);
-    const maxStep=40;
+    const maxStep=horizonHours<=2 ? 15 : 25;
     const finalValue=Number.isFinite(prevForecast)
       ?Math.round(clamp(rawFinal,prevForecast-maxStep,prevForecast+maxStep))
       :rawFinal;
