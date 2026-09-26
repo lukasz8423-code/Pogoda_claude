@@ -496,27 +496,10 @@ async function analyzeWithGeminiVision(){
   finally{St.gemini.busy=false;render();}
 }
 async function copyGeminiAnalysis(){
-  const rec=St.gemini.result;
-  if(!rec)return;
-  const x=rec.result||{}, d=new Date(rec.observedAt);
-  const lines=[
-    "ANALIZA GEMINI — SKAN NIEBA",
-    "Czas: "+d.toLocaleString("pl-PL"),
-    "Miejsce: "+(rec.location?.city||"—"),
-    "Model: "+(rec.model||"—"),
-    "",
-    "Zachmurzenie: "+(x.cloud_best??"—")+"% ("+(x.cloud_min??"—")+"–"+(x.cloud_max??"—")+"%)",
-    "Słońce: "+(x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne")),
-    "Opad widoczny: "+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie")),
-    "UV wizualne: "+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min)),
-    "Pewność: "+(x.confidence??"—")+"%",
-    "",
-    "Podsumowanie: "+(x.summary||"—"),
-    "Porównanie z Aurą: "+(x.comparison||"—")
-  ];
-  try{await navigator.clipboard.writeText(lines.join("\n"));St.gemini.copyStatus="Skopiowano analizę";}
-  catch{St.gemini.copyStatus="Nie udało się skopiować";}
-  render();
+  const rec=St.gemini.result;if(!rec)return;
+  const x=rec.result||{};
+  const text=["ANALIZA GEMINI — SKAN NIEBA","Zachmurzenie: "+(x.cloud_best??"—")+"% ("+(x.cloud_min??"—")+"–"+(x.cloud_max??"—")+"%)","Słońce: "+(x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne")),"Opad widoczny: "+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie")),"UV wizualne: "+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min)),"Pewność: "+(x.confidence??"—")+"%","",x.summary||"",x.comparison||""].join("\n");
+  try{await navigator.clipboard.writeText(text);St.gemini.copyStatus="Skopiowano";}catch{St.gemini.copyStatus="Nie udało się skopiować";}render();
 }
 function geminiObservationHTML(){
   const g=St.gemini,key=getGeminiVisionKey();
@@ -530,7 +513,7 @@ function geminiObservationHTML(){
   if(g.error)h+='<div class="err">'+esc(g.error)+'</div>';
   if(g.test){if(g.test.ok)h+='<div class="gemini-result" style="margin-top:8px"><b>✅ Połączenie z Gemini działa</b><div class="note">API odpowiedziało poprawnie. Modele z generateContent: '+esc(String(g.test.modelCount))+(g.test.preferred.length?'. Dostępny preferowany model: '+esc(g.test.preferred[0].replace("models/","")):'. Preferowany model nie jest dostępny na tym kluczu.')+'</div></div>';else h+='<div class="err">❌ Test Gemini nie przeszedł: '+esc(g.test.error||"Nieznany błąd")+'</div>';}
 
-  if(g.result){const x=g.result.result||{};h+='<div class="gemini-result"><b>Wynik</b><div class="gemini-kv" style="margin-top:9px"><span>Zachmurzenie</span><b>'+esc(String(x.cloud_best??"—"))+'% ('+esc(String(x.cloud_min??"—"))+'–'+esc(String(x.cloud_max??"—"))+'%)</b><span>Słońce</span><b>'+ (x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne"))+'</b><span>Opad widoczny</span><b>'+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie"))+'</b><span>UV wizualne</span><b>'+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min))+'</b><span>Pewność</span><b>'+esc(String(x.confidence??"—"))+'%</b></div><div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div><div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" data-act="gemini-copy">'+ic("copy")+'Kopiuj analizę Gemini</button></div>'+(g.copyStatus?'<div class="note">'+esc(g.copyStatus)+'</div>':'')+</div>';}
+  if(g.result){const x=g.result.result||{};h+='<div class="gemini-result"><b>Wynik</b><div class="gemini-kv" style="margin-top:9px"><span>Zachmurzenie</span><b>'+esc(String(x.cloud_best??"—"))+'% ('+esc(String(x.cloud_min??"—"))+'–'+esc(String(x.cloud_max??"—"))+'%)</b><span>Słońce</span><b>'+ (x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne"))+'</b><span>Opad widoczny</span><b>'+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie"))+'</b><span>UV wizualne</span><b>'+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min))+'</b><span>Pewność</span><b>'+esc(String(x.confidence??"—"))+'%</b></div><div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div><button class="btn wide" data-act="gemini-copy" style="margin-top:10px">📋 Kopiuj analizę Gemini</button>'+(g.copyStatus?'<div class="note">'+esc(g.copyStatus)+'</div>':'')+'</div>';}
   h+='</div></section>';return h;
 }
 
