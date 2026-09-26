@@ -50,7 +50,7 @@ def point_query(lat, lon):
         cls = "clear_land"
     elif "clear sky over water" in low or "clear water" in low:
         cls = "clear_water"
-    elif re.search(r"\bcloud(?:y|s)?\b", low) or "red_band" in low:
+    elif re.search(r"\bcloud(?:y|s)?\b", low):
         cls = "cloud"
     else:
         cls = "unknown"
