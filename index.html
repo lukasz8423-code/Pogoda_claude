@@ -6565,28 +6565,76 @@ async function loadWCore(lat,lng,name,isRef,token){
   applyFutureHourlyCloudConsensus(data,cloudCompare);
   sanitizeHourlyCloudCover(data);
 
-  // Ostateczna kontrola krótkiego horyzontu — wykonywana po całej fuzji,
-  // tuż przed zamrożeniem danych dla renderera. Dzięki temu żadna późniejsza
-  // ścieżka nie może ponownie wstawić np. 82% godzinę po aktualnych 30%.
-  // Nie zmieniamy current.cloud_cover.
+  // Ostateczna kontrola krótkiego horyzontu:
+  // NIE ograniczamy już skoku stałym limitem ±15/25 pp.
+  // Kierunek prognozy ma wynikać z tego, co robią niezależnie ICON/ECMWF/GFS.
+  // TERAZ pozostaje nietknięte.
   {
     const h=data?.hourly;
     const ci=currentHourIndex(data,new Date());
-    if(h?.time?.length && Number.isFinite(Number(data?.current?.cloud_cover))){
-      let prev=clamp(Math.round(Number(data.current.cloud_cover)),0,100);
+    const models=cloudCompare.filter(r=>r?.data?.hourly?.time?.length);
+    if(h?.time?.length && models.length>=2){
+      const weights={icon_eu:0.40,ecmwf_ifs025:0.30,gfs_seamless:0.20,dmi_harmonie_arome_europe:0.10};
+      const maps=models.map(r=>{
+        const map=new Map();
+        r.data.hourly.time.forEach((t,i)=>{
+          const v=Number(r.data.hourly.cloud_cover?.[i]);
+          if(Number.isFinite(v))map.set(String(t),v);
+        });
+        return {id:r.model,map};
+      });
       const rows=[];
       for(let j=ci+1;j<h.time.length;j++){
-        const hoursAhead=j-ci;
-        if(hoursAhead>4)break;
-        const raw=Number(h.cloud_cover?.[j]);
-        if(!Number.isFinite(raw))continue;
-        const maxStep=hoursAhead<=2?15:25;
-        const fixed=Math.round(clamp(raw,prev-maxStep,prev+maxStep));
-        h.cloud_cover[j]=fixed;
-        rows.push({time:h.time[j],raw:Math.round(raw),value:fixed,maxStep});
-        prev=fixed;
+        const t=String(h.time[j]);
+        const nowVals=maps.map(m=>({
+          id:m.id,v:m.map.get(t),w:weights[m.id]??0
+        })).filter(x=>Number.isFinite(x.v)&&x.w>0);
+        if(nowVals.length<2)continue;
+
+        const wsum=nowVals.reduce((a,x)=>a+x.w,0);
+        const consensus=nowVals.reduce((a,x)=>a+x.v*x.w,0)/wsum;
+
+        // Trend między kolejnymi godzinami każdego modelu.
+        const trendVals=[];
+        maps.forEach(m=>{
+          const prevTime=String(h.time[j-1]);
+          const pv=m.map.get(prevTime),cv=m.map.get(t);
+          if(Number.isFinite(pv)&&Number.isFinite(cv)){
+            trendVals.push({id:m.id,delta:cv-pv,w:weights[m.id]??0});
+          }
+        });
+        const tw=trendVals.reduce((a,x)=>a+x.w,0);
+        const trend=tw>0?trendVals.reduce((a,x)=>a+x.delta*x.w,0)/tw:0;
+
+        // Jeżeli modele są zgodne co do kierunku, pozwalamy konsensusowi
+        // przejść bez sztucznego limitu. Przy rozbieżnych kierunkach
+        // zachowujemy ostrożniejszą wartość między konsensusem i poprzednim
+        // punktem, zamiast wymuszać płaską krzywą.
+        const positive=trendVals.filter(x=>x.delta>3).reduce((a,x)=>a+(x.w||0),0);
+        const negative=trendVals.filter(x=>x.delta<-3).reduce((a,x)=>a+(x.w||0),0);
+        const agreement=Math.max(positive,negative)/(tw||1);
+
+        let value=consensus;
+        if(agreement<0.55){
+          value=consensus*0.65+Number(h.cloud_cover[j-1]??consensus)*0.35;
+        }
+
+        h.cloud_cover[j]=Math.round(clamp(value,0,100));
+        rows.push({
+          time:t,
+          value:h.cloud_cover[j],
+          modelConsensus:Math.round(consensus),
+          weightedTrend:Math.round(trend),
+          trendAgreement:Math.round(agreement*100),
+          models:nowVals.map(x=>({model:x.id,cloud:Math.round(x.v)}))
+        });
       }
-      h.__auraShortCloudGuard={applied:true,currentExcluded:true,rows};
+      h.__auraShortCloudGuard={
+        applied:true,
+        mode:"multi_model_trend",
+        currentExcluded:true,
+        rows
+      };
     }
   }
 
