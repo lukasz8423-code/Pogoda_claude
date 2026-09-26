@@ -6655,6 +6655,36 @@ async function loadWCore(lat,lng,name,isRef,token){
   applyFutureHourlyCloudConsensus(data,cloudCompare);
   sanitizeHourlyCloudCover(data);
 
+  // Diagnostyka musi być zapisana PO wykonaniu korekty prognozy chmur.
+  // Wcześniej pipelineDiag był budowany przed tym etapem, więc zawsze
+  // pokazywał source:null/applied:false/rows:[] mimo że funkcja działała.
+  const cloudDiag=data.hourly?.__auraHourlyCloudConsensus||null;
+  S.pipelineDiag=S.pipelineDiag||{};
+  S.pipelineDiag.cloudForecast={
+    source:cloudDiag?.source||null,
+    applied:cloudDiag?.applied===true,
+    trendWindowHours:cloudDiag?.trendWindowHours??null,
+    current:Number.isFinite(Number(data.current?.cloud_cover))?Number(data.current.cloud_cover):null,
+    rows:Array.isArray(cloudDiag?.rows)
+      ?cloudDiag.rows.map(r=>({
+        time:r.time,
+        value:Number.isFinite(Number(r.value))?Number(r.value):null,
+        modelConsensus:Number.isFinite(Number(r.modelConsensus))?Number(r.modelConsensus):null,
+        trend1:r.trend1??null,
+        trend2:r.trend2??null,
+        persistentTrend:r.persistentTrend??null,
+        trendAgreement:r.trendAgreement??null,
+        trendStrength:r.trendStrength??null,
+        smoothingBlend:r.smoothingBlend??null,
+        models:Array.isArray(r.models)?r.models.map(m=>({
+          model:m.model,
+          total:m.total,
+          optical:m.optical
+        })):[],
+      }))
+      :[]
+  };
+
 
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
   // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
