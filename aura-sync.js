@@ -314,7 +314,53 @@
           obj.imgw.canonicalLatest=d?.latestTimestamp??null;
           obj.imgw.canonicalLatestTime=d?.latestTime??null;
           obj.imgw.canonicalLatestAgeMinutes=d?.latestAgeMinutes??null;
+          obj.imgw.canonicalSnapshotCapturedAt=new Date().toISOString();
           obj.imgw.componentDiagnostics=d?.components??null;
+
+          // KANONICZNE ŹRÓDŁO DIAGNOSTYKI:
+          // pola IMGW w skopiowanym JSON muszą pochodzić z tego samego
+          // snapshotu komponentów, którego używa patchHeroLabel().
+          // Nie pozwalamy, aby starsze wartości z S.pipelineDiag
+          // mieszały się z aktualnym Hero.
+          const cc=d?.components||{};
+          const cv=k=>cc?.[k]?.value??null;
+          const ct=k=>cc?.[k]?.timestamp??null;
+          const ca=k=>cc?.[k]?.ageMinutes??null;
+          const cf=k=>cc?.[k]?.fresh===true;
+          obj.imgw.station=d?.station??obj.imgw.station??"Głodowo";
+          obj.imgw.distanceKm=d?.distanceKm??obj.imgw.distanceKm??null;
+          obj.imgw.status="online";
+          obj.imgw.ageMinutes=d?.latestAgeMinutes??null;
+          obj.imgw.temperature=cv("temperature");
+          obj.imgw.humidity=cv("humidity");
+          obj.imgw.wind=cv("wind");
+          obj.imgw.gust=cv("gust");
+          obj.imgw.rain10min=cv("rain10min");
+          obj.imgw.fields={
+            temperature:{value:cv("temperature"),timestamp:ct("temperature"),ageMinutes:ca("temperature"),fresh:cf("temperature")},
+            humidity:{value:cv("humidity"),timestamp:ct("humidity"),ageMinutes:ca("humidity"),fresh:cf("humidity")},
+            wind:{value:cv("wind"),timestamp:ct("wind"),ageMinutes:ca("wind"),fresh:cf("wind")},
+            windDirection:{value:cv("windDirection"),timestamp:ct("windDirection"),ageMinutes:ca("windDirection"),fresh:cf("windDirection")},
+            gust:{value:cv("gust"),timestamp:ct("gust"),ageMinutes:ca("gust"),fresh:cf("gust")},
+            rain10min:{value:cv("rain10min"),timestamp:ct("rain10min"),ageMinutes:ca("rain10min"),fresh:cf("rain10min")}
+          };
+          obj.imgw.timestamps={
+            temperature:ct("temperature"),
+            humidity:ct("humidity"),
+            wind:ct("wind"),
+            windDirection:ct("windDirection"),
+            gust:ct("gust"),
+            rain10min:ct("rain10min")
+          };
+          obj.imgw.freshness={
+            temperature:cf("temperature"),
+            humidity:cf("humidity"),
+            wind:cf("wind"),
+            windDirection:cf("windDirection"),
+            gust:cf("gust"),
+            rain10min:cf("rain10min")
+          };
+
           obj.allComponentDiagnostics=buildAllComponentDiagnostics();
           return JSON.stringify(obj,null,2);
         }catch{return base;}
