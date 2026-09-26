@@ -561,8 +561,8 @@ a.btn{text-decoration:none;color:inherit}
 .w.full{grid-column:1/-1;min-height:0}
 .wh{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink2);margin-bottom:8px}
 .wh svg{width:15px;height:15px}
-.wv{font-size:30px;font-weight:500;line-height:1.1;letter-spacing:-.5px;display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:2px 4px}
-.wv small{font-size:13px;font-weight:600;color:var(--ink2);letter-spacing:0;margin-left:0}
+.wv{font-size:27px;font-weight:500;line-height:1.1;letter-spacing:-.5px;display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap;gap:2px 4px}
+.wv small{font-size:12.5px;font-weight:600;color:var(--ink2);letter-spacing:0;margin-left:0;white-space:nowrap}
 .ws{font-size:12.5px;color:var(--ink2);margin-top:auto;padding-top:8px;line-height:1.4}
 .uvbar{position:relative;height:6px;border-radius:6px;margin:10px 0 2px;background:linear-gradient(90deg,#5BD98C 0%,#F3D64A 32%,#F59B3B 55%,#EE5A4B 78%,#9B5DE5 100%)}
 .uvbar u{position:absolute;top:-3px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(8,15,32,.55)}
@@ -2735,7 +2735,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
-const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"Bardzo wysokie":"Ekstremalne";
+const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"B. wysokie":"Ekstremalne";
 const DAY_SHORT=d=>{const s=new Date(d).toLocaleDateString("pl-PL",{weekday:"short"});return s.charAt(0).toUpperCase()+s.slice(1);};
 
 // ═══════════════════════════════════════════════
@@ -4201,7 +4201,7 @@ function wUV(X){
   const adv=uv<3?"Niskie UV":uv<6?"Umiarkowane UV — przy dłuższym pobycie warto chronić skórę i oczy":uv<8?"Wysokie UV — potrzebna ochrona skóry i oczu":"Bardzo wysokie UV — ogranicz bezpośrednie słońce w środku dnia";
   const peakTxt=peakTime?"Szczyt około "+hhmm(peakTime)+": "+fnum(peak,1)+".":"Maks. dziś "+fnum(X.uvMax,1)+".";
   const clearTxt=Number.isFinite(X.uvClearMax)&&X.uvClearMax>0?` Bezchmurne maksimum modelu: ${fnum(X.uvClearMax,1)}.`:"";
-  return`<div id="w-uv" class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn"><span>${fnum(uv,uv<10?1:0)}</span><small>${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}${clearTxt}</div></div>`;
+  return`<div id="w-uv" class="w"><div class="wh">${mini("sun")}Indeks UV</div><div class="wv tn" style="white-space:nowrap"><span>${fnum(uv,uv<10?1:0)}</span><small style="white-space:nowrap">${uvWord(uv)}</small></div><div class="uvbar"><u style="left:${clamp(uv/11,0,1)*100}%"></u></div><div class="ws">${adv}. ${peakTxt}${clearTxt}</div></div>`;
 }
 function compass(deg,spd){
   let ticks="";
