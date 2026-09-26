@@ -441,6 +441,29 @@ function formHTML(){
 function ready(){const o=St.obs;const tOk=o.feel!=null||(o.temp!==""&&!isNaN(parseFloat(o.temp.replace(",","."))));return!!(o.sky&&o.pre&&o.wind!=null&&tOk&&St.now);}
 
 function getGeminiVisionKey(){try{return localStorage.getItem("gemini_vision_key")||"";}catch{return"";}}
+async function testGeminiConnection(){
+  const key=getGeminiVisionKey().trim();
+  if(!key){St.gemini.error="Wpisz osobny klucz Gemini Vision.";St.gemini.test=null;render();return;}
+  St.gemini.testBusy=true;St.gemini.error="";St.gemini.test=null;render();
+  try{
+    const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models",{
+      method:"GET",
+      headers:{"x-goog-api-key":key},
+      signal:AbortSignal.timeout(15000)
+    });
+    const raw=await response.text();let data=null;try{data=JSON.parse(raw);}catch{}
+    if(!response.ok)throw new Error("HTTP "+response.status+": "+(data?.error?.message||raw.slice(0,300)||"Brak treści błędu"));
+    const models=Array.isArray(data?.models)?data.models:[];
+    const usable=models.filter(m=>Array.isArray(m?.supportedGenerationMethods)&&m.supportedGenerationMethods.includes("generateContent"));
+    const preferred=["models/gemini-2.5-flash-lite","models/gemini-2.5-flash"];
+    const available=preferred.filter(n=>usable.some(m=>m.name===n));
+    St.gemini.test={ok:true,checkedAt:new Date().toISOString(),modelCount:usable.length,preferred:available};
+    St.gemini.error="";
+  }catch(e){
+    St.gemini.test={ok:false,checkedAt:new Date().toISOString(),error:e?.message||"Nie udało się pobrać listy modeli."};
+    St.gemini.error=e?.name==="TimeoutError"?"Test Gemini przekroczył 15 s.":"Test Gemini: "+(e?.message||"Failed to fetch");
+  }finally{St.gemini.testBusy=false;render();}
+}
 function setGeminiVisionKey(v){try{if(v)localStorage.setItem("gemini_vision_key",v);else localStorage.removeItem("gemini_vision_key");}catch{}}
 function auraSnapshotForGemini(){
   let cached=null;try{cached=JSON.parse(localStorage.getItem("aura_v9")||"null");}catch{}
@@ -476,12 +499,13 @@ function geminiObservationHTML(){
   const g=St.gemini,key=getGeminiVisionKey();
   let h='<section class="gemini-box"><div class="ch" style="margin-bottom:8px">'+ic("chart")+'<span class="grow">🤖 Obserwacja Gemini</span></div>';
   h+='<div class="note" style="margin:0 0 10px">Niezależna analiza zdjęcia. Wynik trafia do diagnostyki i dziennika, ale nie zmienia prognozy Aury.</div><div class="gemini-grid">';
-  h+='<input id="geminiVisionKey" class="gemini-key" type="password" autocomplete="off" placeholder="Osobny klucz Gemini Vision" value="'+esc(key)+'">';
-  h+='<input id="geminiPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">';
+  h+='<div style="display:grid;grid-template-columns:1fr;gap:8px"><input id="geminiVisionKey" class="gemini-key" type="password" autocomplete="off" placeholder="Osobny klucz Gemini Vision" value="'+esc(key)+'"><button class="btn wide" data-act="gemini-test" '+(g.testBusy?"disabled":"")+'>'+ (g.testBusy?"🔌 Sprawdzam Gemini…":"🔌 Sprawdź połączenie z Gemini")+'</button></div>';\n  h+='<input id="geminiPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">';
   h+='<button class="btn pri wide" data-act="gemini-photo">📷 Zrób zdjęcie / wybierz zdjęcie</button>';
   if(g.imageData)h+='<img class="gemini-preview" src="data:'+g.mimeType+';base64,'+g.imageData+'" alt="Zdjęcie nieba do analizy Gemini">';
   h+='<button class="btn wide" data-act="gemini-analyze" '+((!g.imageData||g.busy)?"disabled":"")+'>🤖 '+(g.busy?"Analizuję zdjęcie…":"Analizuj z Gemini")+'</button>';
   if(g.error)h+='<div class="err">'+esc(g.error)+'</div>';
+  if(g.test){if(g.test.ok)h+='<div class="gemini-result" style="margin-top:8px"><b>✅ Połączenie z Gemini działa</b><div class="note">API odpowiedziało poprawnie. Modele z generateContent: '+esc(String(g.test.modelCount))+(g.test.preferred.length?'. Dostępny preferowany model: '+esc(g.test.preferred[0].replace("models/","")):'. Preferowany model nie jest dostępny na tym kluczu.')+'</div></div>';else h+='<div class="err">❌ Test Gemini nie przeszedł: '+esc(g.test.error||"Nieznany błąd")+'</div>';}
+
   if(g.result){const x=g.result.result||{};h+='<div class="gemini-result"><b>Wynik</b><div class="gemini-kv" style="margin-top:9px"><span>Zachmurzenie</span><b>'+esc(String(x.cloud_best??"—"))+'% ('+esc(String(x.cloud_min??"—"))+'–'+esc(String(x.cloud_max??"—"))+'%)</b><span>Słońce</span><b>'+ (x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne"))+'</b><span>Opad widoczny</span><b>'+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie"))+'</b><span>UV wizualne</span><b>'+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min))+'</b><span>Pewność</span><b>'+esc(String(x.confidence??"—"))+'%</b></div><div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div></div>';}
   h+='</div></section>';return h;
 }
@@ -568,7 +592,7 @@ document.addEventListener("click",async e=>{
   const t=e.target.closest("[data-act]");if(!t)return;
   switch(t.dataset.act){
     case"gemini-photo":{$("#geminiPhoto")?.click();break;}
-    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}
+    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}\n    case"gemini-test":{if(!St.gemini.testBusy)await testGeminiConnection();break;}
     case"loc":St.locOpen=!St.locOpen;render();break;
     case"reload":loadNow();break;
     case"gps":
