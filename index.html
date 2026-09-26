@@ -4090,6 +4090,9 @@ function hourlyHTML(X){
       code = cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3;
     }
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
+    // "Teraz" pochodzi wyłącznie z kanału obserwacyjnego X.cloud.
+    // hourly.cloud_cover pozostaje osobnym snapshotem prognozy, także dla
+    // slotu, który właśnie stał się bieżącą godziną.
     const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
       ?Number(X.cloud)
       :Number(hourly.cloud_cover?.[idx]??0);
@@ -5934,17 +5937,30 @@ function sanitizeHourlyCloudCover(data){
   const startIdx = Math.max(0, ci);
   const arr = hourly.cloud_cover;
 
-  // T0 pozostaje zakotwiczone w bieżącej fuzji Aury.
-  // To jest stan "TERAZ" i nie zmieniamy działającej logiki aktualnego nieba.
-  if (startIdx < arr.length && data?.current?.cloud_cover != null && Number.isFinite(Number(data.current.cloud_cover))) {
-    arr[startIdx] = clamp(Math.round(Number(data.current.cloud_cover)), 0, 100);
-  }
-
+  // T0 jest osobnym kanałem obserwacyjnym: data.current.cloud_cover.
+  // NIE kopiujemy go do hourly.cloud_cover. Dzięki temu prognoza dla slotu,
+  // który właśnie stał się "TERAZ", nie jest nadpisywana obserwacją.
+  //
+  // Przykład:
+  //   prognoza 15:00 sprzed 2 h = 39%
+  //   obserwacja o 15:02 = 23%
+  // UI pokazuje 23% jako "Teraz", ale hourly 15:00 zachowuje 39%
+  // do diagnostyki/werfikacji trafności prognozy.
+  //
   // PRZYSZŁOŚĆ: nie wygładzamy godzinowego cloud_cover sąsiednimi godzinami.
-  // Każdy przyszły slot ma być wiernym snapshotem aktualnej prognozy modelu.
-  // Wcześniejsze wygładzanie łączyło T+1 z T0 i T+2, przez co świeża zmiana
-  // np. 30% -> 62% mogła zostać sztucznie stłumiona do wartości bliższej 30%.
-  // To rozdziela stabilny "TERAZ" od prognozy przyszłych godzin.
+  // Każdy przyszły slot ma być snapshotem bieżącego runu modelowego.
+  // Nie mieszamy go z aktualnym SkyScan/IMGW.
+  if (startIdx < arr.length) {
+    hourly.__auraCurrentCloudSeparated = {
+      current:Number.isFinite(Number(data?.current?.cloud_cover))
+        ?clamp(Math.round(Number(data.current.cloud_cover)),0,100)
+        :null,
+      forecastAtCurrentSlot:Number.isFinite(Number(arr[startIdx]))
+        ?clamp(Math.round(Number(arr[startIdx])),0,100)
+        :null,
+      separatedAt:Date.now()
+    };
+  }
 }
 
 // ═══════════════════════════════════════════════
