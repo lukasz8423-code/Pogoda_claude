@@ -5206,17 +5206,38 @@ function solarDiagnosticBlock(){
     "<div class=\"note\">Czas: <b>"+esc(solar.localTime)+"</b> · zachmurzenie: <b>"+(cloud==null?"—":Math.round(cloud)+"%")+"</b> · "+status+"</div>";
 }
 function geminiObservations(){try{const a=JSON.parse(localStorage.getItem("gemini_observations")||"[]");return Array.isArray(a)?a:[];}catch{return[];}}
+function latestGeminiObservationDiagnostic(){
+  const log=geminiObservations(),last=log[log.length-1];
+  if(!last)return {available:false,source:"GEMINI_SKYSCAN",observedAt:null,ageMinutes:null,status:"NO_OBSERVATION"};
+  const observedMs=last.observedAt?Date.parse(String(last.observedAt)):NaN;
+  const ageMinutes=Number.isFinite(observedMs)?Math.max(0,(Date.now()-observedMs)/60000):null;
+  const x=last.result||{};
+  return {
+    available:true,source:"GEMINI_SKYSCAN",model:last.model||"Gemini",
+    observedAt:Number.isFinite(observedMs)?new Date(observedMs).toISOString():null,
+    ageMinutes:ageMinutes==null?null:Math.round(ageMinutes*10)/10,
+    ttlMinutes:60,
+    fresh:ageMinutes!=null&&ageMinutes<=60,
+    status:ageMinutes==null?"UNKNOWN_TIMESTAMP":ageMinutes<=60?"FRESH":ageMinutes<=120?"STALE":"EXPIRED",
+    cloudBest:Number.isFinite(Number(x.cloud_best))?Number(x.cloud_best):null,
+    confidence:Number.isFinite(Number(x.confidence))?Number(x.confidence):null,
+    sunVisible:x.sun_visible??null,precipVisible:x.precip_visible??null
+  };
+}
 function geminiObservationDiagnosticsHTML(){
   const log=geminiObservations(),last=log[log.length-1];
   if(!last)return '<div class="note" style="margin-top:14px"><b>🤖 Obserwacja Gemini</b><br>Brak wykonanych obserwacji. Wejdź w „Za oknem”, zrób zdjęcie i uruchom analizę.</div>';
-  const x=last.result||{},s=last.snapshot||{},a=s.aura||{};
+  const x=last.result||{},s=last.snapshot||{},a=s.aura||{},diag=latestGeminiObservationDiagnostic();
   const cloud=Number.isFinite(Number(x.cloud_best))?Number(x.cloud_best):null;
   const auraCloud=Number.isFinite(Number(a.cloud_cover))?Number(a.cloud_cover):null;
   const diff=cloud!=null&&auraCloud!=null?cloud-auraCloud:null;
   const uv=x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min);
+  const observedLabel=last.observedAt?new Date(last.observedAt).toLocaleString("pl-PL"):"—";
+  const ageLabel=diag.ageMinutes==null?"wiek nieznany":diag.ageMinutes<1?"< 1 min":fmtAge(diag.ageMinutes);
+  const statusLabel=diag.status==="FRESH"?"AKTUALNA":diag.status==="STALE"?"NIEAKTUALNA":diag.status==="EXPIRED"?"WYGASŁA":"BRAK CZASU";
   const recent=log.slice(-5).reverse().map(o=>{const q=o.result||{},dt=o.observedAt?new Date(o.observedAt).toLocaleString("pl-PL"):"—";return '<div class="note" style="padding:8px 0;border-top:1px solid var(--line)"><b>'+esc(dt)+'</b> · chmury '+esc(String(q.cloud_best??"—"))+'% · UV '+esc(q.uv_min==null?"—":String(q.uv_min)+"–"+String(q.uv_max??q.uv_min))+' · pewność '+esc(String(q.confidence??"—"))+'%</div>';}).join("");
   return '<div class="note" style="margin-top:14px;font-weight:700">🤖 Obserwacja Gemini</div>'+
-    '<div class="note">Ostatnia analiza: <b>'+esc(last.model||"Gemini")+'</b> · '+esc(last.observedAt?new Date(last.observedAt).toLocaleString("pl-PL"):"—")+'</div>'+
+    '<div class="note"><b>Źródło:</b> GEMINI_SKYSCAN · <b>Analiza:</b> '+esc(observedLabel)+' · <b>Wiek:</b> '+esc(ageLabel)+' · <b>Status:</b> '+statusLabel+'</div>'+
     '<div class="st-grid-2" style="margin-top:8px">'+
       '<div class="ib" style="width:auto;height:auto;min-height:58px;padding:9px;display:block"><div style="font-size:10px;color:var(--ink3)">Gemini — chmury</div><b style="font-size:17px">'+(cloud==null?"—":Math.round(cloud)+"%")+'</b></div>'+
       '<div class="ib" style="width:auto;height:auto;min-height:58px;padding:9px;display:block"><div style="font-size:10px;color:var(--ink3)">Aura w snapshot</div><b style="font-size:17px">'+(auraCloud==null?"—":Math.round(auraCloud)+"%")+'</b></div>'+
