@@ -6458,7 +6458,31 @@ async function loadWCore(lat,lng,name,isRef,token){
             ghostPrecipitation,
             precipitationModelWeight,
             ghostVisibilityDrop,
-            stationVisibilityGuard:data.__stationVisibilityGuard||null
+            stationVisibilityGuard:data.__stationVisibilityGuard||null,
+            cloudForecast:{
+              source:data.hourly?.__auraHourlyCloudConsensus?.source||null,
+              applied:data.hourly?.__auraHourlyCloudConsensus?.applied===true,
+              trendWindowHours:data.hourly?.__auraHourlyCloudConsensus?.trendWindowHours??null,
+              current:Number.isFinite(Number(data.current?.cloud_cover))?Number(data.current.cloud_cover):null,
+              rows:Array.isArray(data.hourly?.__auraHourlyCloudConsensus?.rows)
+                ?data.hourly.__auraHourlyCloudConsensus.rows.map(r=>({
+                  time:r.time,
+                  value:Number.isFinite(Number(r.value))?Number(r.value):null,
+                  modelConsensus:Number.isFinite(Number(r.modelConsensus))?Number(r.modelConsensus):null,
+                  trend1:r.trend1??null,
+                  trend2:r.trend2??null,
+                  persistentTrend:r.persistentTrend??null,
+                  trendAgreement:r.trendAgreement??null,
+                  trendStrength:r.trendStrength??null,
+                  smoothingBlend:r.smoothingBlend??null,
+                  models:Array.isArray(r.models)?r.models.map(m=>({
+                    model:m.model,
+                    total:m.total,
+                    optical:m.optical
+                  })): []
+                }))
+                :[]
+            }
           };
           runLiveDataQualityGuard();
 
