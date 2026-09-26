@@ -5810,43 +5810,80 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     const map=new Map();
     r.data.hourly.time.forEach((t,i)=>{
       const v=Number(r.data.hourly.cloud_cover?.[i]);
-      if(Number.isFinite(v)&&v>=0&&v<=100)map.set(String(t),v);
+      if(Number.isFinite(v)&&v>=0&&v<=100){
+        map.set(String(t),{
+          total:v,
+          low:Number(r.data.hourly.cloud_cover_low?.[i]),
+          mid:Number(r.data.hourly.cloud_cover_mid?.[i]),
+          high:Number(r.data.hourly.cloud_cover_high?.[i]),
+          weather_code:Number(r.data.hourly.weather_code?.[i]),
+          sunshine_duration:Number(r.data.hourly.sunshine_duration?.[i]),
+          direct_normal_irradiance:Number(r.data.hourly.direct_normal_irradiance?.[i]),
+          shortwave_radiation:Number(r.data.hourly.shortwave_radiation?.[i]),
+          is_day:Number(r.data.hourly.is_day?.[i]??1)
+        });
+      }
     });
     return {id:r.model,map};
   });
 
-  const originalCurrent=Number(data?.current?.cloud_cover);
   const diagnostics=[];
   for(let i=Math.max(ci+1,0);i<hourly.time.length;i++){
     const t=String(hourly.time[i]);
-    const vals=byModel.map(m=>({id:m.id,v:m.map.get(t),w:weights[m.id]})).filter(x=>Number.isFinite(x.v));
+    const vals=byModel.map(m=>{
+      const x=m.map.get(t);
+      return x?{id:m.id,...x,w:weights[m.id]}:null;
+    }).filter(Boolean);
     if(vals.length<2)continue;
 
     const wsum=vals.reduce((s,x)=>s+x.w,0);
-    const consensus=vals.reduce((s,x)=>s+x.v*x.w,0)/wsum;
-    const min=Math.min(...vals.map(x=>x.v));
-    const max=Math.max(...vals.map(x=>x.v));
+    const rawConsensus=vals.reduce((s,x)=>s+x.total*x.w,0)/wsum;
+    const rawMin=Math.min(...vals.map(x=>x.total));
+    const rawMax=Math.max(...vals.map(x=>x.total));
 
-    // Przyszłość korzysta z konsensusu modeli, nie z pojedynczego Best Match.
-    // Nie dotykamy bieżącego "TERAZ".
-    hourly.cloud_cover[i]=Math.round(clamp(consensus,0,100));
+    // Dla przyszłości używamy tej samej optycznej interpretacji warstw,
+    // która jest już używana dla "TERAZ". Dzięki temu 85% całkowitego
+    // zachmurzenia z cienkich chmur wysokich nie staje się automatycznie
+    // "85% zakrytego nieba" w kafelku.
+    const opticalRecords=vals.map(x=>({
+      model:x.id,
+      data:{current:{
+        cloud_cover:x.total,
+        cloud_cover_low:x.low,
+        cloud_cover_mid:x.mid,
+        cloud_cover_high:x.high,
+        weather_code:x.weather_code,
+        sunshine_duration:x.sunshine_duration,
+        direct_normal_irradiance:x.direct_normal_irradiance,
+        shortwave_radiation:x.shortwave_radiation,
+        is_day:x.is_day
+      }}
+    }));
+    const optical=optiCloudFromModels(opticalRecords);
+    const opticalValue=Number(optical?.value);
+    const finalValue=Number.isFinite(opticalValue)
+      ?Math.round(clamp(opticalValue,0,100))
+      :Math.round(clamp(rawConsensus,0,100));
+
+    hourly.cloud_cover[i]=finalValue;
 
     diagnostics.push({
       time:t,
-      value:hourly.cloud_cover[i],
-      min,
-      max,
-      models:vals.map(x=>({model:x.id,value:x.v}))
+      value:finalValue,
+      rawConsensus:Math.round(rawConsensus),
+      rawMin:Math.round(rawMin),
+      rawMax:Math.round(rawMax),
+      opticalConsensus:Number.isFinite(opticalValue)?Math.round(opticalValue):null,
+      models:vals.map(x=>({model:x.id,total:Math.round(x.total),low:Number.isFinite(x.low)?Math.round(x.low):null,mid:Number.isFinite(x.mid)?Math.round(x.mid):null,high:Number.isFinite(x.high)?Math.round(x.high):null}))
     });
   }
 
   hourly.__auraHourlyCloudConsensus={
     applied:true,
     modelCount:models.length,
-    source:"weighted_multi_model",
+    source:"weighted_multi_model_optical",
     weights,
     currentExcluded:true,
-    originalCurrent:Number.isFinite(originalCurrent)?originalCurrent:null,
     rows:diagnostics
   };
 }
