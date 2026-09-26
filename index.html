@@ -3860,6 +3860,7 @@ function heroInnerHTML(X){
   }
   const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
   return`<section class="hero">
+    <div style="font-size:12px;font-weight:800;letter-spacing:1px;color:#ff4d4d;margin-bottom:6px">TEST GITHUB: DUPA</div>
     <div class="hero-temp tn">${Number.isFinite(Number(X.T))?Number(X.T).toLocaleString("pl-PL",{minimumFractionDigits:1,maximumFractionDigits:1}):"—"}<sup>°</sup></div>
     <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
