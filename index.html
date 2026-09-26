@@ -5200,7 +5200,7 @@ function solarPositionDiagnostic(lat,lng,date=new Date()){
   const eq=229.18*(.000075+.001868*Math.cos(gamma)-.032077*Math.sin(gamma)-.014615*Math.cos(2*gamma)-.040849*Math.sin(2*gamma));
   const dec=.006918-.399912*Math.cos(gamma)+.070257*Math.sin(gamma)-.006758*Math.cos(2*gamma)+.000907*Math.sin(2*gamma)-.002697*Math.cos(3*gamma)+.00148*Math.sin(3*gamma);
   const mins=date.getHours()*60+date.getMinutes()+date.getSeconds()/60,tz=-date.getTimezoneOffset();
-  const tst=((mins+eq+4*lo-tz*60)%1440+1440)%1440,ha=(tst/4-180)*rad,latr=la*rad;
+  const tst=((mins+eq+4*lo-tz)%1440+1440)%1440,ha=(tst/4-180)*rad,latr=la*rad;
   const zen=Math.acos(clamp(Math.sin(latr)*Math.sin(dec)+Math.cos(latr)*Math.cos(dec)*Math.cos(ha),-1,1));
   const elevation=90-zen/rad;
   let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(latr)-Math.tan(dec)*Math.cos(latr))/rad+180; az=(az+360)%360;
