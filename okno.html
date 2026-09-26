@@ -593,7 +593,8 @@ document.addEventListener("click",async e=>{
   const t=e.target.closest("[data-act]");if(!t)return;
   switch(t.dataset.act){
     case"gemini-photo":{$("#geminiPhoto")?.click();break;}
-    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}\n    case"gemini-test":{if(!St.gemini.testBusy)await testGeminiConnection();break;}
+    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}
+    case"gemini-test":{if(!St.gemini.testBusy)await testGeminiConnection();break;}
     case"loc":St.locOpen=!St.locOpen;render();break;
     case"reload":loadNow();break;
     case"gps":
