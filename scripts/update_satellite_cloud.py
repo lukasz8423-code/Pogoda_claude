@@ -34,7 +34,7 @@ def point_query(lat, lon):
         "HEIGHT": "101",
         "I": "50",
         "J": "50",
-        "INFO_FORMAT": "text/plain",
+        "INFO_FORMAT": "application/json",
     }
     url = WMS_URL + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": "AuraWeather/1.0"})
