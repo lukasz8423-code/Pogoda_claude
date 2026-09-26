@@ -5857,7 +5857,11 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
   // używany tylko jako informacja o kierunku, a nie jako dodatkowe
   // sztuczne podbijanie wartości.
   const diagnostics=[];
-  let previousFinal=Number(hourly.cloud_cover?.[ci]);
+  // T0 prognostyczne musi startować od tego samego finalnego stanu,
+  // który użytkownik widzi jako „Teraz”. Nie cofamy się do surowego
+  // hourly.cloud_cover[ci], jeśli data.current.cloud_cover jest już po fuzji.
+  let previousFinal=Number(data?.current?.cloud_cover);
+  if(!Number.isFinite(previousFinal))previousFinal=Number(hourly.cloud_cover?.[ci]);
   if(!Number.isFinite(previousFinal))previousFinal=rows[0].consensus;
 
   for(let k=0;k<rows.length;k++){
