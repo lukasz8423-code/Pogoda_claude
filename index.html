@@ -3837,7 +3837,7 @@ function heroInnerHTML(X){
   }
   const heroMeta=wMeta(heroCode,X.isDay,X.cloud);
   return`<section class="hero">
-    <div class="hero-temp tn">${Math.round(X.T)}<sup>°</sup></div>
+    <div class="hero-temp tn">${Number.isFinite(Number(X.T))?Number(X.T).toLocaleString("pl-PL",{minimumFractionDigits:1,maximumFractionDigits:1}):"—"}<sup>°</sup></div>
     <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
   <div class="cond">${esc(heroMeta.t)}</div>
