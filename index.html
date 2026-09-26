@@ -4506,13 +4506,28 @@ function wRain(X){
 
 function wSun(X){
   if(!(X.rad>50&&X.isDay))return"";
+
   const sh=calcSunShadeTemp(X.T, X.feels, X.rad, X.wind, X.hum);
   const diff = Math.abs(sh.shade - sh.airShade);
-  const shadeTxt = diff >= 1.0 
+
+  const shadeTxt = diff >= 1.0
     ? `W cieniu odczuwalna <b>${fnum(sh.shade,1)}°C</b> (powietrze <b>${fnum(sh.airShade,1)}°C</b>)`
     : `W cieniu <b>${fnum(sh.airShade,1)}°C</b>`;
-  const gainTxt = sh.gain > 0 ? ` Słońce dogrzewa o +${fnum(sh.gain,1)}°C.` : "";
-  return`<div id="w-sun" class="w full"><div class="wh">${mini("sun")}Słońce i cień</div><div class="wv tn">${fnum(sh.sun,1)}° <small>odczuwalna na słońcu</small></div><div class="ws">${shadeTxt}. Promieniowanie ${Math.round(X.rad)} W/m².${gainTxt}</div></div>`;
+
+  const gainTxt = sh.gain > 0
+    ? ` Słońce dogrzewa o +${fnum(sh.gain,1)}°C.`
+    : "";
+
+  // Krótka diagnostyka pokazuje dokładnie, co steruje korektą słoneczną.
+  // Nie zmienia wyniku — tylko ujawnia jego składniki.
+  const diag = `GHI ${sh.radiation} W/m² · wiatr ${fnum(sh.windKmh,1)} km/h · współczynnik słońca ${fnum(sh.solarFraction,3)} · tłumienie wiatru ${fnum(sh.windDamping,3)}`;
+
+  return`<div id="w-sun" class="w full">
+    <div class="wh">${mini("sun")}Słońce i cień</div>
+    <div class="wv tn">${fnum(sh.sun,1)}° <small>odczuwalna na słońcu</small></div>
+    <div class="ws">${shadeTxt}. Promieniowanie ${Math.round(X.rad)} W/m².${gainTxt}</div>
+    <div class="note" style="margin-top:7px;font-size:11px;opacity:.82">${diag}</div>
+  </div>`;
 }
 function wThreats(X){
   const thr = detectThreats(X);
