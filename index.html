@@ -4084,7 +4084,7 @@ function hourlyHTML(X){
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
     const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
     let code = (i === 0)
-      ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : (cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3))
+      ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : ((Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 15 ? 0 : (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 40 ? 1 : (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 70 ? 2 : 3))
       : getHourlyCode(hourly, idx);
     if(prNow <= 0.05 && isRainCode(code)){
       code = cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3;
