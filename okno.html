@@ -441,7 +441,7 @@ function formHTML(){
 function ready(){const o=St.obs;const tOk=o.feel!=null||(o.temp!==""&&!isNaN(parseFloat(o.temp.replace(",","."))));return!!(o.sky&&o.pre&&o.wind!=null&&tOk&&St.now);}
 
 function getGeminiVisionKey(){try{return localStorage.getItem("gemini_vision_key")||"";}catch{return"";}}
-async function testGeminiConnection(){
+async async function testGeminiConnection(){
   const key=getGeminiVisionKey().trim();
   if(!key){St.gemini.error="Wpisz osobny klucz Gemini Vision.";St.gemini.test=null;render();return;}
   St.gemini.testBusy=true;St.gemini.error="";St.gemini.test=null;render();
