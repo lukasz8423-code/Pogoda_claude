@@ -3841,7 +3841,7 @@ function heroInnerHTML(X){
     <div class="hero-ico">${ico(heroCode,X.isDay,108,X.cloud)}</div>
   </section>
   <div class="cond">${esc(heroMeta.t)}</div>
-  <div class="subline"><span>Odczuwalna <b class="tn">${Math.round(X.feels)}°</b></span></div>
+  <div class="subline"><span>Odczuwalna <b class="tn">${Number.isFinite(Number(X.feels))?Number(X.feels).toLocaleString("pl-PL",{minimumFractionDigits:1,maximumFractionDigits:1}):"—"}°</b></span></div>
   <div class="hero-metrics" aria-label="Najważniejsze warunki teraz">
     <div class="hero-metric"><div class="hm-label">${mini("wind")}Wiatr</div><div class="hm-value tn">${X.wind}<small>km/h</small></div></div>
     <div class="hero-metric"><div class="hm-label">${mini("wind")}Porywy</div><div class="hm-value tn">${X.gusts}<small>km/h</small></div></div>
