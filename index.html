@@ -6565,6 +6565,31 @@ async function loadWCore(lat,lng,name,isRef,token){
   applyFutureHourlyCloudConsensus(data,cloudCompare);
   sanitizeHourlyCloudCover(data);
 
+  // Ostateczna kontrola krótkiego horyzontu — wykonywana po całej fuzji,
+  // tuż przed zamrożeniem danych dla renderera. Dzięki temu żadna późniejsza
+  // ścieżka nie może ponownie wstawić np. 82% godzinę po aktualnych 30%.
+  // Nie zmieniamy current.cloud_cover.
+  {
+    const h=data?.hourly;
+    const ci=currentHourIndex(data,new Date());
+    if(h?.time?.length && Number.isFinite(Number(data?.current?.cloud_cover))){
+      let prev=clamp(Math.round(Number(data.current.cloud_cover)),0,100);
+      const rows=[];
+      for(let j=ci+1;j<h.time.length;j++){
+        const hoursAhead=j-ci;
+        if(hoursAhead>4)break;
+        const raw=Number(h.cloud_cover?.[j]);
+        if(!Number.isFinite(raw))continue;
+        const maxStep=hoursAhead<=2?15:25;
+        const fixed=Math.round(clamp(raw,prev-maxStep,prev+maxStep));
+        h.cloud_cover[j]=fixed;
+        rows.push({time:h.time[j],raw:Math.round(raw),value:fixed,maxStep});
+        prev=fixed;
+      }
+      h.__auraShortCloudGuard={applied:true,currentExcluded:true,rows};
+    }
+  }
+
   // OSTATNIA, KANONICZNA GRANICA FUZJI:
   // wszystkie poprawki mutują oryginalne current/hourly/daily przed cache i renderem.
   correctHourlyPrecipitation(data.hourly,imgwData);
