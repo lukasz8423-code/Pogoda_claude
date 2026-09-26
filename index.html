@@ -1371,6 +1371,13 @@ const WEATHER_MODELS = [
     flag:"🇫🇷",
     desc:"Wysoka rozdzielczość dla Europy"
   },
+  {
+    id:"dmi_harmonie_arome_europe",
+    name:"DMI HARMONIE AROME Europe",
+    satellite:"Meteosat / europejskie dane wejściowe",
+    flag:"🇩🇰",
+    desc:"Model DMI 2 km, obejmuje Europę Środkową i Polskę; total/low/mid/high cloud cover"
+  },
 ];
 
 let activeModel = WEATHER_MODELS[0]; // domyślnie best_match
@@ -1387,6 +1394,7 @@ const WEATHER_CACHE_POLICY={
   ecmwf_ifs025:{runHours:6,ttlMs:45*60*1000},
   gfs_seamless:{runHours:1,ttlMs:20*60*1000},
   meteofrance_seamless:{runHours:1,ttlMs:20*60*1000},
+  dmi_harmonie_arome_europe:{runHours:3,ttlMs:25*60*1000},
   best_match:{runHours:1,ttlMs:15*60*1000}
 };
 const WEATHER_CACHE=new Map();
@@ -1416,7 +1424,7 @@ function putWeatherCache(key,data){
 async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   // Każdy model ma własny zestaw obsługiwanych zmiennych. DWD ICON nie udostępnia
   // UV w tym endpointcie, więc wspólne zapytanie z uv_index/uv_index_clear_sky daje HTTP 400.
-  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10};
+  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10,dmi_harmonie_arome_europe:2.5};
   const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
   const commonCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
@@ -2051,7 +2059,7 @@ async function fetchAllModelsCompare(lat,lng,forceFresh=false){
   // Dla fallbacku IMGW Offline potrzebujemy pełnej prognozy wielodniowej.
   // ICON-EU ma krótszy horyzont, więc nie blokujemy całego ensemble, jeśli
   // któryś model zwróci mniej dni lub chwilowo nie odpowie.
-  const modelsToCheck = ["icon_eu","ecmwf_ifs025","gfs_seamless"];
+  const modelsToCheck = ["icon_eu","ecmwf_ifs025","gfs_seamless","dmi_harmonie_arome_europe"];
   const results = await Promise.allSettled(
     modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,10,forceFresh))
   );
@@ -6031,7 +6039,10 @@ async function loadWCore(lat,lng,name,isRef,token){
     const raw=Number(data?.current?.cloud_cover);
     if(Number.isFinite(raw)){
       const consensus=consensusCloudCover(cloudCompare);
-      const cloudFusion=fuseCloudCover(cloudCompare,{
+      // DMI HARMONIE AROME jest na tym etapie źródłem DIAGNOSTYCZNYM:
+      // pokazujemy jego niezależny wynik, ale nie pozwalamy mu zmienić wartości Aura
+      // dopóki nie zweryfikujemy go przez kilka dni względem obserwacji IMGW/SkyScan.
+      const cloudFusion=fuseCloudCover(cloudCompare.filter(r=>r.model!=="dmi_harmonie_arome_europe"),{
         lat,lng,
         station:imgwResult.status==="fulfilled"?(imgwResult.value?.best||imgwResult.value||{}):{},
         stationPrecipMm:imgwResult.status==="fulfilled"
