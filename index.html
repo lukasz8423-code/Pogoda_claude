@@ -1430,7 +1430,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
     "precipitation","weather_code","cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high","visibility","pressure_msl",
     "wind_speed_10m","wind_gusts_10m","wind_direction_10m","rain","snowfall","showers",
-    "sunshine_duration","direct_normal_irradiance","shortwave_radiation"
+    "sunshine_duration","direct_normal_irradiance","shortwave_radiation","shortwave_radiation_instant"
   ];
   const commonHourly=[
     "temperature_2m","weather_code","precipitation_probability","precipitation","snowfall",
@@ -1446,7 +1446,7 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   const supportsUv=["best_match","ecmwf_ifs025","gfs_seamless"].includes(modelId);
   if(supportsUv){
     commonCurrent.push("uv_index","uv_index_clear_sky");
-    commonHourly.push("uv_index","shortwave_radiation","uv_index_clear_sky");
+    commonHourly.push("uv_index","shortwave_radiation","shortwave_radiation_instant","uv_index_clear_sky");
     commonDaily.push("uv_index_max","uv_index_clear_sky_max");
   }
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
@@ -2130,7 +2130,7 @@ function buildOfflineEnsemble(modelResults){
   const numericCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","precipitation",
     "rain","showers","snowfall","cloud_cover","visibility","pressure_msl",
-    "wind_speed_10m","wind_gusts_10m","uv_index","uv_index_clear_sky"
+    "wind_speed_10m","wind_gusts_10m","uv_index","uv_index_clear_sky","shortwave_radiation_instant"
   ];
   for(const key of numericCurrent){
     const v=ensembleArray(records,key,r=>Number(r.data?.current?.[key]));
@@ -2142,7 +2142,7 @@ function buildOfflineEnsemble(modelResults){
     "temperature_2m","relative_humidity_2m","precipitation_probability","precipitation",
     "cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high",
     "apparent_temperature","uv_index","uv_index_clear_sky","wind_speed_10m",
-    "wind_gusts_10m","shortwave_radiation","pressure_msl","visibility"
+    "wind_gusts_10m","shortwave_radiation","shortwave_radiation_instant","pressure_msl","visibility"
   ];
   const hLen=Math.max(...records.map(r=>r.data?.hourly?.time?.length||0));
   for(const key of hKeys){
@@ -2988,7 +2988,7 @@ function computeCtx(){
   const uvClear=+(current.uv_index_clear_sky??g(hourly.uv_index_clear_sky)??0)||0;
   const uvMax=+(daily.uv_index_max?.[0]??uv)||0;
   const uvClearMax=+(daily.uv_index_clear_sky_max?.[0]??uvClear??uvMax)||0;
-  const rad=g(hourly.shortwave_radiation)??uv*80;
+  const rad=Number.isFinite(Number(current.shortwave_radiation_instant))?Number(current.shortwave_radiation_instant):(g(hourly.shortwave_radiation_instant)??g(hourly.shortwave_radiation)??uv*80);
   const dew=dewPoint(T,hum);
   const stImgw=S.imgwData;
   const dewStation=(!S.isDemo&&stImgw&&stImgw.isFresh!==false&&stImgw.dist<=80&&Number.isFinite(stImgw.dewPointStation))?stImgw.dewPointStation:null;
