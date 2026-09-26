@@ -5012,8 +5012,8 @@ function stationCockpitHTML(X){
 }
 
 function weatherHTML(){
-  const X=computeCtx();S.X=X;publishAuraDisplayedState(X);
-  // UI dostaje dokładnie tę samą surową wartość cloud_cover, którą ma X.cloud.
+  const X=computeCtx();S.X=X;
+  // Stan synchronizacyjny zapisujemy po wyrenderowaniu Hero.
   applySky(X);ambientFor(X);
   const upd=S.lastUpdate?new Date(S.lastUpdate):null;
   const vMode = getViewMode();
