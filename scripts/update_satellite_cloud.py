@@ -53,6 +53,9 @@ def point_query(lat, lon):
     elif re.search(r"\bcloud(?:y|s)?\b", low):
         cls = "cloud"
     else:
+        # EUMETView can return only rendered RGB values for this layer.
+        # RGB alone is NOT a semantic CLM classification and must never be
+        # converted into "cloud" by heuristic parsing.
         cls = "unknown"
 
     return {
@@ -102,8 +105,10 @@ def main():
         "clearPixels": len(clear),
         "samples": samples,
         "generatedAt": generated.isoformat(),
+        "observationAt": None,
+        "observationTimeStatus": "UNKNOWN_FETCH_ONLY",
         "status": "OK" if valid else "NO_VALID_SAMPLES",
-        "note": "Cloud fraction is calculated from the categorical MSG/SEVIRI Cloud Mask samples; no model value or visual estimate is used.",
+        "note": "Only explicit categorical MSG/SEVIRI Cloud Mask classes are accepted. Rendered RGB values are rejected; generatedAt is fetch time, not observation time."
     }
 
     content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
