@@ -4082,12 +4082,14 @@ function hourlyHTML(X){
       :(Number.isFinite(Number(X.T))?Number(X.T):0);
 
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
+    const currentCloud = Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0;
     const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
     let code = (i === 0)
-      ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : ((Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 15 ? 0 : (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 40 ? 1 : (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0) <= 70 ? 2 : 3))
+      ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : (currentCloud <= 15 ? 0 : currentCloud <= 40 ? 1 : currentCloud <= 70 ? 2 : 3))
       : getHourlyCode(hourly, idx);
     if(prNow <= 0.05 && isRainCode(code)){
-      code = cloudNow <= 15 ? 0 : cloudNow <= 40 ? 1 : cloudNow <= 70 ? 2 : 3;
+      const cloudForCode = i === 0 ? currentCloud : cloudNow;
+      code = cloudForCode <= 15 ? 0 : cloudForCode <= 40 ? 1 : cloudForCode <= 70 ? 2 : 3;
     }
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
     // "Teraz" pochodzi wyłącznie z kanału obserwacyjnego X.cloud.
