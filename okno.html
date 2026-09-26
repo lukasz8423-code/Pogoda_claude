@@ -467,7 +467,12 @@ Porównaj obserwację ze snapshotem Aury, ale nie traktuj modelu jako prawdy. Zw
 SNAPSHOT AURY:
 ${JSON.stringify(snapshot)}`;
   try{
-    const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:St.gemini.mimeType||"image/jpeg",data:St.gemini.imageData}}]}],generationConfig:{temperature:0.1,responseMimeType:"application/json"}}),signal:AbortSignal.timeout(45000)});
+    const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:St.gemini.mimeType||"image/jpeg",data:St.gemini.imageData}}]}],generationConfig:{temperature:0.1,responseMimeType:"application/json"}}),
+      signal:AbortSignal.timeout(90000)
+    });
     const data=await response.json().catch(()=>null);
     if(!response.ok)throw new Error(data?.error?.message||("HTTP "+response.status));
     const parsed=parseGeminiJson(extractGeminiText(data));
@@ -475,8 +480,12 @@ ${JSON.stringify(snapshot)}`;
     const rec={id:"g_"+Date.now(),observedAt:new Date().toISOString(),location:snapshot.location,model:"gemini-2.5-flash",snapshot,result:parsed};
     let log=[];try{log=JSON.parse(localStorage.getItem("gemini_observations")||"[]");}catch{}
     log.push(rec);localStorage.setItem("gemini_observations",JSON.stringify(log.slice(-30)));St.gemini.result=rec;
-  }catch(e){St.gemini.error=e?.message||"Nie udało się połączyć z Gemini.";}
-  finally{St.gemini.busy=false;render();}
+  }catch(e){
+    const msg=e?.name==="TimeoutError"||String(e?.message||"").toLowerCase().includes("timed out")||String(e?.message||"").toLowerCase().includes("signal timed out")
+      ?"Gemini nie odpowiedział w ciągu 90 s. Spróbuj ponownie; zdjęcie jest analizowane niezależnie od Aury."
+      :(e?.message||"Nie udało się połączyć z Gemini.");
+    St.gemini.error=msg;
+  }finally{St.gemini.busy=false;render();}
 }
 function geminiObservationHTML(){
   const g=St.gemini,key=getGeminiVisionKey();
