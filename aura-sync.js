@@ -100,6 +100,40 @@
     }
   }
 
+  function geminiAuraContext(){
+    try{
+      const d=S.data||{}, c=d.current||{}, h=d.hourly||{};
+      const ci=typeof currentHourIndex==='function'?currentHourIndex(d,new Date()):0;
+      const num=v=>Number.isFinite(Number(v))?Number(v):null;
+      const time=c.time||h.time?.[ci]||null;
+      const cloudFinal=num(S.X?.cloud??c.cloud_cover??h.cloud_cover?.[ci]);
+      const tempFinal=num(S.X?.T??c.temperature_2m??h.temperature_2m?.[ci]);
+      const feelsFinal=num(S.X?.feels??c.apparent_temperature??h.apparent_temperature?.[ci]);
+      const windFinal=num(S.X?.wind??c.wind_speed_10m??h.wind_speed_10m?.[ci]);
+      const gustFinal=num(S.X?.gusts??c.wind_gusts_10m??h.wind_gusts_10m?.[ci]);
+      const uvFinal=num(S.X?.uv??c.uv_index??h.uv_index?.[ci]);
+      const weatherFinal=S.X?.wm?.t||S.X?.weatherText||null;
+      return {
+        capturedAt:new Date().toISOString(),
+        time,
+        auraFinal:{
+          temperatureC:tempFinal,
+          feelsLikeC:feelsFinal,
+          cloudCoverPercent:cloudFinal,
+          windKmh:windFinal,
+          gustKmh:gustFinal,
+          uv:uvFinal,
+          weather:weatherFinal,
+          imgw:{
+            station:S.imgwData?.stacja||S.imgwData?.name||null,
+            latestTimestamp:S.imgwData?.observedAt||S.imgwData?.latestObservedAt||null,
+            ageMinutes:S.imgwData?.ageMinutes??null
+          }
+        }
+      };
+    }catch{return null;}
+  }
+
   function modelComponentDiagnostics(){
     try{
       const d=S.data||{},c=d.current||{},h=d.hourly||{};
@@ -361,6 +395,8 @@
             rain10min:cf("rain10min")
           };
 
+          obj.geminiAnalysis=obj.geminiAnalysis||{};
+          obj.geminiAnalysis.auraAtAnalysis=geminiAuraContext();
           obj.allComponentDiagnostics=buildAllComponentDiagnostics();
           return JSON.stringify(obj,null,2);
         }catch{return base;}
