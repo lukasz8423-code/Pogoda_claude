@@ -5806,114 +5806,60 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
   const models=modelResults.filter(r=>r?.data?.hourly?.time?.length&&weights[r.model]!=null);
   if(models.length<2)return;
 
-  // Prognoza przyszłego nieba: najpierw budujemy surowy konsensus optyczny
-  // wszystkich modeli, a dopiero potem analizujemy jego PERSISTENCJĘ w czasie.
-  // Nie używamy poprzedniej wartości UI jako ogranicznika i nie stosujemy
-  // sztucznych limitów typu +/-15 pp/h.
+  // PRZYSZŁOŚĆ = surowy cloud_cover modeli. Nie mieszamy tu optycznego
+  // oszacowania bieżącego nieba z prognozą godzinową.
   const byModel=models.map(r=>{
     const map=new Map();
     r.data.hourly.time.forEach((t,i)=>{
       const total=Number(r.data.hourly.cloud_cover?.[i]);
-      const low=Number(r.data.hourly.cloud_cover_low?.[i]);
-      const mid=Number(r.data.hourly.cloud_cover_mid?.[i]);
-      const high=Number(r.data.hourly.cloud_cover_high?.[i]);
-      if(!Number.isFinite(total))return;
-
-      const weatherCode=Number(r.data.hourly.weather_code?.[i]);
-      const isDay=Number(r.data.hourly.is_day?.[i]??1)===1;
-      const sunshine=Number(r.data.hourly.sunshine_duration?.[i]);
-      const interval=Number(r.data.hourly.interval?.[i])||900;
-      const dni=Number(r.data.hourly.direct_normal_irradiance?.[i]);
-      const sw=Number(r.data.hourly.shortwave_radiation?.[i]);
-
-      let optical=clamp(total,0,100);
-      if([low,mid,high].every(Number.isFinite)){
-        const l=clamp(low,0,100),m=clamp(mid,0,100),h=clamp(high,0,100);
-        if(isDay&&!isRainCode(weatherCode)){
-          const sunFrac=Number.isFinite(sunshine)?clamp(sunshine/interval,0,1):null;
-          const dniNorm=Number.isFinite(dni)?clamp(dni/550,0,1):null;
-          const swNorm=Number.isFinite(sw)?clamp(sw/450,0,1):null;
-          const solarClear=sunFrac!==null
-            ?(dniNorm!==null?Math.max(sunFrac,dniNorm*0.95):sunFrac)
-            :(dniNorm!==null?dniNorm:(swNorm!==null?swNorm*0.85:null));
-
-          if(solarClear!==null&&solarClear>=0.25){
-            const visual=clamp(8+l*0.30+m*0.18+h*0.06,10,50);
-            const opticalCap=100-(solarClear*68);
-            optical=clamp(Math.min(total,Math.max(visual,opticalCap*0.95)),5,100);
-          }else{
-            const lowDominance=l-Math.max(m,h);
-            optical=clamp(total+(lowDominance>=30?2:(m>=l+20?-2:0)),0,100);
-          }
-        }else{
-          const lowDominance=l-Math.max(m,h);
-          optical=clamp(total+(lowDominance>=30?2:(m>=l+20?-2:0)),0,100);
-        }
+      if(Number.isFinite(total)){
+        map.set(String(t),{total:clamp(total,0,100)});
       }
-      map.set(String(t),{total:clamp(total,0,100),optical:clamp(optical,0,100)});
     });
     return {id:r.model,map};
   });
 
-  // 1) Surowy konsensus dla całej przyszłej osi czasu.
   const rows=[];
   for(let i=ci+1;i<hourly.time.length;i++){
     const t=String(hourly.time[i]);
     const vals=byModel.map(m=>{
       const x=m.map.get(t);
-      return x?{id:m.id,total:x.total,optical:x.optical,w:weights[m.id]}:null;
+      return x?{id:m.id,total:x.total,w:weights[m.id]}:null;
     }).filter(Boolean);
     if(vals.length<2)continue;
     const wsum=vals.reduce((s,x)=>s+x.w,0);
-    // Przyszła prognoza opisuje zachmurzenie modelowe, więc dla T+1... używamy
-    // bezpośrednio cloud_cover. Optyka pozostaje diagnostyką bieżącego nieba.
-    // Dzięki temu nie przenosimy dzisiejszej obserwacji 30% do przyszłej
-    // trajektorii i nie tłumimy wzrostu zachmurzenia przez solarClear.
     const consensus=vals.reduce((s,x)=>s+x.total*x.w,0)/wsum;
     rows.push({i,t,vals,consensus});
   }
   if(!rows.length)return;
 
-  // 2) Trend 2h: wymagamy, żeby kierunek był trwały, a nie tylko wynikał
-  // z jednego skoku modelu. Pierwsza godzina dostaje tylko trend 1h.
-  const consensusByIndex=new Map(rows.map(r=>[r.i,r.consensus]));
-  const finalByIndex=new Map();
-
+  // Każdy model dostaje własny trend 2h. Trend całego konsensusu jest
+  // używany tylko jako informacja o kierunku, a nie jako dodatkowe
+  // sztuczne podbijanie wartości.
+  const diagnostics=[];
   let previousFinal=Number(hourly.cloud_cover?.[ci]);
   if(!Number.isFinite(previousFinal))previousFinal=rows[0].consensus;
 
-  const diagnostics=[];
   for(let k=0;k<rows.length;k++){
     const row=rows[k];
-    const prevRow=rows[k-1];
-    const prev2Row=rows[k-2];
+    const prev=rows[k-1];
+    const prev2=rows[k-2];
 
-    const delta1=prevRow?row.consensus-prevRow.consensus:null;
-    const delta2=(prev2Row&&prevRow)?prevRow.consensus-prev2Row.consensus:null;
-
-    // 2h trend jest średnią zmiany z ostatnich dwóch odcinków.
-    // Przy pierwszym punkcie wracamy do trendu 1h.
+    const delta1=prev?row.consensus-prev.consensus:null;
+    const delta2=(prev2&&prev)?prev.consensus-prev2.consensus:null;
     const persistentTrend=delta1==null
       ?0
       :(delta2==null?delta1:(0.65*delta1+0.35*delta2));
 
-    // Zgodność kierunku liczona na poziomie modeli, ale dla 2h gdy mamy
-    // komplet danych. Dzięki temu jeden model nie przestawia całej trajektorii.
     const directionScores=[];
     row.vals.forEach(x=>{
       const m=byModel.find(mm=>mm.id===x.id);
       const p1=m?.map.get(String(hourly.time[row.i-1]));
       const p2=m?.map.get(String(hourly.time[row.i-2]));
-      // Trend prognozy musi być liczony z tego samego pola, z którego
-      // budujemy przyszły konsensus: surowego cloud_cover (total).
-      // Nie mieszamy tu optycznego current-sky estimate z prognozą godzinową.
-      if(!p1||!Number.isFinite(p1.total))return;
+      if(!p1)return;
       const d1=x.total-p1.total;
       let score=d1;
-      if(p2&&Number.isFinite(p2.total)){
-        const d2=p1.total-p2.total;
-        score=0.65*d1+0.35*d2;
-      }
+      if(p2)score=0.65*d1+0.35*(p1.total-p2.total);
       directionScores.push({id:x.id,score,w:x.w});
     });
 
@@ -5921,27 +5867,24 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     const pos=directionScores.filter(x=>x.score>2).reduce((s,x)=>s+x.w,0);
     const neg=directionScores.filter(x=>x.score<-2).reduce((s,x)=>s+x.w,0);
     const agreement=tw>0?Math.max(pos,neg)/tw:0;
+    const direction=persistentTrend>2?1:persistentTrend<-2?-1:0;
 
-    // Nie wygładzamy przez poprzedni wynik przy silnym rozjeździe modeli.
-    // Przy zgodnym, utrzymanym trendzie delikatnie wzmacniamy kierunek.
-    const trendStrength=clamp(Math.abs(persistentTrend)/20,0,1);
-    const direction= persistentTrend>2 ? 1 : persistentTrend<-2 ? -1 : 0;
-    let target=row.consensus;
-    if(direction!==0 && agreement>=0.65){
-      target=row.consensus + persistentTrend*(0.18+0.22*agreement)*trendStrength;
+    // Konsensus jest głównym wynikiem. Poprzednia godzina służy wyłącznie
+    // jako łagodne przejście. Im większa zgodność modeli, tym szybciej
+    // wynik dochodzi do ich aktualnego konsensusu.
+    const blend=agreement>=0.65?0.94:(agreement>=0.45?0.90:0.86);
+    let value=previousFinal+(row.consensus-previousFinal)*blend;
+
+    // Jeżeli wszystkie modele utrzymują ten sam kierunek przez 2h,
+    // pozwalamy konsensusowi przejść bez dodatkowego tłumienia kierunku.
+    // Nie dodajemy żadnych procentowych "korekt" do samego forecastu.
+    if(direction!==0 && agreement>=0.80){
+      value=previousFinal+(row.consensus-previousFinal)*Math.max(blend,0.96);
     }
-
-    // Stabilizacja opiera się na konsensusie modeli, nie na sztucznym limicie
-    // zmiany procentowej. Im większa zgodność, tym bardziej respektujemy trend.
-    const blend=0.82+0.12*agreement;
-    let value=Number.isFinite(previousFinal)
-      ?previousFinal+(target-previousFinal)*blend
-      :target;
 
     value=Math.round(clamp(value,0,100));
     hourly.cloud_cover[row.i]=value;
     previousFinal=value;
-    finalByIndex.set(row.i,value);
 
     diagnostics.push({
       time:row.t,
@@ -5951,16 +5894,16 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
       trend2:delta2==null?null:Math.round(delta2*10)/10,
       persistentTrend:Math.round(persistentTrend*10)/10,
       trendAgreement:Math.round(agreement*100),
-      trendStrength:Math.round(trendStrength*100)/100,
+      trendStrength:Math.round(clamp(Math.abs(persistentTrend)/20,0,1)*100)/100,
       smoothingBlend:Math.round(blend*100)/100,
-      models:row.vals.map(x=>({model:x.id,total:Math.round(x.total),optical:Math.round(x.optical)}))
+      models:row.vals.map(x=>({model:x.id,total:Math.round(x.total),optical:null}))
     });
   }
 
   hourly.__auraHourlyCloudConsensus={
     applied:true,
     modelCount:models.length,
-    source:"weighted_multi_model_total_2h_trend",
+    source:"weighted_multi_model_total_2h_consensus",
     weights,
     currentExcluded:true,
     artificialStepLimit:false,
