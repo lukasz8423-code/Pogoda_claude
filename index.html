@@ -3086,6 +3086,27 @@ function computeCtx(){
   };
 }
 
+function publishAuraDisplayedState(X){
+  try{
+    if(!X)return;
+    localStorage.setItem("aura_displayed_state",JSON.stringify({
+      resultAt:new Date().toISOString(),
+      city:S.city||"",
+      state:{
+        temp:X.T??null,
+        feels:X.feels??null,
+        cloud:X.cloud??null,
+        wind:X.wind??null,
+        gust:X.gusts??null,
+        uv:X.uv??null,
+        weather:X.meta?.t??null,
+        weatherCode:X.code??null,
+        isDay:X.isDay??null
+      }
+    }));
+  }catch{}
+}
+
 function cardinalDirName(d){
   const dirs = [
     "północny (N)","północno-północno-wschodni (NNE)","północno-wschodni (NE)","wschodnio-północno-wschodni (ENE)",
@@ -4754,7 +4775,7 @@ function alertsHTML(X){
 // aktualizacja sekcji, które dochodzą z opóźnieniem (bez przerysowania całej strony)
 function softUpdate(){
   if(S.phase!=="weather"||!S.X)return;
-  const X=computeCtx();S.X=X;
+  const X=computeCtx();S.X=X;publishAuraDisplayedState(X);
   applySky(X);ambientFor(X);
   const set=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;};
   set("s-hero",heroInnerHTML(X));
@@ -4984,7 +5005,7 @@ function stationCockpitHTML(X){
 }
 
 function weatherHTML(){
-  const X=computeCtx();S.X=X;
+  const X=computeCtx();S.X=X;publishAuraDisplayedState(X);
   // UI dostaje dokładnie tę samą surową wartość cloud_cover, którą ma X.cloud.
   applySky(X);ambientFor(X);
   const upd=S.lastUpdate?new Date(S.lastUpdate):null;
