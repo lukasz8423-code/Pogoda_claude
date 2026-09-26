@@ -6627,6 +6627,12 @@ async function loadWCore(lat,lng,name,isRef,token){
           total:m.total,
           optical:m.optical
         })):[],
+        // Surowe wejścia modeli są zachowane w diagnostyce, żeby można było
+        // odróżnić błąd danych wejściowych od błędu wygładzania prognozy.
+        rawModelInputs:Array.isArray(r.models)?r.models.map(m=>({
+          model:m.model,
+          cloudCover:Number.isFinite(Number(m.total))?Number(m.total):null
+        })):[],
       }))
       :[]
   };
