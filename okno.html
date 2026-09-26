@@ -99,6 +99,14 @@ a.btn{text-decoration:none;color:inherit}
 .st i{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block}
 .st.ok{color:var(--ok)}.st.mid{color:var(--warn)}.st.no{color:var(--bad)}
 .note{font-size:12.5px;color:var(--ink3);margin-top:10px;line-height:1.45}
+.gemini-box{margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:22px;background:rgba(255,255,255,.045)}
+.gemini-grid{display:grid;gap:9px}
+.gemini-key{width:100%;padding:12px 13px;border-radius:14px;background:rgba(255,255,255,.055);border:1px solid var(--line);font-size:14px}
+.gemini-preview{width:100%;max-height:300px;object-fit:cover;border-radius:16px;margin-top:10px;border:1px solid var(--line);display:block}
+.gemini-result{margin-top:12px;padding:12px;border-radius:16px;background:rgba(99,230,164,.08);border:1px solid rgba(99,230,164,.18)}
+.gemini-kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:13px}
+.gemini-kv span{color:var(--ink3)}
+
 .stg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .stg div{background:rgba(255,255,255,.06);border-radius:16px;padding:10px 12px}
 .stg small{display:block;color:var(--ink3);font-size:12px;margin-bottom:2px}
@@ -344,7 +352,7 @@ function scene(sky,pre,windI,isDay){
 }
 
 // ── dane
-const St={loc:null,now:null,loading:true,err:"",obs:{sky:null,pre:null,wind:null,feel:null,temp:""},res:null,locOpen:false,search:[],confirmClear:false,gpsBusy:false};
+const St={loc:null,now:null,loading:true,err:"",obs:{sky:null,pre:null,wind:null,feel:null,temp:""},res:null,locOpen:false,search:[],confirmClear:false,gpsBusy:false,gemini:{imageData:null,mimeType:"image/jpeg",busy:false,result:null,error:""}};
 
 function initLoc(){
   try{const c=JSON.parse(localStorage.getItem("aura_v6")||"null");if(c&&c.lat!=null)return{lat:c.lat,lng:c.lng,city:c.city};}catch{}
@@ -431,6 +439,59 @@ function formHTML(){
   <div style="margin-top:22px"><button class="btn pri wide" id="go" data-act="compare" disabled>Porównaj z prognozą</button></div>`;
 }
 function ready(){const o=St.obs;const tOk=o.feel!=null||(o.temp!==""&&!isNaN(parseFloat(o.temp.replace(",","."))));return!!(o.sky&&o.pre&&o.wind!=null&&tOk&&St.now);}
+
+function getGeminiVisionKey(){try{return localStorage.getItem("gemini_vision_key")||"";}catch{return"";}}
+function setGeminiVisionKey(v){try{if(v)localStorage.setItem("gemini_vision_key",v);else localStorage.removeItem("gemini_vision_key");}catch{}}
+function auraSnapshotForGemini(){
+  let cached=null;try{cached=JSON.parse(localStorage.getItem("aura_v9")||"null");}catch{}
+  const cur=cached?.data?.current||St.now?.m||{};
+  return {capturedAt:new Date().toISOString(),location:{city:St.loc?.city||cached?.city||"",lat:St.loc?.lat??cached?.lat??null,lng:St.loc?.lng??cached?.lng??null},
+    aura:{temperature_2m:cur.temperature_2m??null,apparent_temperature:cur.apparent_temperature??null,relative_humidity_2m:cur.relative_humidity_2m??null,cloud_cover:cur.cloud_cover??null,weather_code:cur.weather_code??null,precipitation:cur.precipitation??null,wind_speed_10m:cur.wind_speed_10m??null,wind_gusts_10m:cur.wind_gusts_10m??null,uv_index:cur.uv_index??null,visibility_km:cur.visibility!=null?Number(cur.visibility)/1000:(St.now?.m?.vis??null)},
+    imgw:cached?.data?.__imgwSnapshot||null,model:St.now?.m?{cloud:St.now.m.cloud,temp:St.now.m.temp,precipitation:St.now.m.mm,wind:St.now.m.kmh,weather_code:St.now.m.code}:null};
+}
+function extractGeminiText(data){return(data?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").filter(Boolean).join("\n").trim();}
+function parseGeminiJson(text){if(!text)return null;try{return JSON.parse(text);}catch{}const m=text.match(/\{[\s\S]*\}/);if(m){try{return JSON.parse(m[0]);}catch{}}return null;}
+async function analyzeWithGeminiVision(){
+  const key=getGeminiVisionKey().trim();
+  if(!key){St.gemini.error="Wpisz osobny klucz Gemini Vision.";render();return;}
+  if(!St.gemini.imageData){St.gemini.error="Najpierw zrób zdjęcie nieba.";render();return;}
+  St.gemini.busy=true;St.gemini.error="";St.gemini.result=null;render();
+  const snapshot=auraSnapshotForGemini();
+  const prompt=`Jesteś niezależnym obserwatorem pogody dla aplikacji Aura. Analizujesz WYŁĄCZNIE zdjęcie nieba oraz snapshot danych aplikacji. Nie zmieniaj ani nie koryguj danych Aury. Wynik służy wyłącznie diagnostyce.
+
+Oceń ze zdjęcia: szacowany procent zachmurzenia 0-100, widoczne warstwy chmur, czy Słońce jest widoczne, czy widać oznaki opadu, typ zachmurzenia, szacunkowy zakres UV tylko jako obserwację wizualną oraz confidence 0-100.
+
+Porównaj obserwację ze snapshotem Aury, ale nie traktuj modelu jako prawdy. Zwróć WYŁĄCZNIE poprawny JSON bez markdown:
+{"cloud_min":0,"cloud_max":0,"cloud_best":0,"low_cloud":null,"mid_cloud":null,"high_cloud":null,"sun_visible":null,"precip_visible":null,"uv_min":null,"uv_max":null,"confidence":0,"summary":"krótko po polsku","comparison":"krótko po polsku"}
+
+SNAPSHOT AURY:
+${JSON.stringify(snapshot)}`;
+  try{
+    const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:St.gemini.mimeType||"image/jpeg",data:St.gemini.imageData}}]}],generationConfig:{temperature:0.1,responseMimeType:"application/json"}}),signal:AbortSignal.timeout(45000)});
+    const data=await response.json().catch(()=>null);
+    if(!response.ok)throw new Error(data?.error?.message||("HTTP "+response.status));
+    const parsed=parseGeminiJson(extractGeminiText(data));
+    if(!parsed)throw new Error("Gemini zwrócił odpowiedź, której nie udało się odczytać jako JSON.");
+    const rec={id:"g_"+Date.now(),observedAt:new Date().toISOString(),location:snapshot.location,model:"gemini-2.5-flash",snapshot,result:parsed};
+    let log=[];try{log=JSON.parse(localStorage.getItem("gemini_observations")||"[]");}catch{}
+    log.push(rec);localStorage.setItem("gemini_observations",JSON.stringify(log.slice(-30)));St.gemini.result=rec;
+  }catch(e){St.gemini.error=e?.message||"Nie udało się połączyć z Gemini.";}
+  finally{St.gemini.busy=false;render();}
+}
+function geminiObservationHTML(){
+  const g=St.gemini,key=getGeminiVisionKey();
+  let h='<section class="gemini-box"><div class="ch" style="margin-bottom:8px">'+ic("chart")+'<span class="grow">🤖 Obserwacja Gemini</span></div>';
+  h+='<div class="note" style="margin:0 0 10px">Niezależna analiza zdjęcia. Wynik trafia do diagnostyki i dziennika, ale nie zmienia prognozy Aury.</div><div class="gemini-grid">';
+  h+='<input id="geminiVisionKey" class="gemini-key" type="password" autocomplete="off" placeholder="Osobny klucz Gemini Vision" value="'+esc(key)+'">';
+  h+='<input id="geminiPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">';
+  h+='<button class="btn pri wide" data-act="gemini-photo">📷 Zrób zdjęcie / wybierz zdjęcie</button>';
+  if(g.imageData)h+='<img class="gemini-preview" src="data:'+g.mimeType+';base64,'+g.imageData+'" alt="Zdjęcie nieba do analizy Gemini">';
+  h+='<button class="btn wide" data-act="gemini-analyze" '+((!g.imageData||g.busy)?"disabled":"")+'>🤖 '+(g.busy?"Analizuję zdjęcie…":"Analizuj z Gemini")+'</button>';
+  if(g.error)h+='<div class="err">'+esc(g.error)+'</div>';
+  if(g.result){const x=g.result.result||{};h+='<div class="gemini-result"><b>Wynik</b><div class="gemini-kv" style="margin-top:9px"><span>Zachmurzenie</span><b>'+esc(String(x.cloud_best??"—"))+'% ('+esc(String(x.cloud_min??"—"))+'–'+esc(String(x.cloud_max??"—"))+'%)</b><span>Słońce</span><b>'+ (x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne"))+'</b><span>Opad widoczny</span><b>'+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie"))+'</b><span>UV wizualne</span><b>'+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min))+'</b><span>Pewność</span><b>'+esc(String(x.confidence??"—"))+'%</b></div><div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div></div>';}
+  h+='</div></section>';return h;
+}
+
 function syncBtn(){const b=$("#go");if(b)b.disabled=!ready();}
 
 function resultHTML(){
@@ -494,7 +555,7 @@ function render(){
   if(!St.loc||St.locOpen)h+=locPanel();
   if(St.loc){
     if(St.err)h+=`<div class="err">${esc(St.err)}</div>`;
-    h+=(St.loading&&!St.now?`<div class="sk"></div>`:windowHTML())+formHTML()+resultHTML()+statsHTML()+histHTML();
+    h+=(St.loading&&!St.now?`<div class="sk"></div>`:windowHTML())+formHTML()+resultHTML()+statsHTML()+geminiObservationHTML()+histHTML();
   }
   app.innerHTML=h;
   syncBtn();
@@ -512,7 +573,7 @@ document.addEventListener("click",async e=>{
   }
   const t=e.target.closest("[data-act]");if(!t)return;
   switch(t.dataset.act){
-    case"loc":St.locOpen=!St.locOpen;render();break;
+    case"gemini-photo":{$("#geminiPhoto")?.click();break;}\n    case"gemini-analyze":{if(!St.gemini.busy)await analyzeWithGeminiVision();break;}\n    case"loc":St.locOpen=!St.locOpen;render();break;
     case"reload":loadNow();break;
     case"gps":
       if(!navigator.geolocation){St.err="Ta przeglądarka nie udostępnia lokalizacji. Wpisz miejscowość.";render();break;}
@@ -545,7 +606,7 @@ document.addEventListener("click",async e=>{
     case"export":try{await navigator.clipboard.writeText(JSON.stringify(getLog(),null,2));t.lastChild.textContent="Skopiowano";}catch{}break;
   }
 });
-document.addEventListener("input",e=>{
+document.addEventListener("change",e=>{if(e.target.id==="geminiPhoto"){const file=e.target.files?.[0];if(!file)return;if(file.size>12*1024*1024){St.gemini.error="Zdjęcie jest za duże (maks. 12 MB).";render();return;}const reader=new FileReader();reader.onload=()=>{const s=String(reader.result||"");const m=s.match(/^data:([^;]+);base64,(.+)$/);if(!m)return;St.gemini.mimeType=m[1];St.gemini.imageData=m[2];St.gemini.result=null;St.gemini.error="";render();};reader.readAsDataURL(file);}});\ndocument.addEventListener("input",e=>{if(e.target.id==="geminiVisionKey"){setGeminiVisionKey(e.target.value.trim());return;}
   if(e.target.id==="tmp"){St.obs.temp=e.target.value;if(St.obs.temp!=="")St.obs.feel=null;
     document.querySelectorAll('[data-g="feel"]').forEach(b=>b.setAttribute("aria-pressed","false"));syncBtn();}
   else if(e.target.id==="q"){
