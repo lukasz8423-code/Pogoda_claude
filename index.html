@@ -1321,7 +1321,7 @@ function discomfortIndex(temp,hum,windKmh=0,gustKmh=0){
   const windMs = w / 3.6;
   const at = t + 0.33 * e - 0.70 * windMs - 4.00;
 
-  const value = Math.round(at);
+  const value = Math.round(at * 10) / 10;
   let label,color,emoji;
   if(value<=0){label="Mrozowo";color="rgba(56,189,248,.12)";emoji="🥶";}
   else if(value<10){label="Zimno";color="rgba(56,189,248,.12)";emoji="🧊";}
