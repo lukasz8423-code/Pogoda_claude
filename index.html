@@ -847,114 +847,260 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   const currentState = currentStateOrX?.currentState || (currentStateOrX?.code != null ? currentStateOrX : null);
   const code = currentState?.code ?? cur?.weather_code ?? 0;
   const t = Math.round(cur?.temperature_2m ?? 15);
+  const appT = Math.round(cur?.apparent_temperature ?? t);
   const place = locativeCity(city);
   const isStorm = isStormCode(code);
   const isSnow = isSnowCode(code);
   const isRain = isRainCode(code);
   const isMist = code >= 45 && code <= 48;
   const wind = Number(currentStateOrX?.wind ?? cur?.wind_speed_10m ?? 10);
-  const isWindy = wind >= 28;
+  const gusts = Number(cur?.wind_gusts_10m ?? (wind * 1.4));
+  const isWindy = wind >= 24 || gusts >= 38;
+  const isVeryWindy = wind >= 36 || gusts >= 52;
+  const cloud = Number(currentStateOrX?.cloud ?? cur?.cloud_cover ?? 50);
+  const isClear = cloud <= 25;
+  const isPartly = cloud > 25 && cloud <= 70;
+  const isOvercast = cloud > 70;
+  const uv = Number(cur?.uv_index ?? 0);
 
-  // Rule Engine: aktywność jest walidowana względem bieżącej i najbliższych godzin.
-  const nextHours=Array.from({length:3},(_,i)=>hourly?.time?.[ci+i]?({
-    precipitationMm:Number(hourly.precipitation?.[ci+i]??0),
-    precipitationProbability:Number(hourly.precipitation_probability?.[ci+i]??0),
-    weatherCode:Number(hourly.weather_code?.[ci+i]??0)
+  // Godzina i pora dnia (Daypart)
+  const hour = (() => {
+    if(hourly?.time?.[ci]){
+      try {
+        const d = new Date(hourly.time[ci]);
+        if(!isNaN(d.getHours())) return d.getHours();
+      } catch(e){}
+    }
+    return new Date().getHours();
+  })();
+
+  let daypart = "afternoon";
+  let daypartLabel = "Popołudnie";
+  let partIcon = "sun";
+  if(hour >= 5 && hour < 9){
+    daypart = "morning";
+    daypartLabel = "Poranek";
+    partIcon = "sun";
+  } else if(hour >= 9 && hour < 12){
+    daypart = "forenoon";
+    daypartLabel = "Przedpołudnie";
+    partIcon = "sun";
+  } else if(hour >= 12 && hour < 17){
+    daypart = "afternoon";
+    daypartLabel = "Popołudnie";
+    partIcon = "sun";
+  } else if(hour >= 17 && hour < 22){
+    daypart = "evening";
+    daypartLabel = "Wieczór";
+    partIcon = "moon";
+  } else {
+    daypart = "night";
+    daypartLabel = "Noc";
+    partIcon = "moon";
+  }
+
+  // Prognoza na najbliższe 3-4 godziny
+  const nextHours = Array.from({length:4},(_,i)=>hourly?.time?.[ci+i]?({
+    temp: Number(hourly.temperature_2m?.[ci+i] ?? t),
+    precipitationMm: Number(hourly.precipitation?.[ci+i] ?? 0),
+    precipitationProbability: Number(hourly.precipitation_probability?.[ci+i] ?? 0),
+    weatherCode: Number(hourly.weather_code?.[ci+i] ?? code),
+    cloudCover: Number(hourly.cloud_cover?.[ci+i] ?? cloud)
   }):null).filter(Boolean);
-  const blockedOutdoor=nextHours.some(h =>
-    h.precipitationMm>0.5 ||
-    h.precipitationProbability>40 ||
+
+  const blockedOutdoor = nextHours.some(h =>
+    h.precipitationMm > 0.4 ||
+    h.precipitationProbability > 45 ||
     isRainCode(h.weatherCode) ||
     isStormCode(h.weatherCode)
   );
 
-  const safeActivity=(outdoorText,indoorText)=>blockedOutdoor?indoorText:outdoorText;
+  const maxNextTemp = nextHours.length ? Math.max(...nextHours.map(h=>h.temp)) : t;
+  const minNextTemp = nextHours.length ? Math.min(...nextHours.map(h=>h.temp)) : t;
+  const tempWarming = (maxNextTemp - t) >= 2;
+  const tempCooling = (t - minNextTemp) >= 2;
 
+  const safeActivity = (outdoorText, indoorText) => blockedOutdoor ? indoorText : outdoorText;
+
+  // Ziarno wariacji tekstu (zależne od dnia i pory, aby nie było powtarzalne)
+  const seed = (hour + (new Date().getDate() * 7)) % 3;
+
+  // 1. Zjawiska ekstremalne i opadowe (mają najwyższy priorytet)
   if(isStorm){
     return {
-      a:`Burza w ${place} (${t}°C)! Na niebie gra orkiestra piorunów, a natura demonstruje pełnię swoich możliwości. Zdecydowanie nie zgrywaj bohatera na otwartym terenie.`,
-      cl:"Wygodny domowy dres, ciepłe skarpety i kapcie. Jeśli musisz pilnie wyjść: solidna kurtka przeciwdeszczowa z kapturem (parasol w burzy to zły pomysł!).",
-      ac:"Zostań bezpiecznie pod dachem, odłącz wrażliwy sprzęt z gniazdek, zaparz herbatę i obserwuj spektakl za oknem.",
-      tip:"Przynajmniej nie trzeba dzisiaj podlewać kwiatów na balkonie ani w ogrodzie."
+      daypartLabel,
+      icon: "alert",
+      a: `Burza w ${place} (${t}°C, odczuwalne ${appT}°C)! Dynamiczne wyładowania i ulewny deszcz. Natura gra pierwsze skrzypce, dlatego najlepiej podziwiać ten spektakl bezpiecznie zza szyby.`,
+      cl: "Wygodny domowy dres, ciepłe skarpety i kapcie. Jeśli musisz pilnie wyjść: solidna kurtka przeciwdeszczowa z kapturem (parasol w burzy to zły pomysł!).",
+      ac: "Zostań bezpiecznie pod dachem, odłącz wrażliwy sprzęt z gniazdek, zaparz herbatę i zrób przerwę na relaks.",
+      tip: "Przynajmniej nie trzeba dzisiaj podlewać kwiatów na balkonie ani w ogrodzie."
     };
   }
-  if(isSnow&&t<=3){
+  if(isSnow && t <= 3){
     return {
-      a:`Śnieg w ${place} przy ${t}°C! Krajobraz powoli bieleje jak na pocztówce, a powietrze szczypie w nos. Pięknie to wygląda – dopóki nie trzeba odśnieżać auta skrobaczką z marketu.`,
-      cl:"Zimowa kurtka, czapka naciągnięta na uszy, ciepły szalik i buty z solidnym bieżnikiem (lód lubi zaskakiwać na zakrętach).",
-      ac:safeActivity("Krótki, orzeźwiający spacer po skrzypiącym śniegu lub lepienie bałwana z dziećmi.","Zaszycie się w cieple pod kocem z kubkiem gorącego kakao lub herbaty z imbirem."),
-      tip:"Drogowcy zapewne tradycyjnie są zaskoczeni, więc na drogach zachowaj stoicki spokój i potrójny odstęp."
+      daypartLabel,
+      icon: "cloud",
+      a: `Śnieżny ${daypartLabel.toLowerCase()} w ${place} przy ${t}°C (odczuwalne ${appT}°C). Krajobraz bieleje, a rześkie powietrze szczypie w nos. ${isWindy ? "Wiatr potęguje uczucie chłodu i tworzy zawieje." : "Spokojna, zimowa sceneria."}`,
+      cl: "Ciepła kurtka zimowa, czapka zakrywająca uszy, szal i buty z antypoślizgowym bieżnikiem.",
+      ac: safeActivity("Orzeźwiający spacer po skrzypiącym śniegu lub lepienie bałwana.","Zaszycie się w cieple z kubkiem gorącego kakao lub herbaty z imbirem."),
+      tip: "Na drogach i chodnikach zachowaj spokój – zima tradycyjnie lubi zaskoczyć."
     };
   }
   if(isRain){
     return {
-      a:`Deszcz w ${place} (${t}°C). Niebo serwuje darmowe mycie chodników i okolicznej zieleni. Za oknem szaro, mokro i melancholijnie.`,
-      cl:"Nieprzemakalna kurtka z kapturem, wodoodporne buty i zaufany parasol – taki ze solidnym stelażem, który nie składa się w drugą stronę na wietrze.",
-      ac:"Kawa, kanapa, dobra książka, ulubiony serial lub nadrabianie domowych zaległości. Jeśli musisz wyjść – omijaj kałuże udające płytkie!",
-      tip:"Oficjalne, meteorologiczne usprawiedliwienie, by zamówić jedzenie z dostawą i spędzić dzień bez wyrzutów sumienia."
+      daypartLabel,
+      icon: "umbrella",
+      a: `Deszczowy ${daypartLabel.toLowerCase()} w ${place} (${t}°C). Niebo serwuje opady, a wilgoć wisi w powietrzu. ${daypart==='evening'||daypart==='night' ? 'Klimatyczny, szary wieczór sprzyjający wyciszeniu.' : 'Za oknem szaro i mokro – idealny moment na ciepły napój.'}`,
+      cl: "Nieprzemakalna kurtka z kapturem, odporne na wodę obuwie i solidny parasol o wzmocnionym stelażu.",
+      ac: safeActivity("Krótki spacer w deszczu z parasolem dla dotlenienia głowy.","Kawa, książka, ulubiony serial lub nadrabianie domowych zaległości w przytulnym cieple."),
+      tip: "Oficjalne, pogodowe usprawiedliwienie, by zamówić jedzenie z dostawą i spędzić czas bez wyrzutów sumienia."
     };
   }
   if(isMist){
     return {
-      a:`Gęsta mgła w ${place} (${t}°C). Świat wygląda jak wyjęty z angielskiego kryminału lub filmu noir. Tajemniczo, wilgotno i z ograniczoną widocznością.`,
-      cl:"Cieplejsza kurtka, sweter i koniecznie elementy odblaskowe – we mgle lepiej być widocznym z daleka niż niemą niespodzianką na drodze.",
-      ac:"Jeśli prowadzisz samochód: noga z gazu i włącz światła przeciwmgłowe. Na piechotę: klimatyczny spacer po parku niczym Sherlock Holmes.",
-      tip:"Idealny dzień na udawanie kogoś tajemniczego w prochowcu i szukanie zaginionej porannej energii."
+      daypartLabel,
+      icon: "cloud",
+      a: `Gęsta mgła w ${place} (${t}°C). Świat spowity w tajemniczą biel o wilgotnym, filmowym klimacie. Widoczność jest mocno ograniczona.`,
+      cl: "Cieplejsza kurtka ze stójką, sweter oraz elementy odblaskowe – we mgle kluczowa jest Twoja widoczność.",
+      ac: "Kierowcy: noga z gazu i światła przeciwmgłowe. Na piechotę: nastrojowy, klimatyczny spacer po parku.",
+      tip: "Idealna sceneria na udawanie kogoś tajemniczego w prochowcu i szukanie zaginionej energii."
     };
   }
-  if(t>=32){
-    return {
-      a:`Afrykański upał w ${place} – aż ${t}°C w cieniu! Asfalt powoli mięknie, a w powietrzu unosi się żar. Organizm przechodzi w tryb awaryjnego chłodzenia.`,
-      cl:"Cienkie, przewiewne ubrania z lnu lub jasnej bawełny. Obowiązkowo nakrycie głowy i okulary przeciwsłoneczne z filtrem UV. Skarpetki do sandałów tylko dla odważnych koneserów stylu.",
-      ac:safeActivity("Wyjście na zewnątrz tylko wczesnym rankiem lub po 19:00. Szukaj cienia, wody i klimatyzowanych pomieszczeń.","Aktywność w chłodnym pomieszczeniu, z dala od słońca. Pij wodę litrami!"),
-      tip:"Pamiętaj: bezczynne leżenie plackiem na kanapie przy tej temperaturze jest w pełni uzasadnione biologicznie."
-    };
+
+  // 2. Dynamiczne porady według PORY DNIA i TEMPERATURY / WIATRU / NIEBA
+  let desc = "";
+  let cloth = "";
+  let act = "";
+  let wittyTip = "";
+
+  // A. Opis atmosfery (a)
+  if(daypart === "morning"){
+    if(t >= 20){
+      desc = `Ciepły, słoneczny poranek w ${place} (${t}°C). Dzień zaczyna się wyśmienicie i szybko nabierze letniego tempa.`;
+    } else if(t >= 13){
+      desc = isClear 
+        ? `Słoneczny, rześki poranek w ${place} (${t}°C). Czyste niebo dodaje energii na cały nadchodzący dzień.${isWindy ? ` Odczuwalnie ${appT}°C przez rześki wiatr.` : ''}`
+        : `Rześki start dnia w ${place} (${t}°C${isWindy ? `, odczuwalne ${appT}°C` : ''}). ${isOvercast ? 'Niebo przykryte chmurami, ale jest stabilnie i sucho.' : 'Słońce powoli przebija się przez chmury.'}`;
+    } else if(t >= 6){
+      desc = `Chłodny, pobudzający poranek w ${place} (${t}°C, odczuwalne ${appT}°C). Poranny chłód natychmiast stawia na nogi – bez ciepłej warstwy ani rusz.`;
+    } else {
+      desc = `Mroźny, lodowaty poranek w ${place} (${t}°C). Powietrze szczypie w policzki, a oddech zamienia się w parę.`;
+    }
+  } else if(daypart === "forenoon"){
+    if(t >= 22){
+      desc = `Przedpołudnie w ${place} w letnim wydaniu (${t}°C). Słońce wysoko operuje, a temperatura rośnie z godziny na godzinę.`;
+    } else if(t >= 13){
+      desc = `Umiarkowane, stabilne przedpołudnie w ${place} (${t}°C${isWindy ? `, odczuwalne ${appT}°C przez podmuchy` : ''}). ${isOvercast ? 'Warstwa chmur tonuje temperaturę, ale aura jest bardzo spokojna.' : 'Dobre światło i przyjemna temperatura do działania.'}`;
+    } else if(t >= 6){
+      desc = `Rześkie przedpołudnie w ${place} (${t}°C, odczuwalne ${appT}°C). ${tempWarming ? 'W kolejnych godzinach zrobi się odrobinę cieplej.' : 'Utrzymuje się stały, orzeźwiający chłód.'}`;
+    } else {
+      desc = `Zimowe przedpołudnie w ${place} (${t}°C). Nawet w słońcu chłód nie odpuszcza.`;
+    }
+  } else if(daypart === "afternoon"){
+    if(t >= 25){
+      desc = `Gorące, letnie popołudnie w ${place} (${t}°C). Termometry osiągają szczytowe wartości, a słońce mocno dogrzewa.`;
+    } else if(t >= 17){
+      desc = `Komfortowe, bardzo przyjemne ${t}°C w ${place}. Popołudnie idealne na wyjście na świeże powietrze po pracy lub szkole.`;
+    } else if(t >= 12){
+      desc = `Popołudniowe ${t}°C w ${place} (odczuwalne ${appT}°C). ${isWindy ? `Porywy wiatru do ${Math.round(gusts)} km/h wywiewają ciepło – warto chronić szyję.` : isOvercast ? 'Pochmurne niebo i rześkie powietrze sprzyjają spacerom w energicznym tempie.' : 'Przejaśnienia dodają uroku popołudniu.'}`;
+    } else if(t >= 5){
+      desc = `Chłodne popołudnie w ${place} (${t}°C, odczuwalne ${appT}°C). Zmierzch nadejdzie szybko, a wraz z nim wyraźny spadek temperatury.`;
+    } else {
+      desc = `Mroźne popołudnie w ${place} (${t}°C). Słońce nisko nad horyzontem daje niewiele ciepła.`;
+    }
+  } else if(daypart === "evening"){
+    if(t >= 20){
+      desc = `Ciepły, niezwykle przyjemny wieczór w ${place} (${t}°C). Wyśmienite warunki na relaks pod gołym niebem.`;
+    } else if(t >= 12){
+      desc = `Wieczorne ochłodzenie w ${place} (${t}°C, odczuwalne ${appT}°C). Po zachodzie słońca chłód staje się bardziej wyczuwalny.`;
+    } else if(t >= 5){
+      desc = `Zimny wieczór w ${place} (${t}°C, odczuwalne zaledwie ${appT}°C). Wilgoć i wieczorne powietrze szybko wnikają pod ubranie.`;
+    } else {
+      desc = `Lodowaty, mroźny wieczór w ${place} (${t}°C). Temperatura będzie spadać przez całą noc.`;
+    }
+  } else {
+    // Night
+    desc = `Nocna cisza w ${place} przy ${t}°C (odczuwalne ${appT}°C). ${isClear ? 'Rozgwieżdżone, bezchmurne niebo sprzyja nocnemu wypromieniowaniu ciepła.' : 'Chmury działają jak kołdra, zatrzymując część ciepła.'}`;
   }
-  if(t>=27){
-    return {
-      a:`Prawdziwe gorąco w ${place} (${t}°C). Słońce świeci na całego, a każda zacieniona ławka jest na wagę złota. Pora zwolnić tempo i łapać letni klimat.`,
-      cl:"Lekki T-shirt, szorty lub zwiewna sukienka, okulary przeciwsłoneczne. Wierzchnie okrycia chowamy głęboko do szafy.",
-      ac:safeActivity("Wypad na lody, relaks nad wodą lub wieczorny spacer po zachodzie słońca.","Zostań pod dachem w najgorętszych godzinach – zbliżające się godziny mogą przynieść letnie burze."),
-      tip:"Nawadniaj się regularnie – kawa się liczy, ale woda z cytryną uratuje Ci dzisiaj dzień."
-    };
+
+  // B. Rekomendacja ubioru (cl)
+  if(t >= 26){
+    cloth = "Lekki T-shirt, szorty lub zwiewna sukienka, okulary przeciwsłoneczne. Wierzchnie okrycia zostają w szafie.";
+  } else if(t >= 20){
+    cloth = daypart === "evening" || daypart === "morning"
+      ? "Krótki rękaw, ale miej pod ręką lekką bluzę lub koszulę na chłodniejszy moment."
+      : "Wygodny T-shirt i lekkie spodnie. Perfekcyjna strefa komfortu.";
+  } else if(t >= 15){
+    cloth = isWindy
+      ? "Lekka wiatrówka lub rozpinana bluza ze stójką – wiatr potrafi niespodziewanie wywiać ciepło. Długie spodnie."
+      : "Złoty standard: T-shirt + cienka kurtka przejściowa lub sweter. Wygodne sneakersy.";
+  } else if(t >= 11){
+    cloth = daypart === "morning"
+      ? "Taktyka warstwowa „na cebulkę”: bluza lub kardigan, a na wierzch kurtka przejściowa. Rano przyda się zapięcie pod szyję, w ciągu dnia można się rozpiąć."
+      : isWindy
+        ? "Kurtka wiatroodporna, bluza z kapturem i długie spodnie. Wiatr obniża odczuwalną temperaturę o parę stopni."
+        : "Kurtka przejściowa (bomberka / softshell) na bluzę lub sweter. Długie spodnie i pełne buty.";
+  } else if(t >= 5){
+    cloth = "Cieplejsza kurtka jesienno-zimowa, gruby sweter lub polar. Lekki szalik pod szyję będzie bardzo dobrą decyzją.";
+  } else {
+    cloth = "Gruba kurtka puchowa, czapka zakrywająca uszy, szal i rękawiczki. Buty z grubą podeszwą izolującą od podłoża.";
   }
-  if(t>=22){
-    return {
-      a:`Cudowne, wymarzone ${t}°C w ${place}! Złota strefa komfortu: ani za gorąco, ani za chłodno. Prawdziwy prezent od aury, grzech zmarnować taki dzień w czterech ścianach.`,
-      cl:"Koszulka z krótkim rękawem, lekkie spodnie lub spódnica. Dla ostrożnych lekka koszula na wieczorny powrót.",
-      ac:safeActivity("Rower, rolki, spacer po parku, kawa na tarasie lub obiad na świeżym powietrzu. Fotosynteza sama się nie zrobi!","Lekki spacer w oknie pogodowym – miej oko na niebo przed ewentualną mżawką."),
-      tip:"Pogoda tak dobra, że nawet statystyczny polski narzekacz nie znajdzie dzisiaj sensownego powodu do marudzenia."
-    };
+
+  // C. Pomysł na dzień / Aktywność (ac)
+  if(daypart === "morning"){
+    act = safeActivity(
+      "Świeżo parzona kawa, szybkie przewietrzenie mieszkania na start dnia i energiczny marsz do obowiązków.",
+      "Ciepła herbata, pożywne śniadanie i spokojne rozpoczęcie dnia w domowym cieple."
+    );
+  } else if(daypart === "forenoon"){
+    act = safeActivity(
+      "Doskonała pora na załatwianie spraw na mieście, krótki spacer dotleniający lub pracę przy naturalnym świetle.",
+      "Praca w skupieniu, przerwa na drugie śniadanie i kubek gorącego napoju."
+    );
+  } else if(daypart === "afternoon"){
+    act = safeActivity(
+      isClear || isPartly
+        ? "Wypad na rower, spacer po parku lub chwila z kawą na ławce – łap dzienne światło!"
+        : "Energiczny spacer po pracy lub zakupy na piechotę – ruch na świeżym powietrzu świetnie resetuje głowę.",
+      "Popołudniowy relaks pod dachem, domowy obiad i chwila na dobrą lekturę lub serial."
+    );
+  } else if(daypart === "evening"){
+    act = safeActivity(
+      "Kojący, wieczorny spacer w wolniejszym tempie na rozładowanie stresu, a przed snem gruntowne przewietrzenie sypialni.",
+      "Ciepły koc, dobra kolacja, ulubiony film i regenerujący odpoczynek po całym dniu."
+    );
+  } else {
+    act = "Czas na regenerację i spokojny sen. Zadbaj o świeże, chłodne powietrze w sypialni dla lepszego odpoczynku.";
   }
-  if(t>=17){
-    return {
-      a:`Bardzo przyjemne ${t}°C w ${place}. Powietrze jest łagodne, rześkie i idealne do życia. Ani kropla potu, ani grama dreszczy – perfekcyjna aura na codzienne sprawy.`,
-      cl:"Klasyka gatunku: wygodny T-shirt plus rozpinana bluza lub cienka kurtka przejściowa. Długie spodnie i ulubione sneakersy sprawdzą się bezbłędnie.",
-      ac:safeActivity("Dłuższy spacer, zakupy na piechotę, jogging lub rekreacyjna przejażdżka rowerowa. Idealny dzień na załatwianie spraw na mieście.","Szybkie zakupy lub kawa na zewnątrz w przerwie między chmurami."),
-      tip:"Najlepsza temperatura do pracy i myślenia – mózg nie przegrzewa się ani nie zamarza!"
-    };
-  }
-  if(t>=12){
-    return {
-      a:`Chłodnawo w ${place} (${t}°C). Powietrze jest rześkie i pobudzające – idealne, żeby nie zasnąć na stojąco, ale bez dodatkowej warstwy organizm szybko zażąda powrotu pod ciepły koc. Warto wziąć coś ze stójką lub kapturem!`,
-      cl:"Niezawodna taktyka „na cebulkę”: bluza z kapturem lub sweter, a na wierzch kurtka przejściowa (wiatrówka lub bomberka). Długie spodnie to podstawa. Jeśli w południe wyjrzy słońce, zawsze możesz rozpiąć kurtkę i udawać, że wcale nie zmarzłeś.",
-      ac:safeActivity("Szybki, energiczny spacer po parku (kroki same się nie zrobią!), runda po zakupy albo załatwianie spraw w dynamicznym tempie. Powietrze świetnie wietrzy głowę!","Szybkie zakupy lub sprawy na mieście, a potem powrót do ciepłego wnętrza i gorąca herbata z imbirem."),
-      tip:"14°C to ten magiczny stan w roku, kiedy połowa ludzi chodzi w puchówkach, a druga wciąż w krótkich spodenkach i udaje, że trwa lato."
-    };
-  }
-  if(t>=5){
-    return {
-      a:`Zimno w ${place} (${t}°C). Termometr nie pozostawia złudzeń – chłód panuje na zewnątrz, a wiatr chętnie przetestuje szczelność Twojego kołnierza. Zdecydowanie czas na cieplejszy kaliber ubrań.`,
-      cl:"Cieplejsza kurtka jesienno-zimowa, gruby sweter lub polar pod spód. Szalik pod szyję będzie bardzo rozsądną decyzją, a cienkie rękawiczki w kieszeni uratują dłonie przy sprawdzaniu telefonu.",
-      ac:safeActivity("Krótki, rześki spacer po tlen, a potem szybki odwrót do bazy. Genialny klimat na gorącą zupę, gotowanie lub nadrabianie zaległości filmowych.","Domowe pielesze, gorący napój i coś ciepłego na obiad. Wyjścia ogranicz do niezbędnego minimum."),
-      tip:"Wyjście z ciepłego łóżka w ten chłód wymaga heroizmu, ale powrót i zdjęcie butów przy kaloryferze to czysta euforia."
-    };
-  }
+
+  // D. Ciekawostka / Tip z przymrużeniem oka (tip)
+  const tips = [
+    t >= 12 && t <= 16
+      ? `${t}°C to ten unikalny stan, kiedy na ulicy spotkasz jednocześnie ludzi w puchówkach i kogoś w krótkich spodenkach udającego, że wciąż jest lato.`
+      : isWindy
+        ? "Przy tych podmuchach wiatru darmowa stylizacja fryzury w stylu 'artystyczny nieład' jest gwarantowana w pakiecie."
+        : "Optymalna temperatura do myślenia – neurony pracują na najwyższych obrotach bez ryzyka przegrzania.",
+    daypart === "morning"
+      ? "Kawa wypita przy oknie smakuje o 20% lepiej, a pierwszy łyk rześkiego powietrza zastępuje drugie espresso."
+      : daypart === "evening"
+        ? "Wieczorny reset na świeżym powietrzu obniża poziom stresu szybciej niż bezcelowe przewijanie social mediów."
+        : "Ruch na świeżym powietrzu liczy się potrójnie, jeśli nie musiałeś przy tym uciekać przed deszczem.",
+    isOvercast
+      ? "Brak bezpośredniego słońca to wymarzona pogoda dla fotografów i ekranów telefonów – zero irytujących odblasków!"
+      : isClear
+        ? "Czyste niebo to darmowa dawka witaminy D – korzystaj, póki natura nie zmieni zdania."
+        : "Najlepszy moment na zrobienie swoich dziennych kroków jest właśnie teraz."
+  ];
+
+  wittyTip = tips[seed];
+
   return {
-    a:`Mróz w ${place} (${t}°C)! Zima nie żartuje – powietrze szczypie w policzki, a oddech zamienia się w kłęby pary. Bez odpowiedniego pancerza termicznego nie podchodź do drzwi wyjściowych.`,
-    cl:"Gruba kurtka puchowa, czapka głęboko naciągnięta na uszy, szal i rękawiczki. Buty z grubą podeszwą, bo chłód od ziemi ciągnie szybciej niż opłaty z konta bankowego.",
-    ac:safeActivity("Tylko konieczne wyjścia i szybki powrót. Jeśli spacer, to krótki i w marszowym tempie.","Ciepłe wnętrze, koc, rozgrzewająca herbata z miodem i cytryną lub gorący rosół."),
-    tip:"Czapka może i zepsuje fryzurę, ale odmrożone uszy wyglądają jeszcze mniej fotogenicznie!"
+    daypartLabel,
+    icon: partIcon,
+    a: desc,
+    cl: cloth,
+    ac: act,
+    tip: wittyTip
   };
 }
 
@@ -4400,7 +4546,7 @@ function stationHTML(){
 function assistantHTML(X){
   const adv=advice(S.city,S.data.current,S.data.hourly,X?.ci??0,X);
   return`<section class="card">
-    <div class="ch">${mini("sun")}<span class="grow">Na dziś</span></div>
+    <div class="ch">${mini(adv.icon||"sun")}<span class="grow">Na dziś</span><span class="chip ok">${esc(adv.daypartLabel)}</span></div>
     <div class="say" style="font-size:16px;line-height:1.5">${esc(adv.a)}</div>
     <div class="arow"><div><small style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Ubiór</small><div style="line-height:1.45">${esc(adv.cl)}</div></div></div>
     <div class="arow"><div><small style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Pomysł na dzień</small><div style="line-height:1.45">${esc(adv.ac)}</div></div></div>
