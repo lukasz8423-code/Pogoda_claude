@@ -5346,11 +5346,29 @@ function pipelineDiagnosticsText(){
         windDirection:{value:img.kierunek_wiatru??null,timestamp:img.kierunek_wiatru_data??null,ageMinutes:img.windDirAgeMinutes??null,fresh:img.windDirFresh===true},
         gust:{value:img.poryw_wiatru??null,timestamp:img.poryw_wiatru_data??null,ageMinutes:img.porywWiatruAgeMinutes??null,fresh:img.porywWiatruFresh===true},
         rain10min:{value:img.opad_10min??null,timestamp:img.opad_10min_data??null,ageMinutes:img.opad10minAgeMinutes??null,fresh:img.opad10minFresh===true}
+      },
+      timestamps:{
+        temperature:img.temperatura_data??null,
+        humidity:img.wilgotnosc_wzgledna_data??null,
+        wind:img.predkosc_wiatru_data??null,
+        windDirection:img.kierunek_wiatru_data??null,
+        gust:img.poryw_wiatru_data??null,
+        rain10min:img.opad_10min_data??null
+      },
+      freshness:{
+        temperature:img.tempFresh===true,
+        humidity:img.humidityFresh===true,
+        wind:img.windFresh===true,
+        windDirection:img.windDirFresh===true,
+        gust:img.porywWiatruFresh===true,
+        rain10min:img.opad10minFresh===true
       }
     },
     cloudForecast:{
       source:cf.source??null,
       applied:cf.applied===true,
+      consensusMethod:"robust_weighted_median",
+      robustness:"large model spread shifts consensus toward median",
       trendWindowHours:cf.trendWindowHours??null,
       current:cf.current??null,
       rows:compactCloudForecast
@@ -5884,8 +5902,12 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     // pociągnięta przez jeden skrajny model. Używamy wtedy odpornego
     // blendu średniej ważonej i mediany; przy zgodnych modelach pozostaje
     // dokładnie dotychczasowa średnia ważona.
-    const disagreement=clamp((spread-35)/55,0,1);
-    const consensus=weightedMean*(1-disagreement*0.55)+median*(disagreement*0.55);
+    // Przy dużym rozrzucie punktowym medianę traktujemy jako odporny
+    // środek. Jeden skrajny model nie może przeciągać prognozy w stronę,
+    // której nie potwierdzają pozostałe modele.
+    const disagreement=clamp((spread-25)/55,0,1);
+    const robustMedianWeight=disagreement*0.75;
+    const consensus=weightedMean*(1-robustMedianWeight)+median*robustMedianWeight;
     rows.push({i,t,vals,consensus,weightedMean,median,spread,disagreement});
   }
   if(!rows.length)return;
