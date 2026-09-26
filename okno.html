@@ -469,7 +469,7 @@ function auraSnapshotForGemini(){
   let cached=null;try{cached=JSON.parse(localStorage.getItem("aura_v9")||"null");}catch{}
   const cur=cached?.data?.current||St.now?.m||{};
   return {capturedAt:new Date().toISOString(),location:{city:St.loc?.city||cached?.city||"",lat:St.loc?.lat??cached?.lat??null,lng:St.loc?.lng??cached?.lng??null},
-    aura:{temperature_2m:cur.temperature_2m??null,apparent_temperature:cur.apparent_temperature??null,relative_humidity_2m:cur.relative_humidity_2m??null,cloud_cover:cur.cloud_cover??null,weather_code:cur.weather_code??null,precipitation:cur.precipitation??null,wind_speed_10m:cur.wind_speed_10m??null,wind_gusts_10m:cur.wind_gusts_10m??null,uv_index:cur.uv_index??null,visibility_km:cur.visibility!=null?Number(cur.visibility)/1000:(St.now?.m?.vis??null)},
+    aura:{temperature_2m:cur.temperature_2m??null,apparent_temperature:cur.apparent_temperature??null,relative_humidity_2m:cur.relative_humidity_2m??null,cloud_cover:cur.cloud_cover??null,weather_code:cur.weather_code??null,precipitation:cur.precipitation??null,wind_speed_10m:cur.wind_speed_10m??null,wind_gusts_10m:cur.wind_gusts_10m??null,uv_index:cur.uv_index??null,visibility_km:cur.visibility!=null?Number(cur.visibility)/1000:(St.now?.m?.vis??null),displayed:{cloud:St.now?.m?.cloud??null,temp:St.now?.m?.temp??null,feels:St.now?.m?.feels??null,wind:St.now?.m?.kmh??null,gust:St.now?.m?.gust??null,uv:St.now?.m?.uv??null,weather:St.now?.m?.weather??null,time:St.now?.m?.time??null}},
     imgw:cached?.data?.__imgwSnapshot||null,model:St.now?.m?{cloud:St.now.m.cloud,temp:St.now.m.temp,precipitation:St.now.m.mm,wind:St.now.m.kmh,weather_code:St.now.m.code}:null};
 }
 function extractGeminiText(data){return(data?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").filter(Boolean).join("\n").trim();}
@@ -498,7 +498,8 @@ async function analyzeWithGeminiVision(){
 async function copyGeminiAnalysis(){
   const rec=St.gemini.result;if(!rec)return;
   const x=rec.result||{};
-  const text=["ANALIZA GEMINI — SKAN NIEBA","Zachmurzenie: "+(x.cloud_best??"—")+"% ("+(x.cloud_min??"—")+"–"+(x.cloud_max??"—")+"%)","Słońce: "+(x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne")),"Opad widoczny: "+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie")),"UV wizualne: "+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min)),"Pewność: "+(x.confidence??"—")+"%","",x.summary||"",x.comparison||""].join("\n");
+  const a=rec.snapshot?.aura||{};const d=a.displayed||{};
+  const text=["ANALIZA GEMINI — SKAN NIEBA","Zachmurzenie: "+(x.cloud_best??"—")+"% ("+(x.cloud_min??"—")+"–"+(x.cloud_max??"—")+"%)","Słońce: "+(x.sun_visible==null?"—":(x.sun_visible?"widoczne":"niewidoczne")),"Opad widoczny: "+(x.precip_visible==null?"—":(x.precip_visible?"tak":"nie")),"UV wizualne: "+(x.uv_min==null?"—":String(x.uv_min)+"–"+String(x.uv_max??x.uv_min)),"Pewność: "+(x.confidence??"—")+"%","","AURA W CHWILI SKANU","Czas: "+(d.time||rec.observedAt||"—"),"Zachmurzenie Aury: "+(d.cloud??a.cloud_cover??"—")+"%","Temperatura Aury: "+(d.temp??a.temperature_2m??"—")+"°C","Odczuwalna Aury: "+(d.feels??a.apparent_temperature??"—")+"°C","Wiatr Aury: "+(d.wind??a.wind_speed_10m??"—")+" km/h","Porywy Aury: "+(d.gust??a.wind_gusts_10m??"—")+" km/h","UV Aury: "+(d.uv??a.uv_index??"—"),"Stan Aury: "+(d.weather??"—"),"",""+(x.summary||""),x.comparison||""].join("\n");
   try{await navigator.clipboard.writeText(text);St.gemini.copyStatus="Skopiowano";}catch{St.gemini.copyStatus="Nie udało się skopiować";}render();
 }
 function geminiObservationHTML(){
