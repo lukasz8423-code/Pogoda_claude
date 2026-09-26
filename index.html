@@ -5274,47 +5274,61 @@ function pipelineInspectorHTML(){
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
 function pipelineDiagnosticsText(){
-  const models=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
-    const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];
-    return {
-      model:r.model||r.name||null,
-      current:{
-        temperature_2m:x.temperature_2m??null,
-        relative_humidity_2m:x.relative_humidity_2m??null,
-        wind_speed_10m:x.wind_speed_10m??null,
-        wind_gusts_10m:x.wind_gusts_10m??null,
-        cloud_cover:x.cloud_cover??null,
-        cloud_cover_low:x.cloud_cover_low??g("cloud_cover_low")??null,
-        cloud_cover_mid:x.cloud_cover_mid??g("cloud_cover_mid")??null,
-        cloud_cover_high:x.cloud_cover_high??g("cloud_cover_high")??null,
-        weather_code:x.weather_code??null,
-        precipitation:x.precipitation??null
-      }
-    };
-  }):[];
+  const d=S.pipelineDiag||{};
+  const cf=d.cloudForecast||{};
+  const rows=Array.isArray(cf.rows)?cf.rows:[];
+  const compactCloudForecast=rows.map(r=>({
+    time:r.time,
+    aura:r.value,
+    consensus:r.modelConsensus,
+    trend1:r.trend1??null,
+    trend2:r.trend2??null,
+    agreement:r.trendAgreement??null,
+    models:Array.isArray(r.models)?r.models.map(m=>({
+      model:m.model,
+      cloudCover:m.total
+    })):[],
+  }));
+
+  const img=S.imgwData||{};
   const cur=S.data?.current||{};
   const aura={
     temperature_2m:cur.temperature_2m??null,
-    relative_humidity_2m:cur.relative_humidity_2m??null,
     cloud_cover:cur.cloud_cover??null,
-    optical_cloud_cover:S.X?.optiCloud??null,
     weather_code:cur.weather_code??null,
-    source:S.cloudSource||null
+    cloud_source:S.cloudSource?.source||S.cloudSource?.type||null
   };
+
+  // Kopiowanie diagnostyki ma być krótkie i nastawione na problem,
+  // a pełne surowe dane pozostają dostępne tylko wewnętrznie.
   return JSON.stringify({
     status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
     miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},
     aura,
-    stacja_IMGW:S.imgwData||null,
-    modele_OpenMeteo:models,
-    ensemble:S.ensemble||null,
-    satelliteCloud:S.satelliteCloud||null,
-    pipeline:S.pipelineDiag||null,
-    liveHealth:S.liveHealth||null,
-    solarPosition:solarPositionDiagnostic(S.lat,S.lng,new Date()),
-    uvControl:{model:S.data?.current?.uv_index??null,clearSky:S.data?.current?.uv_index_clear_sky??null,cloudCover:S.data?.current?.cloud_cover??null},
-    geminiLatest:latestGeminiObservationDiagnostic(),
-    geminiObservations:geminiObservations()
+    imgw:{
+      station:img.stacja||img.name||"IMGW",
+      distanceKm:img.dist??null,
+      status:img.online===false?"offline":"online",
+      ageMinutes:img.ageMinutes??img.latestAgeMinutes??null,
+      temperature:img.temperatura??null,
+      humidity:img.wilgotnosc_wzgledna??null,
+      wind:img.predkosc_wiatru??null,
+      gust:img.poryw_wiatru??null,
+      rain10min:img.suma_opadu_10min??img.opad_10min??null
+    },
+    cloudForecast:{
+      source:cf.source??null,
+      applied:cf.applied===true,
+      trendWindowHours:cf.trendWindowHours??null,
+      current:cf.current??null,
+      rows:compactCloudForecast
+    },
+    warnings:(S.liveHealth?.alerts||[]).map(a=>({
+      code:a.code,
+      severity:a.severity,
+      message:a.message
+    })),
+    gemini:latestGeminiObservationDiagnostic()
   },null,2);
 }
 
