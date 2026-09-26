@@ -475,9 +475,15 @@ function auraSnapshotForGemini(){
 function extractGeminiText(data){return(data?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").filter(Boolean).join("\n").trim();}
 function parseGeminiJson(text){if(!text)return null;try{return JSON.parse(text);}catch{}const m=text.match(/\{[\s\S]*\}/);if(m){try{return JSON.parse(m[0]);}catch{}}return null;}
 function auraDisplayedAtGeminiResult(){
-  const m=St.now?.m||{};
   const resultAt=new Date().toISOString();
-  return {resultAt,weatherTime:m.time??null,temp:m.temp??null,feels:m.feels??null,cloud:m.cloud??null,wind:m.kmh??null,gust:m.gust??null,uv:m.uv??null,weather:m.weather??null};
+  let live=null;
+  try{live=JSON.parse(localStorage.getItem("aura_displayed_state")||"null");}catch{}
+  const s=live?.state||null;
+  if(s){
+    return {resultAt,weatherTime:live.resultAt??null,temp:s.temp??null,feels:s.feels??null,cloud:s.cloud??null,wind:s.wind??null,gust:s.gust??null,uv:s.uv??null,weather:s.weather??null,source:"Aura Hero / aura_displayed_state"};
+  }
+  const m=St.now?.m||{};
+  return {resultAt,weatherTime:m.time??null,temp:m.temp??null,feels:m.feels??null,cloud:m.cloud??null,wind:m.kmh??null,gust:m.gust??null,uv:m.uv??null,weather:m.weather??null,source:"fallback St.now.m"};
 }
 async function analyzeWithGeminiVision(){
   const key=getGeminiVisionKey().trim();
