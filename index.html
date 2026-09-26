@@ -1163,16 +1163,23 @@ function optiCloudFromModels(records){
         :(dniNorm!==null?dniNorm:(swNorm!==null?swNorm*0.85:null));
 
       if(solarClear!==null && solarClear>=0.25){
-        // Bezpośrednie słońce dociera do powierzchni:
-        // Cienkie chmury wysokie (Cirrus) są optycznie półprzezroczyste i nie tworzą powłoki całkowitej.
-        // Chmury niskie/średnie to rozproszone obłoki kłębiaste (Cumulus humilis).
-        const highContrib=h*0.06;
-        const midContrib=m*0.18;
-        const lowContrib=l*0.30;
-        const visualEstimate=clamp(Math.round(8 + lowContrib + midContrib + highContrib), 10, 50);
-        const opticalCap=Math.round(100 - (solarClear * 68)); // dla pełnego słońca cap wynosi ok. 32%
-        optical=clamp(Math.min(total, Math.max(visualEstimate, Math.round(opticalCap * 0.95))), 5, 100);
-        opticalMethod="solar-optical";
+        // Bezpośrednie słońce NIE oznacza automatycznie 30% zachmurzenia.
+        // Poprzednia wersja miała sztuczną podłogę/cap ~30% przy pełnym słońcu:
+        // opticalCap=32%, przez co przy surowym total >=30% wynik bieżący
+        // niemal zawsze kończył na ~30%, nawet przy czystym niebie za oknem.
+        // Dla obserwacji bieżącej ważniejsze są niskie/średnie warstwy;
+        // wysokie chmury mają mały wpływ na wizualną ocenę nieba.
+        const highContrib=h*0.03;
+        const midContrib=m*0.20;
+        const lowContrib=l*0.45;
+        const visualEstimate=clamp(Math.round(lowContrib + midContrib + highContrib),0,100);
+        // Przy silnym sygnale bezpośredniego słońca używamy wizualnego udziału
+        // warstw zamiast sztucznego podbijania go do 30%. Nie wymuszamy też
+        // minimalnych 5–10%, więc 0% z modeli/warstw może pozostać 0%.
+        const clearSignal=clamp((solarClear-0.25)/0.75,0,1);
+        const visualBlend=0.75+0.25*clearSignal;
+        optical=clamp(Math.min(total,Math.round(visualEstimate*visualBlend)),0,100);
+        opticalMethod="solar-optical-v2";
       } else {
         const lowDominance=l-Math.max(m,h);
         const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
