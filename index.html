@@ -5900,17 +5900,21 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     const agreement=tw>0?Math.max(pos,neg)/tw:0;
     const direction=persistentTrend>2?1:persistentTrend<-2?-1:0;
 
-    // Konsensus jest głównym wynikiem. Poprzednia godzina służy wyłącznie
-    // jako łagodne przejście. Im większa zgodność modeli, tym szybciej
-    // wynik dochodzi do ich aktualnego konsensusu.
-    const blend=agreement>=0.65?0.94:(agreement>=0.45?0.90:0.86);
+    // T0 jest lokalną obserwacją bieżącego nieba. Nie wolno jej w jednej
+    // godzinie "przeskoczyć" niemal natychmiast do siatki modelowej.
+    // Modele opisują obszar, a obserwacja X.cloud opisuje punkt użytkownika.
+    // Dlatego stosujemy rampę wejścia do konsensusu: im dalej w przyszłość,
+    // tym większe zaufanie do modelu. To nie jest sztuczny limit procentowy —
+    // konsensus nadal pozostaje celem, tylko przejście od obserwacji jest łagodne.
+    const horizonRamp=k===0?0.30:k===1?0.45:k===2?0.60:0.78;
+    const agreementBlend=agreement>=0.65?0.96:(agreement>=0.45?0.90:0.84);
+    const blend=Math.min(0.94,Math.max(0.20,horizonRamp*agreementBlend/0.90));
     let value=previousFinal+(row.consensus-previousFinal)*blend;
 
-    // Jeżeli wszystkie modele utrzymują ten sam kierunek przez 2h,
-    // pozwalamy konsensusowi przejść bez dodatkowego tłumienia kierunku.
-    // Nie dodajemy żadnych procentowych "korekt" do samego forecastu.
-    if(direction!==0 && agreement>=0.80){
-      value=previousFinal+(row.consensus-previousFinal)*Math.max(blend,0.96);
+    // Przy bardzo zgodnym trendzie nie omijamy rampy dla pierwszych godzin.
+    // Zgodność modeli wzmacnia dojście do celu dopiero wraz z horyzontem.
+    if(direction!==0 && agreement>=0.80 && k>=3){
+      value=previousFinal+(row.consensus-previousFinal)*Math.max(blend,0.88);
     }
 
     value=Math.round(clamp(value,0,100));
