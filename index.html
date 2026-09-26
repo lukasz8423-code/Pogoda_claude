@@ -848,7 +848,7 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   const currentState = currentStateOrX?.currentState || (currentStateOrX?.code != null ? currentStateOrX : null);
   const code = currentState?.code ?? cur?.weather_code ?? 0;
   const t = Math.round(cur?.temperature_2m ?? 15);
-  const appT = Math.round(cur?.apparent_temperature ?? t);
+  const appTRaw = Number(cur?.apparent_temperature ?? t); const appT = Number.isFinite(appTRaw) ? appTRaw.toLocaleString("pl-PL",{minimumFractionDigits:1,maximumFractionDigits:1}) : "—";
   const place = locativeCity(city);
   const rainActive = currentStateOrX ? isRainingNow(currentStateOrX) : (Number(cur?.precipitation ?? 0) > 0.05);
   const isStorm = isStormCode(code) && (rainActive || code >= 95);
