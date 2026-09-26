@@ -499,7 +499,8 @@ function geminiObservationHTML(){
   const g=St.gemini,key=getGeminiVisionKey();
   let h='<section class="gemini-box"><div class="ch" style="margin-bottom:8px">'+ic("chart")+'<span class="grow">🤖 Obserwacja Gemini</span></div>';
   h+='<div class="note" style="margin:0 0 10px">Niezależna analiza zdjęcia. Wynik trafia do diagnostyki i dziennika, ale nie zmienia prognozy Aury.</div><div class="gemini-grid">';
-  h+='<div style="display:grid;grid-template-columns:1fr;gap:8px"><input id="geminiVisionKey" class="gemini-key" type="password" autocomplete="off" placeholder="Osobny klucz Gemini Vision" value="'+esc(key)+'"><button class="btn wide" data-act="gemini-test" '+(g.testBusy?"disabled":"")+'>'+ (g.testBusy?"🔌 Sprawdzam Gemini…":"🔌 Sprawdź połączenie z Gemini")+'</button></div>';\n  h+='<input id="geminiPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">';
+  h+='<div style="display:grid;grid-template-columns:1fr;gap:8px"><input id="geminiVisionKey" class="gemini-key" type="password" autocomplete="off" placeholder="Osobny klucz Gemini Vision" value="'+esc(key)+'"><button class="btn wide" data-act="gemini-test" '+(g.testBusy?"disabled":"")+'>'+ (g.testBusy?"🔌 Sprawdzam Gemini…":"🔌 Sprawdź połączenie z Gemini")+'</button></div>';
+  h+='<input id="geminiPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none">';
   h+='<button class="btn pri wide" data-act="gemini-photo">📷 Zrób zdjęcie / wybierz zdjęcie</button>';
   if(g.imageData)h+='<img class="gemini-preview" src="data:'+g.mimeType+';base64,'+g.imageData+'" alt="Zdjęcie nieba do analizy Gemini">';
   h+='<button class="btn wide" data-act="gemini-analyze" '+((!g.imageData||g.busy)?"disabled":"")+'>🤖 '+(g.busy?"Analizuję zdjęcie…":"Analizuj z Gemini")+'</button>';
