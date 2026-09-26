@@ -5135,6 +5135,33 @@ function runLiveDataQualityGuard(){
   S.liveHealth={capturedAt:Date.now(),status:alerts.some(a=>a.severity==="critical"||a.severity==="error")?"ERROR":alerts.length?"WARN":"OK",alerts};
   return S.liveHealth;
 }
+function solarPositionDiagnostic(lat,lng,date=new Date()){
+  const la=Number(lat),lo=Number(lng);
+  if(!Number.isFinite(la)||!Number.isFinite(lo)||!(date instanceof Date)||Number.isNaN(date.getTime()))return null;
+  const rad=Math.PI/180,day=Math.floor((Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())-Date.UTC(date.getFullYear(),0,0))/86400000);
+  const utcHour=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
+  const gamma=2*Math.PI/365*(day-1+(utcHour-12)/24);
+  const eq=229.18*(.000075+.001868*Math.cos(gamma)-.032077*Math.sin(gamma)-.014615*Math.cos(2*gamma)-.040849*Math.sin(2*gamma));
+  const dec=.006918-.399912*Math.cos(gamma)+.070257*Math.sin(gamma)-.006758*Math.cos(2*gamma)+.000907*Math.sin(2*gamma)-.002697*Math.cos(3*gamma)+.00148*Math.sin(3*gamma);
+  const mins=date.getHours()*60+date.getMinutes()+date.getSeconds()/60,tz=-date.getTimezoneOffset();
+  const tst=((mins+eq+4*lo-tz*60)%1440+1440)%1440,ha=(tst/4-180)*rad,latr=la*rad;
+  const zen=Math.acos(clamp(Math.sin(latr)*Math.sin(dec)+Math.cos(latr)*Math.cos(dec)*Math.cos(ha),-1,1));
+  const elevation=90-zen/rad;
+  let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(latr)-Math.tan(dec)*Math.cos(latr))/rad+180; az=(az+360)%360;
+  return {elevation:+elevation.toFixed(2),azimuth:+az.toFixed(1),isDay:elevation>0,localTime:date.toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}),calculatedAt:date.toISOString()};
+}
+function solarDiagnosticBlock(){
+  const solar=solarPositionDiagnostic(S.lat,S.lng,new Date()),cur=S.data?.current||{};
+  const uv=Number.isFinite(Number(cur.uv_index))?Number(cur.uv_index):null,clear=Number.isFinite(Number(cur.uv_index_clear_sky))?Number(cur.uv_index_clear_sky):null,cloud=Number.isFinite(Number(cur.cloud_cover))?Number(cur.cloud_cover):null;
+  if(!solar)return "<div class=\"note\">☀️ Brak współrzędnych — nie można policzyć pozycji Słońca.</div>";
+  const status=solar.elevation<=0?"🌙 Słońce poniżej horyzontu — UV powinien być praktycznie zerowy.":solar.elevation<8?"🟡 Słońce bardzo nisko — UV wymaga kontroli względem modelu.":"🟢 Geometria Słońca dostępna — kontrola diagnostyczna.";
+  return "<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☀️ Geometria Słońca / kontrola UV</div><div class=\"st-grid-2\" style=\"margin-top:8px\">"+
+    "<div class=\"ib\" style=\"width:auto;height:auto;min-height:58px;padding:9px;display:block\"><div style=\"font-size:10px;color:var(--ink3)\">Wysokość Słońca</div><b style=\"font-size:17px\">"+fnum(solar.elevation,2)+"°</b></div>"+
+    "<div class=\"ib\" style=\"width:auto;height:auto;min-height:58px;padding:9px;display:block\"><div style=\"font-size:10px;color:var(--ink3)\">Azymut</div><b style=\"font-size:17px\">"+fnum(solar.azimuth,1)+"°</b></div>"+
+    "<div class=\"ib\" style=\"width:auto;height:auto;min-height:58px;padding:9px;display:block\"><div style=\"font-size:10px;color:var(--ink3)\">UV modelu</div><b style=\"font-size:17px\">"+(uv==null?"—":fnum(uv,1))+"</b></div>"+
+    "<div class=\"ib\" style=\"width:auto;height:auto;min-height:58px;padding:9px;display:block\"><div style=\"font-size:10px;color:var(--ink3)\">UV clear-sky</div><b style=\"font-size:17px\">"+(clear==null?"—":fnum(clear,1))+"</b></div></div>"+
+    "<div class=\"note\">Czas: <b>"+esc(solar.localTime)+"</b> · zachmurzenie: <b>"+(cloud==null?"—":Math.round(cloud)+"%")+"</b> · "+status+"</div>";
+}
 function pipelineInspectorHTML(){
   const d=S.pipelineDiag, rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data):[];
   const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]}, img=S.imgwData||{}, cur=S.data?.current||{};
@@ -5146,7 +5173,7 @@ function pipelineInspectorHTML(){
   const sourceTable="<div style=\"overflow:auto\"><table style=\"width:100%;min-width:720px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Parametr</th><th>IMGW Głodowo</th><th>Open-Meteo RAW</th><th>Aura</th><th>Różnica Aura−IMGW</th></tr></thead><tbody>"+rows.map(r=>{const imgwValue=Number(r[2]), auraValue=Number(r[4]); const diff=Number.isFinite(imgwValue)&&Number.isFinite(auraValue)?auraValue-imgwValue:null;return "<tr><td><b>"+r[0]+"</b></td><td class=\"tn\">"+fmt(r[2])+(r[2]!=null?" "+r[1]:"")+"</td><td class=\"tn\">"+fmt(r[3])+(r[3]!=null?" "+r[1]:"")+"</td><td class=\"tn\"><b>"+fmt(r[4])+(r[4]!=null?" "+r[1]:"")+"</b></td><td class=\"tn\">"+(diff==null?"—":(diff>0?"+":"")+fnum(diff,1)+" "+r[1])+"</td></tr>";}).join("")+"</tbody></table></div>";
   const modelTable=modelRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">Open-Meteo — surowe modele, bieżący slot</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>T</th><th>RH</th><th>Wiatr</th><th>Chmury</th><th>Low</th><th>Mid</th><th>High</th><th>Opad</th><th>WMO</th></tr></thead><tbody>"+modelRows.map(m=>"<tr><td>"+esc(m.model)+"</td><td>"+fmt(m.temp)+"°</td><td>"+fmt(m.hum)+"%</td><td>"+fmt(m.wind)+" km/h</td><td><b>"+pct(m.cloud)+"</b></td><td>"+pct(m.low)+"</td><td>"+pct(m.mid)+"</td><td>"+pct(m.high)+"</td><td>"+fmt(m.precip)+"</td><td>"+fmt(m.code)+"</td></tr>").join("")+"</tbody></table></div><div class=\"note\">Konsensus zachmurzenia: <b>"+(consensus==null?"—":Math.round(consensus)+"%")+"</b> · Aura: <b>"+(S.X?.cloud==null?"—":Math.round(S.X.cloud)+"%")+"</b></div>":"<div class=\"note\">Brak surowych danych Open-Meteo.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
-  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+sourceTable+modelTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
+  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?hhmm(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+solarDiagnosticBlock()+sourceTable+modelTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
 function pipelineDiagnosticsText(){
@@ -5186,7 +5213,9 @@ function pipelineDiagnosticsText(){
     ensemble:S.ensemble||null,
     satelliteCloud:S.satelliteCloud||null,
     pipeline:S.pipelineDiag||null,
-    liveHealth:S.liveHealth||null
+    liveHealth:S.liveHealth||null,
+    solarPosition:solarPositionDiagnostic(S.lat,S.lng,new Date()),
+    uvControl:{model:S.data?.current?.uv_index??null,clearSky:S.data?.current?.uv_index_clear_sky??null,cloudCover:S.data?.current?.cloud_cover??null}
   },null,2);
 }
 
