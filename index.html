@@ -5249,26 +5249,6 @@ function geminiObservationDiagnosticsHTML(){
   const observedLabel=last.observedAt?new Date(last.observedAt).toLocaleString("pl-PL"):"—";
   const ageLabel=diag.ageMinutes==null?"wiek nieznany":diag.ageMinutes<1?"< 1 min":fmtAge(diag.ageMinutes);
   const statusLabel=diag.status==="FRESH"?"AKTUALNA":diag.status==="STALE"?"NIEAKTUALNA":diag.status==="EXPIRED"?"WYGASŁA":"BRAK CZASU";
-  // Porównanie musi używać SNAPSHOTU AURY z chwili wykonania skanu.
-  // Jeśli starsza wersja snapshotu nie ma wszystkich pól, nie mieszamy danych
-  // z innego momentu: pokazujemy tylko pola faktycznie zapisane w snapshotcie.
-  const auraAtScan={
-    time:a?.time??s?.time??last.observedAt??null,
-    temperature:a?.temperatureC??a?.temperature??null,
-    feelsLike:a?.feelsLikeC??a?.feelsLike??null,
-    cloud:auraCloud,
-    wind:a?.windKmh??a?.wind??null,
-    gust:a?.gustKmh??a?.gust??null,
-    uv:a?.uv??null,
-    weather:a?.weather??null,
-    imgwStation:a?.imgw?.station??null,
-    imgwObservedAt:a?.imgw?.latestTimestamp??null,
-    imgwAge:a?.imgw?.ageMinutes??null
-  };
-  const auraAtScanHtml='<div class="note" style="margin-top:12px;font-weight:700">🌤️ Aura w chwili analizy Gemini</div>'+\
-    '<div class="note"><b>Czas:</b> '+esc(auraAtScan.time?new Date(auraAtScan.time).toLocaleString("pl-PL"):"—")+' · <b>Zachmurzenie:</b> '+(auraAtScan.cloud==null?"—":Math.round(auraAtScan.cloud)+"%")+' · <b>Temperatura:</b> '+(auraAtScan.temperature==null?"—":fnum(auraAtScan.temperature,1)+"°C")+' · <b>Odczuwalna:</b> '+(auraAtScan.feelsLike==null?"—":fnum(auraAtScan.feelsLike,1)+"°C")+'</div>'+\
-    '<div class="note"><b>Wiatr:</b> '+(auraAtScan.wind==null?"—":fnum(auraAtScan.wind,1)+" km/h")+' · <b>Porywy:</b> '+(auraAtScan.gust==null?"—":fnum(auraAtScan.gust,1)+" km/h")+' · <b>UV:</b> '+(auraAtScan.uv==null?"—":fnum(auraAtScan.uv,1))+' · <b>Stan:</b> '+esc(auraAtScan.weather||"—")+'</div>'+\
-    '<div class="note"><b>IMGW:</b> '+esc(auraAtScan.imgwStation||"—")+' · pomiar '+esc(auraAtScan.imgwObservedAt?auraAtScan.imgwObservedAt:"—")+' · wiek '+(auraAtScan.imgwAge==null?"—":fnum(auraAtScan.imgwAge,1)+" min")+'</div>';
   const recent=log.slice(-5).reverse().map(o=>{const q=o.result||{},dt=o.observedAt?new Date(o.observedAt).toLocaleString("pl-PL"):"—";return '<div class="note" style="padding:8px 0;border-top:1px solid var(--line)"><b>'+esc(dt)+'</b> · chmury '+esc(String(q.cloud_best??"—"))+'% · UV '+esc(q.uv_min==null?"—":String(q.uv_min)+"–"+String(q.uv_max??q.uv_min))+' · pewność '+esc(String(q.confidence??"—"))+'%</div>';}).join("");
   return '<div class="note" style="margin-top:14px;font-weight:700">🤖 Obserwacja Gemini</div>'+
     '<div class="note"><b>Źródło:</b> GEMINI_SKYSCAN · <b>Analiza:</b> '+esc(observedLabel)+' · <b>Wiek:</b> '+esc(ageLabel)+' · <b>Status:</b> '+statusLabel+'</div>'+
@@ -5279,7 +5259,7 @@ function geminiObservationDiagnosticsHTML(){
       '<div class="ib" style="width:auto;height:auto;min-height:58px;padding:9px;display:block"><div style="font-size:10px;color:var(--ink3)">UV wizualne</div><b style="font-size:17px">'+esc(uv)+'</b></div>'+
     '</div>'+
     '<div class="note"><b>Słońce:</b> '+(x.sun_visible==null?"—":x.sun_visible?"widoczne":"niewidoczne")+' · <b>Opad:</b> '+(x.precip_visible==null?"—":x.precip_visible?"widoczny":"niewidoczny")+' · <b>Pewność:</b> '+esc(String(x.confidence??"—"))+'%</div>'+
-    '<div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div>'+auraAtScanHtml+
+    '<div class="note">'+esc(x.summary||"")+'</div><div class="note">'+esc(x.comparison||"")+'</div>'+
     '<div class="note" style="margin-top:10px;font-weight:700">Ostatnie obserwacje</div>'+recent;
 }
 function pipelineInspectorHTML(){
