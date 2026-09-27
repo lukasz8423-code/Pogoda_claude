@@ -175,13 +175,59 @@
     const distance=Number(S.imgwData?.dist);
     const within45=Number.isFinite(distance)&&distance<=45;
     const accepted=used===true;
+    const hasFinal=finalValue!==null&&finalValue!==undefined&&finalValue!=='';
+    const hasModel=!!modelComp && modelComp.value!==null && modelComp.value!==undefined && modelComp.value!=='';
+    const sourceText=String(source||'').toLowerCase();
+
+    let decision='REJECTED';
+    let decisionLabel='✕ ODRZUCONO';
+    let decisionColor='var(--warn)';
+
+    if(accepted){
+      decision='USED';
+      decisionLabel='✓ UŻYTO IMGW';
+      decisionColor='var(--ok)';
+    }else if(hasModel && hasFinal && (sourceText.includes('open-meteo') || sourceText.includes('weather-fusion') || sourceText.includes('model'))){
+      decision='MODEL_ONLY';
+      decisionLabel='◉ MODEL';
+      decisionColor='var(--rain)';
+    }else if(hasFinal && (sourceText.includes('aura derived') || sourceText.includes('derived'))){
+      decision='DERIVED';
+      decisionLabel='◌ WYLICZONO';
+      decisionColor='var(--ink2)';
+    }else if(hasFinal && sourceText!=='brak danych'){
+      decision='SOURCE_ONLY';
+      decisionLabel='→ ŹRÓDŁO';
+      decisionColor='var(--ink2)';
+    }else if(hasFinal){
+      decision='VALUE';
+      decisionLabel='✓ WARTOŚĆ';
+      decisionColor='var(--ok)';
+    }else{
+      decision='NO_DATA';
+      decisionLabel='— BRAK DANYCH';
+      decisionColor='var(--ink3)';
+    }
+
+    let finalReason=reason||'';
+    if(decision==='MODEL_ONLY' && !finalReason){
+      finalReason='IMGW niedostępne lub poza TTL; użyto wartości modelowej.';
+    }
+    if(decision==='MODEL_ONLY' && !accepted && /^świeże IMGW; użyto do fuzji$/i.test(finalReason)){
+      finalReason='IMGW nie zostało użyte dla tego komponentu; wartość końcowa pochodzi z modelu.';
+    }
+    if(decision==='USED' && !finalReason) finalReason='świeże IMGW w zasięgu fuzji; użyto.';
+    if(decision==='NO_DATA' && !finalReason) finalReason='brak wartości końcowej.';
+
     return {
       name,
       value:finalValue??null,
       source:source||'—',
       used:accepted,
-      decision:accepted?'USED':'REJECTED',
-      reason:reason|| (accepted?'świeże pole IMGW w zasięgu fuzji':'brak użycia'),
+      decision,
+      decisionLabel,
+      decisionColor,
+      reason:finalReason,
       imgw:imComp?{
         value:imComp.value??null,
         timestamp:imComp.timestamp??null,
@@ -220,8 +266,12 @@
     rows.push(fieldDecision('Wilgotność',ic.humidity,model.humidity,X.hum,'IMGW → Aura fusion',imgwUsable('humidity'),ic.humidity?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
     rows.push(fieldDecision('Wiatr',ic.wind,model.wind,X.wind,'IMGW → Aura fusion',imgwUsable('wind'),ic.wind?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
     rows.push(fieldDecision('Kierunek wiatru',ic.windDirection,model.windDirection,X.wdeg,'IMGW → Aura fusion',imgwUsable('windDirection'),ic.windDirection?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
-    rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,'IMGW → Aura final',gustUsable,'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km'));
-    rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,'IMGW → T0 precipitation guard',rainUsable,'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain'));
+    rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,'IMGW → Aura final',gustUsable,
+    gustUsable?'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km':
+    'IMGW poryw nie spełnia TTL/zasięgu; Aura zachowuje wartość modelową dla T0.'));
+    rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,'IMGW → T0 precipitation guard',rainUsable,
+    rainUsable?'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain':
+    'Brak świeżego opadu_10min z Głodowa; guard nie może użyć IMGW.'));
     rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,'weather-fusion',false,'brak bezpośredniego pola IMGW; fuzja modeli/obserwacji nie jest polem stacji'));
     rows.push(fieldDecision('Temperatura odczuwalna',null,model.apparentFinal,X.feels,'Aura derived',false,'wyliczana po fuzji z temperatury, RH, wiatru i porywów'));
     rows.push(fieldDecision('UV',null,model.uv,X.uv,'Open-Meteo',false,'IMGW Głodowo nie dostarcza pola UV w używanym feedzie'));
@@ -293,8 +343,19 @@
     const tr=rows.map(r=>{
       const img=r.imgw||{};
       const mod=r.model||{};
-      const status=r.decision==='USED'?'✓ UŻYTO':'✕ ODRZUCONO';
-      const statusColor=r.decision==='USED'?'var(--ok)':'var(--warn)';
+      const status=r.decisionLabel||(
+        r.decision==='USED'?'✓ UŻYTO IMGW':
+        r.decision==='MODEL_ONLY'?'◉ MODEL':
+        r.decision==='DERIVED'?'◌ WYLICZONO':
+        r.decision==='SOURCE_ONLY'?'→ ŹRÓDŁO':
+        r.decision==='VALUE'?'✓ WARTOŚĆ':'— BRAK DANYCH'
+      );
+      const statusColor=r.decisionColor||(
+        r.decision==='USED'?'var(--ok)':
+        r.decision==='MODEL_ONLY'?'var(--rain)':
+        r.decision==='DERIVED'?'var(--ink2)':
+        r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)'
+      );
       const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
       const modelText=mod.value==null?'—':esc2(String(mod.value));
       const finalText=r.final?.value==null?'—':esc2(String(r.final.value));
@@ -308,11 +369,12 @@
     }).join('');
     const freshFields=Object.entries(window.__AURA_IMGW_COMPONENT_DIAG?.components||{})
       .filter(([,x])=>x?.fresh).map(([k,x])=>k+' '+x.time+' ('+x.ageMinutes+' min)').join(' · ');
-    return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → decyzja → Aura</div>
+    return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
       <div class="note">Kanoniczny snapshot Głodowa: <b>${esc2(all.canonicalLatestTime||'—')}</b> · ${all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min'} · TTL IMGW <b>${IMGW_TTL_MIN} min</b>.</div>
       <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
+      <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
       <div style="overflow:auto"><table style="width:100%;min-width:980px;border-collapse:collapse;font-size:11px">
-        <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Decyzja + powód</th></tr></thead>
+        <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead>
         <tbody>${tr}</tbody>
       </table></div>`;
   }
