@@ -121,7 +121,7 @@
 
   function sync(){
     try{
-      if(!window.S||!S.imgwData)return null;
+      // S jest zadeklarowane jako globalny lexical binding (const), więc nie musi być właściwością window.\n      // Poprzedni warunek sprawdzał window.S i blokował synchronizację diagnostyki mimo poprawnego S.imgwData.\n      if(typeof S==='undefined'||!S||!S.imgwData)return null;
       const d=buildImgwComponents(S.imgwData);
       if(!d)return null;
       S.imgwData.componentDiagnostics=d;
