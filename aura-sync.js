@@ -187,7 +187,9 @@
       decision='USED';
       decisionLabel='✓ UŻYTO IMGW';
       decisionColor='var(--ok)';
-    }else if(hasModel && hasFinal && (sourceText.includes('open-meteo') || sourceText.includes('weather-fusion') || sourceText.includes('model'))){
+    }else if(hasModel && hasFinal){
+      // modelComp potwierdza realne wejście modelowe; opis procesu fuzji nie
+      // może udawać źródła końcowej wartości.
       decision='MODEL_ONLY';
       decisionLabel='◉ MODEL';
       decisionColor='var(--rain)';
@@ -210,8 +212,12 @@
     }
 
     let finalReason=reason||'';
-    if(decision==='MODEL_ONLY' && !finalReason){
-      finalReason='IMGW niedostępne lub poza TTL; użyto wartości modelowej.';
+    if(decision==='MODEL_ONLY'){
+      if(!accepted){
+        finalReason='IMGW nie zostało użyte; wartość końcowa pochodzi z modelu.';
+      }else if(!finalReason){
+        finalReason='świeże IMGW zostało użyte w fuzji; model jest wejściem kontrolnym.';
+      }
     }
     if(decision==='MODEL_ONLY' && !accepted && /^świeże IMGW; użyto do fuzji$/i.test(finalReason)){
       finalReason='IMGW nie zostało użyte dla tego komponentu; wartość końcowa pochodzi z modelu.';
@@ -487,6 +493,9 @@
             wrap.dataset.auraComponentDiagnostics='1';
             wrap.innerHTML=componentDiagnosticsHTML();
             sheet.appendChild(wrap);
+            Array.from(sheet.childNodes).forEach(node=>{
+              if(node.nodeType===Node.TEXT_NODE && String(node.nodeValue||'').trim()==='undefined') node.remove();
+            });
             patchHeroLabel();
           }
         },0);
