@@ -2995,6 +2995,9 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
 const S={phase:"intro",lat:null,lng:null,city:"",data:null,activeModelRaw:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
+// Publiczny most stanu dla zewnętrznych modułów diagnostycznych (np. aura-sync.js).
+// Top-level const S nie jest własnością window, więc moduł ładowany osobnym <script> nie może go bezpośrednio odczytać.
+window.__AURA_STATE__=S;
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"B. wysokie":"Ekstremalne";
 const uvHeroLabel=v=>v<3?"niski":v<6?"umiark.":v<8?"wysoki":v<11?"b. wys.":"ekstr.";
