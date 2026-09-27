@@ -2376,7 +2376,46 @@ const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const AURA_TIME_ZONE="Europe/Warsaw";
-const hhmm=iso=>new Date(iso).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit",timeZone:AURA_TIME_ZONE});
+function dataTimeZone(data=S.data){
+  return data?.timezone||AURA_TIME_ZONE;
+}
+function localDateKey(data=S.data,ms=Date.now()){
+  const tz=dataTimeZone(data);
+  try{
+    const p=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(ms));
+    const o=Object.fromEntries(p.map(x=>[x.type,x.value]));
+    return `${o.year}-${o.month}-${o.day}`;
+  }catch{
+    const d=new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+}
+function localHourKey(data=S.data,ms=Date.now()){
+  const tz=dataTimeZone(data);
+  try{
+    const p=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(ms));
+    const o=Object.fromEntries(p.map(x=>[x.type,x.value]));
+    return `${o.year}-${o.month}-${o.day}T${o.hour}:00`;
+  }catch{
+    const d=new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+  }
+}
+function localWallOrdinal(value){
+  const s=String(value||"");
+  const m=s.match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})/);
+  if(!m)return NaN;
+  return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);
+}
+function hhmm(value,data=S.data){
+  if(typeof value==="string" && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/.test(value) && !/[zZ]|[+-]\\d{2}:?\\d{2}$/.test(value)){
+    return value.slice(11,16);
+  }
+  const ms=value instanceof Date?value.getTime():Number(value);
+  if(!Number.isFinite(ms))return "—";
+  try{return new Intl.DateTimeFormat("pl-PL",{hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:dataTimeZone(data)}).format(new Date(ms));}
+  catch{return new Date(ms).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"});}
+}
 const formatImgwTimestamp=value=>{
   const ms=parseImgwMeteoTimestamp(value);
   if(!Number.isFinite(ms))return "—";
@@ -2890,8 +2929,7 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
 
   // 4. Update daily totals (Dziś, index 0)
   if(data.daily?.time?.length){
-    const nowDate = new Date(nowMs);
-    const nowStr = `${nowDate.getFullYear()}-${pad(nowDate.getMonth()+1)}-${pad(nowDate.getDate())}`;
+    const nowStr = localDateKey(data,nowMs);
     let todaySum = 0;
     let todayMaxPop = 0;
     let hasTodayHours = false;
@@ -4082,10 +4120,18 @@ function rainUntilTime(X){
     : null;
 }
 function isDayAt(iso){
-  const {daily}=S.data,di=daily.time.indexOf(iso.slice(0,10));
-  const t=new Date(iso);
-  if(di>=0&&daily.sunrise?.[di]&&daily.sunset?.[di])return t>=new Date(daily.sunrise[di])&&t<new Date(daily.sunset[di]);
-  const h=t.getHours();return h>=6&&h<19;
+  const {daily}=S.data||{};
+  const s=String(iso||"");
+  const dateKey=s.slice(0,10);
+  const di=Array.isArray(daily?.time)?daily.time.indexOf(dateKey):-1;
+  const sunrise=di>=0?String(daily.sunrise?.[di]||"").slice(11,16):"";
+  const sunset=di>=0?String(daily.sunset?.[di]||"").slice(11,16):"";
+  const hm=s.slice(11,16);
+  if(/^\\d{2}:\\d{2}$/.test(hm)&&/^\\d{2}:\\d{2}$/.test(sunrise)&&/^\\d{2}:\\d{2}$/.test(sunset)){
+    return hm>=sunrise&&hm<sunset;
+  }
+  const h=Number(hm.slice(0,2));
+  return Number.isFinite(h)?h>=6&&h<19:false;
 }
 
 function getHourlyCode(hourlyData,idx){
@@ -4204,7 +4250,7 @@ function meteogramHTML(X){
     const prLabel=displayPr>0?fnum(displayPr,1)+" mm":(isTrace?"< 0,1 mm":"0 mm");
 
     return `<div class="mg-cell ${day?"mg-day":""}">
-      <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${pad(p.t.getHours())}:00</b>
+      <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${String(p.t).slice(11,13)}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
       <div class="mg-rain">
         <span class="mg-rainbar ${displayPr>0||isTrace?"on":""}" style="height:${Math.max(displayPr>0||isTrace?3:0,bar)}px"></span>
@@ -4238,13 +4284,13 @@ function dailyRows(){
     const dot=i===0?`<u style="left:${clamp((X.T-gmin)/span*100,0,100).toFixed(1)}%"></u>`:"";
     let exp="";
     if(open){
-      const dateStr=daily.time[i];let hs="";
+      const dateStr=String(daily.time[i]).slice(0,10);let hs="";
       hourly.time.forEach((t,k)=>{
-        if(!t.startsWith(dateStr))return;
+        if(!String(t).startsWith(dateStr))return;
         const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
         const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
         const hCode=getHourlyCode(hourly,k);
-        hs+=`<div class="hi"><span class="t tn">${pad(new Date(t).getHours())}</span>${ico(hCode,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
+        hs+=`<div class="hi"><span class="t tn">${String(t).slice(11,13)}</span>${ico(hCode,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
       {
@@ -5486,19 +5532,18 @@ function currentHourIndex(data,now=new Date()){
   const times=data?.hourly?.time||[];
   if(!times.length)return 0;
 
-  // Jeden kanoniczny slot dla UI, fuzji i historii: bieżąca lokalna godzina
-  // zaokrąglona w dół do pełnej godziny. Nie przełączamy się na następny
-  // slot po :30 tylko dlatego, że current.time modelu ma inny znacznik.
-  const target=new Date(now);
-  target.setMinutes(0,0,0);
-  const targetTs=target.getTime();
-
+  // Open-Meteo przy timezone=auto zwraca lokalne znaczniki czasu bez offsetu.
+  // Porównujemy więc lokalny czas miejsca prognozy z lokalnym czasem miejsca,
+  // a nie Date.parse() z timezone telefonu.
+  const targetKey=localHourKey(data,now.getTime());
+  const targetOrd=localWallOrdinal(targetKey);
   let best=0,bestDiff=Infinity;
   for(let i=0;i<times.length;i++){
-    const ts=Date.parse(String(times[i]));
-    if(!Number.isFinite(ts))continue;
-    const diff=Math.abs(ts-targetTs);
+    const ord=localWallOrdinal(times[i]);
+    if(!Number.isFinite(ord))continue;
+    const diff=Math.abs(ord-targetOrd);
     if(diff<bestDiff){bestDiff=diff;best=i;}
+    if(String(times[i]).slice(0,13)===targetKey.slice(0,13))return i;
   }
   return best;
 }
@@ -5742,8 +5787,7 @@ function applyForecastBridge(data,fusion,modelData){
 // zaobserwowana temperatura lub wartości z jego prognozy godzinowej.
 function syncDailyExtremes(data){
   if(!data?.daily?.time||!data?.hourly?.time)return;
-  const now=new Date();
-  const today=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  const today=localDateKey(data,Date.now());
   const di=data.daily.time.findIndex(d=>String(d).slice(0,10)===today);
   if(di<0)return;
 
