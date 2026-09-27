@@ -491,13 +491,17 @@
       +'<b>Wiek z epoch:</b> '+(ageFromEpoch==null?'—':esc2(String(ageFromEpoch))+' min')+' · <b>Wiek diagnostyki:</b> '+(all.canonicalLatestAgeMinutes==null?'—':esc2(String(all.canonicalLatestAgeMinutes))+' min')
       +'</div>';
         const obsFallback=window.__AURA_STATE__?.observationFallback||null;
-        const observationFallbackBlock='<div class="note" style="margin-top:16px;font-weight:700">📡 OBSERVATION_FALLBACK</div>'
+        const observationFallbackBlock='<div class="note" style="margin-top:16px;font-weight:700">📡 ŁAŃCUCH OBSERWACJI</div>'
           +'<div class="note" style="line-height:1.65">'
-          +'<b>Status:</b> '+(obsFallback?.isFresh?'AKTYWNY — przed modelami':'brak świeżej obserwacji')+' · '
-          +'<b>Źródło:</b> '+esc2(obsFallback?.sourceLabel||'—')+' · '
+          +'<b>Ścieżka:</b> Głodowo → OBSERVATION_FALLBACK → MODEL<br>'
+          +'<b>Wybrane źródło:</b> '+esc2(window.__AURA_STATE__?.observationChain?.finalMode||'MODEL')+' · '
+          +'<b>stacja:</b> '+esc2(window.__AURA_STATE__?.observationChain?.selected?.station||'—')+' · '
+          +'<b>wiek:</b> '+(window.__AURA_STATE__?.observationChain?.selected?.ageMinutes==null?'—':esc2(String(window.__AURA_STATE__.observationChain.selected.ageMinutes))+' min')+'<br>'
+          +'<b>Fallback:</b> '+(obsFallback?.isFresh?'AKTYWNY — używany przed modelem':'brak świeżej obserwacji')+' · '
+          +'<b>źródło:</b> '+esc2(obsFallback?.sourceLabel||'—')+' · '
           +'<b>odległość:</b> '+(obsFallback?.dist==null?'—':esc2(String(obsFallback.dist))+' km')+' · '
           +'<b>wiek:</b> '+(obsFallback?.ageMinutes==null?'—':esc2(String(obsFallback.ageMinutes))+' min')+'<br>'
-          +'<b>Reguła:</b> Głodowo → OBSERVATION_FALLBACK → modele'
+          +'<b>Reguła:</b> Głodowo tylko gdy świeże i używalne → fallback obserwacyjny → model.'
           +'</div>';
         return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
       ${observationFallbackBlock}
