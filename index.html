@@ -6844,6 +6844,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.liveHealth=null;
   S.sourceMode=null;
   S.observationFallback=null;
+  S.observationChain=null;
   S.imgwStatus=null;
   S.ensemble=null;
   S.satelliteCloud=null;
@@ -7042,6 +7043,43 @@ async function loadWCore(lat,lng,name,isRef,token){
         imgwData?.isFresh===true &&
         imgwData?.anyUsable===true
       ) ? imgwData : (S.observationFallback?.isFresh===true ? S.observationFallback : null);
+
+      // Jawny łańcuch źródeł obserwacyjnych: Głodowo → fallback obserwacyjny → model.
+      // To jest stan diagnostyczny, a nie kolejna warstwa fuzji.
+      S.observationChain={
+        capturedAt:Date.now(),
+        primary:{
+          station:imgwData?.stacja||imgwData?.name||"Głodowo",
+          distanceKm:Number.isFinite(Number(imgwData?.dist))?Number(imgwData.dist):null,
+          ageMinutes:Number.isFinite(Number(imgwData?.latestAgeMinutes??imgwData?.ageMinutes))
+            ?Number(imgwData.latestAgeMinutes??imgwData.ageMinutes):null,
+          fresh:imgwData?.isFresh===true,
+          usable:imgwData?.anyUsable===true
+        },
+        fallback:S.observationFallback?{
+          station:S.observationFallback.station||S.observationFallback.sourceLabel||null,
+          sourceType:"OBSERVATION_FALLBACK",
+          distanceKm:Number.isFinite(Number(S.observationFallback.dist))?Number(S.observationFallback.dist):null,
+          ageMinutes:Number.isFinite(Number(S.observationFallback.ageMinutes))?Number(S.observationFallback.ageMinutes):null,
+          fresh:S.observationFallback.isFresh===true,
+          used:false
+        }:null,
+        selected:effectiveObservation?{
+          station:effectiveObservation.station||effectiveObservation.stacja||effectiveObservation.name||null,
+          sourceType:effectiveObservation.sourceType==="OBSERVATION_FALLBACK"?"OBSERVATION_FALLBACK":"GŁODOWO",
+          distanceKm:Number.isFinite(Number(effectiveObservation.dist))?Number(effectiveObservation.dist):null,
+          ageMinutes:Number.isFinite(Number(effectiveObservation.ageMinutes??effectiveObservation.latestAgeMinutes))
+            ?Number(effectiveObservation.ageMinutes??effectiveObservation.latestAgeMinutes):null,
+          fresh:effectiveObservation.isFresh===true
+        }:null,
+        finalMode:effectiveObservation
+          ?(effectiveObservation.sourceType==="OBSERVATION_FALLBACK"?"OBSERVATION_FALLBACK":"GŁODOWO")
+          :"MODEL"
+      };
+      if(S.observationChain.fallback){
+        S.observationChain.fallback.used=S.observationChain.finalMode==="OBSERVATION_FALLBACK";
+      }
+
       if(data&&data.current&&effectiveObservation){
         const obs=effectiveObservation;
         const usingObservationFallback=obs.sourceType==="OBSERVATION_FALLBACK";
@@ -7173,6 +7211,7 @@ async function loadWCore(lat,lng,name,isRef,token){
             stationSource:obs?.sourceType==="OBSERVATION_FALLBACK"?"OBSERVATION_FALLBACK":"GŁODOWO",
             stationAgeMinutes:obs?.ageMinutes??imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
             stationDistanceKm:obs?.dist??imgwData.dist??null,
+            observationChain:S.observationChain||null,
             imgwForecastAvailable:false,
             imgwForecastNote:"Brak publicznego API punktowej prognozy IMGW Hybrid (INCA-PL2/MERGE) na danepubliczne.imgw.pl; prognoza godzinowa korzysta z fuzji modeli Open-Meteo oraz obserwacji stacji IMGW Głodowo.",
             rows:diagRows,
@@ -7306,6 +7345,13 @@ async function loadWCore(lat,lng,name,isRef,token){
       station:"IMGW Offline",
       stationAgeMinutes:null,
       stationDistanceKm:null,
+      observationChain:S.observationChain||{
+        capturedAt:Date.now(),
+        primary:{station:"Głodowo",distanceKm:null,ageMinutes:null,fresh:false,usable:false},
+        fallback:null,
+        selected:null,
+        finalMode:"MODEL"
+      },
       imgwForecastAvailable:false,
       imgwForecastNote:"IMGW Offline → Active Ensemble: "+modelNames.join(" + "),
       status:"IMGW Offline → Active Ensemble",
