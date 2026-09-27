@@ -352,8 +352,9 @@
   }
 
   function componentDiagnosticsHTML(){
-    const all=buildAllComponentDiagnostics();
-    if(!all)return '';
+    try{
+      const all=buildAllComponentDiagnostics();
+      if(!all)return '<div class="note">Brak danych diagnostycznych komponentów IMGW.</div>';
     const rows=all.rows||[];
     const tr=rows.map(r=>{
       const img=r.imgw||{};
@@ -374,13 +375,13 @@
         r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)'
       );
       const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
-      const modelText=displayNum(r.name,mod.value);
       const displayNum=(name,value)=>{
         if(value==null)return '—';
         const n=Number(value);
         if(!Number.isFinite(n))return esc2(String(value));
         return esc2(String(['Punkt rosy','Temperatura odczuwalna'].includes(name)?Number(n.toFixed(1)):value));
       };
+      const modelText=displayNum(r.name,mod.value);
       const finalText=displayNum(r.name,r.final?.value);
 
       return `<tr>
@@ -401,6 +402,10 @@
         <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead>
         <tbody>${tr}</tbody>
       </table></div>`;
+    }catch(err){
+      console.warn('[AURA COMPONENT DIAG]',err);
+      return '<div class="note">⚠️ Diagnostyka komponentów chwilowo niedostępna.</div>';
+    }
   }
 
   function patch(){
