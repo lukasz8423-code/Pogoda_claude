@@ -650,6 +650,11 @@ a.btn{text-decoration:none;color:inherit}
 .diag-xscroll::-webkit-scrollbar-track{background:rgba(255,255,255,.06);border-radius:999px}
 .diag-xscroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.38);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
 .diag-xscroll table{display:table;width:max-content!important;min-width:max-content!important;max-width:none!important;table-layout:auto}
+.component-diag-scroll{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;box-sizing:border-box;touch-action:pan-x;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:auto;cursor:grab}
+.component-diag-scroll:active{cursor:grabbing}
+.component-diag-table{display:table!important;width:max-content!important;min-width:1100px!important;max-width:none!important;table-layout:auto!important;border-collapse:separate!important;border-spacing:0!important}
+.component-diag-table th,.component-diag-table td{white-space:normal;padding:7px 8px;vertical-align:top;text-align:left;border-bottom:1px solid var(--line)}
+.component-diag-table th{white-space:nowrap;position:sticky;top:0;background:rgba(14,22,42,.98);z-index:1}
 .sheet .sd{color:var(--ink2);font-size:13.5px;margin-bottom:14px}
 .mi{display:flex;width:100%;align-items:center;gap:12px;padding:12px;border-radius:16px;text-align:left;border:1px solid transparent}
 .mi:active{background:rgba(255,255,255,.08)}
