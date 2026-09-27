@@ -6055,7 +6055,7 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
   const hourly=data?.hourly;
   if(!hourly?.time?.length || !Array.isArray(modelResults)||!modelResults.length)return;
 
-  const ci=currentHourIndex({hourly},new Date());
+  const ci=currentHourIndex(data,new Date());
   const weights={icon_eu:0.40,ecmwf_ifs025:0.30,gfs_seamless:0.20,dmi_harmonie_arome_europe:0.10};
   const models=modelResults.filter(r=>r?.data?.hourly?.time?.length&&weights[r.model]!=null);
   if(models.length<2)return;
@@ -6197,7 +6197,7 @@ function sanitizeHourlyCloudCover(data){
   const hourly = data?.hourly;
   if(!hourly?.cloud_cover || !Array.isArray(hourly.cloud_cover) || hourly.cloud_cover.length < 1) return;
 
-  const ci = currentHourIndex({ hourly }, new Date());
+  const ci = currentHourIndex(data, new Date());
   const startIdx = Math.max(0, ci);
   const arr = hourly.cloud_cover;
 
@@ -6902,6 +6902,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.pipelineDiag=S.pipelineDiag||{};
   S.pipelineDiag.cloudForecast={
     source:cloudDiag?.source||null,
+    timeline:{timezone:data?.timezone||AURA_TIME_ZONE,currentHourIndex:currentHourIndex(data,new Date()),currentHour:data?.hourly?.time?.[currentHourIndex(data,new Date())]||null},
     applied:cloudDiag?.applied===true,
     trendWindowHours:cloudDiag?.trendWindowHours??null,
     current:Number.isFinite(Number(data.current?.cloud_cover))?Number(data.current.cloud_cover):null,
