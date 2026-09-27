@@ -2047,6 +2047,10 @@ async function fetchIMGWMeteoAll(){
         list=data;
         isFallback=false;
         fetchedAt=Date.now();
+        // Telemetria sieci: czas odebrania pełnej odpowiedzi live API.
+        S.imgwDiag.networkFetchedAt=fetchedAt;
+        S.imgwDiag.networkResponseAgeSeconds=0;
+        window.__AURA_IMGW_DIAG=S.imgwDiag;
       }else{
         throw new Error("Stacja Głodowo nieodnaleziona w sieciowym feedzie IMGW");
       }
