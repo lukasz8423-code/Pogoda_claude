@@ -326,6 +326,14 @@
     const gustUsable=!!ic.gust?.fresh&&Number.isFinite(distance)&&distance<=30;
     const rainUsable=!!ic.rain10min?.fresh&&Number.isFinite(distance)&&distance<=30;
 
+    // Canonicalny snapshot licz bezpośrednio z komponentów RAW.
+    // Nie zależy od osobnego metadanych window.__AURA_IMGW_COMPONENT_DIAG,
+    // dzięki czemu stale pole nadal jest widoczne jako ostatni odebrany pomiar.
+    const canonicalEntries=Object.entries(ic)
+      .filter(([,x])=>x?.timestamp)
+      .sort((a,b)=>parseLocalTs(b[1].timestamp)-parseLocalTs(a[1].timestamp));
+    const canonicalLatest=canonicalEntries[0]?.[1]||null;
+
     const rows=[];
     const tSource=imgwUsable('temperature')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
     const hSource=imgwUsable('humidity')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
@@ -357,9 +365,9 @@
       station:window.__AURA_IMGW_COMPONENT_DIAG?.station||im.stacja||'Głodowo',
       distanceKm:Number.isFinite(distance)?distance:null,
       ttlMinutes:IMGW_TTL_MIN,
-      canonicalLatestTimestamp:window.__AURA_IMGW_COMPONENT_DIAG?.latestTimestamp||null,
-      canonicalLatestTime:window.__AURA_IMGW_COMPONENT_DIAG?.latestTime||null,
-      canonicalLatestAgeMinutes:window.__AURA_IMGW_COMPONENT_DIAG?.latestAgeMinutes??null,
+      canonicalLatestTimestamp:canonicalLatest?.timestamp||null,
+      canonicalLatestTime:canonicalLatest?.time||null,
+      canonicalLatestAgeMinutes:canonicalLatest?.ageMinutes??null,
       rows
     };
   }
