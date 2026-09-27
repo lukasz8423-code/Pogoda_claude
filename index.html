@@ -2373,7 +2373,7 @@ async function findNearestIMGW(lat,lng){
 // naprawdę lokalnych (<=15 km). Jeżeli takiej stacji nie ma, fallback
 // pozostaje pusty i Aura przechodzi do właściwego źródła modelowego.
 // ─────────────────────────────────────────────────────────────
-const OBSERVATION_FALLBACK_MAX_DISTANCE_KM=15;
+const OBSERVATION_FALLBACK_MAX_DISTANCE_KM=45;
 
 function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
   if(!Array.isArray(results)||!results.length)return null;
@@ -7033,7 +7033,9 @@ async function loadWCore(lat,lng,name,isRef,token){
       // przez co aura-sync.js widział stale null i pokazywał „snapshot —”.
       S.imgwData=imgwData;
       // Synchronizuj diagnostykę natychmiast po otrzymaniu kanonicznego snapshotu IMGW.\n      // Nie czekamy na timer aura-sync.js ani ponowne otwarcie inspektora.\n      if(typeof window.AURA_SYNC_IMGW==='function') window.AURA_SYNC_IMGW();
-      stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
+      stationInfo=S.observationFallback?.isFresh===true
+        ?`OBS fallback · ${S.observationFallback.station}, ${Number(S.observationFallback.dist).toFixed(1)} km`
+        :`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
       const effectiveObservation=(
@@ -7044,10 +7046,10 @@ async function loadWCore(lat,lng,name,isRef,token){
         const obs=effectiveObservation;
         const usingObservationFallback=obs.sourceType==="OBSERVATION_FALLBACK";
         const imgwTemp=parseFloat(obs.temperatura);
-        const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
-        const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
-        const imgwWindDir=parseFloat(imgwData.kierunek_wiatru);
-        const imgwPress=parseFloat(imgwData.cisnienie);
+        const imgwHum=parseFloat(obs.wilgotnosc_wzgledna);
+        const imgwWind=parseFloat(obs.predkosc_wiatru)*3.6;
+        const imgwWindDir=parseFloat(obs.kierunek_wiatru);
+        const imgwPress=parseFloat(obs.cisnienie);
         const modelTemp=data.current.temperature_2m;
         const tempFresh=obs.tempFresh===true && Number.isFinite(imgwTemp);
         if(data?.current?.apparent_temperature != null && data.__auraRawCurrentApparent == null){
@@ -7167,9 +7169,10 @@ async function loadWCore(lat,lng,name,isRef,token){
             capturedAt:Date.now(),
             uiCurrentHour:diagCi,
             fusionCurrentHour:currentHourIndex(data,new Date()),
-            station:imgwData.stacja||imgwData.name||"IMGW",
-            stationAgeMinutes:imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
-            stationDistanceKm:imgwData.dist??null,
+            station:obs?.station||imgwData.stacja||imgwData.name||"IMGW",
+            stationSource:obs?.sourceType==="OBSERVATION_FALLBACK"?"OBSERVATION_FALLBACK":"GŁODOWO",
+            stationAgeMinutes:obs?.ageMinutes??imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
+            stationDistanceKm:obs?.dist??imgwData.dist??null,
             imgwForecastAvailable:false,
             imgwForecastNote:"Brak publicznego API punktowej prognozy IMGW Hybrid (INCA-PL2/MERGE) na danepubliczne.imgw.pl; prognoza godzinowa korzysta z fuzji modeli Open-Meteo oraz obserwacji stacji IMGW Głodowo.",
             rows:diagRows,
@@ -7221,10 +7224,10 @@ async function loadWCore(lat,lng,name,isRef,token){
           runLiveDataQualityGuard();
 
           S.fusion={
-            source:"IMGW",
-            station:imgwData.stacja||imgwData.name||null,
-            distanceKm:imgwData.dist??null,
-            ageMinutes:imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
+            source:usingObservationFallback?"OBSERVATION_FALLBACK":"IMGW",
+            station:obs.station||imgwData.stacja||imgwData.name||null,
+            distanceKm:obs.dist??imgwData.dist??null,
+            ageMinutes:obs.ageMinutes??imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
             weight:+fusion.weight.toFixed(3),
             bias:fusion.bias,
             mode:"observation-to-forecast bridge"
