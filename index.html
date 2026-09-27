@@ -6051,7 +6051,7 @@ function sanitizePrecipitationConsistency(data,imgwData){
   return;
 }
 
-function applyFutureHourlyCloudConsensus(data, modelResults){
+function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null, activeModelId=activeModel.id){
   const hourly=data?.hourly;
   if(!hourly?.time?.length || !Array.isArray(modelResults)||!modelResults.length)return;
 
@@ -6081,6 +6081,12 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
 
   const activeRows=[];
   const diagnosticRows=[];
+  const activeHourly=activeRawData?.hourly||null;
+  const activeTimeIndex=new Map();
+  if(Array.isArray(activeHourly?.time)){
+    activeHourly.time.forEach((t,i)=>activeTimeIndex.set(String(t),i));
+  }
+  const activeModelLabel=String(activeModelId||"best_match");
 
   // Zbuduj mapy czasu dla modeli, żeby porównać dokładnie te same godziny.
   const byModel=models.map(r=>{
@@ -6114,9 +6120,17 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
       :(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;
     const spread=sorted.length?sorted[sorted.length-1]-sorted[0]:0;
 
+    const activeIdx=activeTimeIndex.get(t);
+    const activeLow=activeIdx==null?null:Number(activeHourly?.cloud_cover_low?.[activeIdx]);
+    const activeMid=activeIdx==null?null:Number(activeHourly?.cloud_cover_mid?.[activeIdx]);
+    const activeHigh=activeIdx==null?null:Number(activeHourly?.cloud_cover_high?.[activeIdx]);
     activeRows.push({
       time:t,
+      activeModel:activeModelLabel,
       activeModelValue:Math.round(clamp(activeRaw,0,100)),
+      activeLow:Number.isFinite(activeLow)?Math.round(clamp(activeLow,0,100)):null,
+      activeMid:Number.isFinite(activeMid)?Math.round(clamp(activeMid,0,100)):null,
+      activeHigh:Number.isFinite(activeHigh)?Math.round(clamp(activeHigh,0,100)):null,
       modelConsensus:weightedMean==null?null:Math.round(weightedMean),
       median:Math.round(median),
       modelSpread:Math.round(spread),
@@ -6144,7 +6158,11 @@ function applyFutureHourlyCloudConsensus(data, modelResults){
     diagnosticRows.push({
       time:row.time,
       value:row.activeModelValue,
+      activeModel:row.activeModel,
       activeModelValue:row.activeModelValue,
+      activeLow:row.activeLow,
+      activeMid:row.activeMid,
+      activeHigh:row.activeHigh,
       modelConsensus:row.modelConsensus,
       weightedMean:row.modelConsensus,
       median:row.median,
@@ -6381,7 +6399,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   if(!city)city=await apiCity(lat,lng)||`${(+lat).toFixed(3)}, ${(+lng).toFixed(3)}`;
   document.title="Aura – "+city;
 
-  let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null;
+  let data=null,isDemo=false,stationInfo=null,imgwData=null,cloudCompare=[],modelCompareNow=null,confidenceNow=null,activeModelRawData=null;
   try{
     const isGpsLocation=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
     const [weatherResult,imgwResult,cloudResult,satelliteResult,minutelyResult]=await Promise.allSettled([
@@ -6407,6 +6425,7 @@ async function loadWCore(lat,lng,name,isRef,token){
     // źródłem i musi nadal dostarczyć dane live.
     if(weatherResult.status==="fulfilled"){
       data=weatherResult.value;
+      activeModelRawData=structuredClone(data);
     }else{
       // IMGW jest całkowicie niezależne od danych Open-Meteo.
       // W przypadku błędu aktywnego modelu pobieramy surowe LIVE dane
@@ -6417,6 +6436,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         .find(Boolean);
       if(fallbackRecord){
         data=structuredClone(fallbackRecord.data);
+        activeModelRawData=structuredClone(data);
         console.warn("[AURA WEATHER FALLBACK] activeModel fetch failed → using live Open-Meteo",fallbackRecord.model);
       }else{
         // Dopiero gdy nie mamy ŻADNYCH danych z Open-Meteo, spróbuj bezpośrednio
@@ -6425,6 +6445,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         for(const modelId of preferred){
           try{
             data=await apiWeatherModel(lat,lng,modelId,10,isRef||WEATHER_FORCE_REFRESH);
+            activeModelRawData=structuredClone(data);
             console.warn("[AURA WEATHER FALLBACK] direct Open-Meteo success:",modelId);
             break;
           }catch(err){
@@ -6692,6 +6713,11 @@ async function loadWCore(lat,lng,name,isRef,token){
                 ?data.hourly.__auraHourlyCloudConsensus.rows.map(r=>({
                   time:r.time,
                   value:Number.isFinite(Number(r.value))?Number(r.value):null,
+                  activeModel:r.activeModel??null,
+                  activeModelValue:Number.isFinite(Number(r.activeModelValue))?Number(r.activeModelValue):null,
+                  activeLow:Number.isFinite(Number(r.activeLow))?Number(r.activeLow):null,
+                  activeMid:Number.isFinite(Number(r.activeMid))?Number(r.activeMid):null,
+                  activeHigh:Number.isFinite(Number(r.activeHigh))?Number(r.activeHigh):null,
                   modelConsensus:Number.isFinite(Number(r.modelConsensus))?Number(r.modelConsensus):null,
                   trend1:r.trend1??null,
                   trend2:r.trend2??null,
@@ -6872,7 +6898,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   sanitizeVisibility(data,imgwData);
   // TERAZ pozostaje z obecnej fuzji. Tylko przyszłe godziny dostają
   // wielomodelowy konsensus ICON/ECMWF/GFS.
-  applyFutureHourlyCloudConsensus(data,cloudCompare);
+  applyFutureHourlyCloudConsensus(data,cloudCompare,activeModelRawData,activeModel.id);
   sanitizeHourlyCloudCover(data);
 
   // Diagnostyka musi być zapisana PO wykonaniu korekty prognozy chmur.
