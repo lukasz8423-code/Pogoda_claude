@@ -1,5 +1,5 @@
 // Aura Service Worker v10 - 2026-09-26
-const AURA_SYNC='/aura-sync.js?v=20260926-2';
+const AURA_SYNC=new URL('aura-sync.js?v=20260927-1',self.registration.scope).href;
 self.addEventListener('install',(event)=>{event.waitUntil(self.skipWaiting());});
 self.addEventListener('activate',(event)=>{
   event.waitUntil(
@@ -19,7 +19,7 @@ self.addEventListener('fetch',(event)=>{
       if(!type.includes('text/html')) return res;
       let html=await res.text();
       const tag=`<script src="${AURA_SYNC}"></script>`;
-      if(!html.includes('/aura-sync.js')) html=html.replace('</body>',tag+'</body>');
+      if(!html.includes('aura-sync.js')) html=html.replace('</body>',tag+'</body>');
       return new Response(html,{status:res.status,statusText:res.statusText,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
     }catch(e){
       return fetch(req);
