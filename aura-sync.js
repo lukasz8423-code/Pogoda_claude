@@ -476,7 +476,21 @@
     }).join('');
     const freshFields=Object.entries(window.__AURA_IMGW_COMPONENT_DIAG?.components||{})
       .filter(([,x])=>x?.fresh).map(([k,x])=>k+' '+x.time+' ('+x.ageMinutes+' min)').join(' · ');
-    return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
+    const timeDiag=typeof window.AURA_TIME_DIAGNOSTICS==='function'?window.AURA_TIME_DIAGNOSTICS():null;
+    const canonicalImgwTimestamp=window.__AURA_IMGW_COMPONENT_DIAG?.latestTimestamp??all.canonicalLatest??null;
+    const imgwEpoch=typeof window.AURA_PARSE_TIMESTAMP==='function'?window.AURA_PARSE_TIMESTAMP(canonicalImgwTimestamp):null;
+    const nowEpoch=timeDiag?.nowMs??Date.now();
+    const ageFromEpoch=Number.isFinite(imgwEpoch)?Math.round(((nowEpoch-imgwEpoch)/60000)*10)/10:null;
+    const utcNow=Number.isFinite(nowEpoch)?new Date(nowEpoch).toISOString():'—';
+    const plNow=timeDiag?.localNow??'—';
+    const offsetLabel=Number.isFinite(timeDiag?.offsetMinutes)?(timeDiag.offsetMinutes>=0?'+':'')+timeDiag.offsetMinutes+' min':'—';
+    const auraTimeBlock='<div class="note" style="margin-top:16px;font-weight:700">🕐 CZAS AURY</div>'
+      +'<div class="note" style="line-height:1.65">'
+      +'<b>Strefa:</b> Europe/Warsaw · <b>PL:</b> '+esc2(plNow)+' · <b>UTC:</b> '+esc2(utcNow)+' · <b>offset:</b> '+esc2(offsetLabel)+'<br>'
+      +'<b>IMGW timestamp:</b> '+esc2(canonicalImgwTimestamp||'—')+' · <b>epoch:</b> '+(Number.isFinite(imgwEpoch)?esc2(String(imgwEpoch)):'—')+'<br>'
+      +'<b>Wiek z epoch:</b> '+(ageFromEpoch==null?'—':esc2(String(ageFromEpoch))+' min')+' · <b>Wiek diagnostyki:</b> '+(all.canonicalLatestAgeMinutes==null?'—':esc2(String(all.canonicalLatestAgeMinutes))+' min')
+      +'</div>';
+        return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
       <div class="note">Kanoniczny snapshot Głodowa: <b>${esc2(all.canonicalLatestTime||'—')}</b> · ${all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min'} · TTL IMGW <b>${IMGW_TTL_MIN} min</b>.</div>
       <div class="note">Połączenie IMGW: <b>${esc2(all.networkSource||'—')}</b> · pobrano odpowiedź: <b>${esc2(all.networkFetchedAtTime||'—')}</b> · ${all.networkFallback?'użyto snapshotu lokalnego':'użyto odpowiedzi live API'}.</div>\n      <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
       <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>→ GUARD</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
