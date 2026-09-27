@@ -103,10 +103,16 @@
         'mm'
       )
     };
-    const fresh=Object.entries(c)
+    // Kanoniczny snapshot ma pokazywać OSTATNI ODEBRANY pomiar,
+    // nawet gdy pole przekroczyło TTL. TTL decyduje wyłącznie o tym,
+    // czy pole może zostać użyte w fuzji. Nie wolno przez to zamieniać
+    // snapshotu stacji na „—”.
+    const latest=Object.entries(c)
+      .filter(([,x])=>x.timestamp)
+      .sort((a,b)=>parseLocalTs(b[1].timestamp)-parseLocalTs(a[1].timestamp))[0];
+    const freshFields=Object.entries(c)
       .filter(([,x])=>x.fresh&&x.timestamp)
-      .sort((a,b)=>parseLocalTs(b[1].timestamp)-parseLocalTs(a[1].timestamp));
-    const latest=fresh[0];
+      .map(([key,x])=>({key,...x}));
     return {
       station:im.stacja||im.name||'Głodowo',
       distanceKm:im.dist??null,
@@ -115,7 +121,8 @@
       latestField:latest?latest[0]:null,
       latestTimestamp:latest?latest[1].timestamp:null,
       latestTime:latest?latest[1].time:null,
-      latestAgeMinutes:latest?latest[1].ageMinutes:null
+      latestAgeMinutes:latest?latest[1].ageMinutes:null,
+      freshFields
     };
   }
 
