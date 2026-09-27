@@ -2300,9 +2300,13 @@ async function findNearestIMGW(lat,lng){
   results.sort((a,b)=>a.dist-b.dist);
   if(results.length===0)return null;
 
-  const best=results[0];
-  console.log(`Najblizsza stacja IMGW SYNOP: ${best.stacja||best.name} (${best.dist} km)`);
-  console.log(`Dane: temp=${best.temperatura}°C, wilg=${best.wilgotnosc_wzgledna}%, wiatr=${best.predkosc_wiatru}m/s, ciśnienie=${best.cisnienie}hPa`);
+  // WAŻNE: lista SYNOP może zawierać stacje bardzo odległe od lokalizacji.
+  // Nie wolno podstawiać takiej stacji jako lokalnego "best" tylko dlatego,
+  // że jest najbliższa z całej listy. Głodowo pozostaje kanonicznym best,
+  // nawet gdy jego pola są stare.
+  const nearestSynop=results[0];
+  console.log(`Najblizsza stacja IMGW SYNOP (diagnostyka): ${nearestSynop.stacja||nearestSynop.name} (${nearestSynop.dist} km)`);
+  console.log(`Dane: temp=${nearestSynop.temperatura}°C, wilg=${nearestSynop.wilgotnosc_wzgledna}%, wiatr=${nearestSynop.predkosc_wiatru}m/s, ciśnienie=${nearestSynop.cisnienie}hPa`);
 
   let ageMinutes=null,observedAt=null;
   if(best.data_pomiaru&&best.godzina_pomiaru!=null){
@@ -2341,9 +2345,13 @@ async function findNearestIMGW(lat,lng){
     best.opad10minAgeMinutes=ageMinutes;
   }
 
+  // Jeśli Głodowo było znalezione, ale stare, nadal pozostaje kanonicznym
+  // źródłem IMGW. Nie zwracamy najbliższego SYNOP-a jako "best".
+  // Odległe stacje są wyłącznie diagnostyką i nigdy nie trafiają do fuzji.
+  const canonicalBest = (typeof normalized!=="undefined" && normalized) ? normalized : best;
   return {
-    best,
-    nearby:results.filter(r=>r.dist<=100).slice(0,5),
+    best:canonicalBest,
+    nearby:results.filter(r=>r.dist<=OBSERVATION_FALLBACK_MAX_DISTANCE_KM).slice(0,5),
     observationFallback
   };
 }
@@ -2351,15 +2359,20 @@ async function findNearestIMGW(lat,lng){
 
 // ─────────────────────────────────────────────────────────────
 // OBSERVATION_FALLBACK
-// Gdy lokalne METEO Głodowo jest stare, Aura nie przeskakuje od razu
-// do modeli. Najpierw próbuje świeższej obserwacji SYNOP z najbliższej
-// dostępnej stacji IMGW. To nadal pomiar terenowy, ale z jawną odległością
-// i wiekiem — nigdy nie udajemy, że jest to pomiar z Głodowa.
+// Gdy lokalne METEO Głodowo jest stare, Aura NIE przeskakuje do
+// odległej stacji IMGW. Fallback SYNOP istnieje wyłącznie dla stacji
+// naprawdę lokalnych (<=15 km). Jeżeli takiej stacji nie ma, fallback
+// pozostaje pusty i Aura przechodzi do właściwego źródła modelowego.
 // ─────────────────────────────────────────────────────────────
+const OBSERVATION_FALLBACK_MAX_DISTANCE_KM=15;
+
 function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
   if(!Array.isArray(results)||!results.length)return null;
+  // Twardy limit lokalności. Brak stacji <=15 km oznacza BRAK fallbacku.
+  // Nigdy nie używamy Torunia/Płocka ani innej odległej stacji jako
+  // zastępstwa dla Głodowa.
   const candidates=results
-    .filter(s=>s&&s.dist>2.5)
+    .filter(s=>s&&Number.isFinite(Number(s.dist))&&s.dist>2.5&&s.dist<=OBSERVATION_FALLBACK_MAX_DISTANCE_KM)
     .map(s=>{
       const date=String(s.data_pomiaru||"").trim();
       const hour=Number(s.godzina_pomiaru);
