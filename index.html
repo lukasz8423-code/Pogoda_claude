@@ -2201,7 +2201,7 @@ async function fetchAllModelsCompare(lat,lng,forceFresh=false){
   // Dla fallbacku IMGW Offline potrzebujemy pełnej prognozy wielodniowej.
   // ICON-EU ma krótszy horyzont, więc nie blokujemy całego ensemble, jeśli
   // któryś model zwróci mniej dni lub chwilowo nie odpowie.
-  const modelsToCheck = ["icon_eu","ecmwf_ifs025","gfs_seamless","dmi_harmonie_arome_europe","knmi_harmonie_arome_europe"];
+  const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless","dmi_harmonie_arome_europe","knmi_harmonie_arome_europe"];
   const results = await Promise.allSettled(
     modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,10,forceFresh))
   );
@@ -5513,8 +5513,8 @@ function pipelineInspectorHTML(){
   const cloudRows=Array.isArray(d?.cloudForecast?.rows)?d.cloudForecast.rows.slice(0,6):[];
   const layerMark=(state,value)=>state==="OUT_OF_HORIZON"?"↯":state==="NULL"?"∅":state==="NO_ARRAY"?"—":state==="NO_TIME"?"?":state==="INVALID"?"!":value===0?"0":"✓";
   const cloudForecastTable=cloudRows.length
-    ?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☁️ Chmury — krótka diagnostyka źródła</div><div class=\"note\" style=\"margin-bottom:7px\">RAW = dokładna wartość z aktywnego modelu. Low/Mid/High = warstwy tego modelu. <b>T+</b> = godziny względem aktualnego slotu. <b>Mid 0×</b> = długość bieżącej serii prawdziwego 0%. <b>L/M/H</b>: ✓ wartość · 0 prawdziwe zero · ∅ brak/NULL · ↯ poza horyzontem. ICON/ECMWF/GFS/DMI = surowe wartości porównywanych modeli. Kons. = diagnostyka, nie steruje prognozą.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Czas</th><th>T+</th><th>RAW</th><th>BEST≈</th><th>Δ</th><th>Low</th><th>Mid</th><th>High</th><th>Mid 0×</th><th>L/M/H</th><th>ICON</th><th>ECMWF</th><th>GFS</th><th>DMI</th><th>Kons.</th></tr></thead><tbody>"
-    +cloudRows.map(r=>{const baseTime=d?.cloudForecast?.timeline?.currentHour;const ahead=baseTime?Math.round((localWallOrdinal(r.time)-localWallOrdinal(baseTime))/3600000):null;const delta=Number.isFinite(Number(r.closestModelDelta))?Math.round(Number(r.closestModelDelta))+" pp":"—";return "<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td>"+(ahead==null?"—":"+"+ahead+"h")+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(r.closestModel||"—")+"</td><td>"+delta+"</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>"}).join("")
+    ?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☁️ Chmury — krótka diagnostyka źródła</div><div class=\"note\" style=\"margin-bottom:7px\">RAW = dokładna wartość z aktywnego modelu. Low/Mid/High = warstwy tego modelu. <b>T+</b> = godziny względem aktualnego slotu. <b>Mid 0×</b> = długość bieżącej serii prawdziwego 0%. <b>L/M/H</b>: ✓ wartość · 0 prawdziwe zero · ∅ brak/NULL · ↯ poza horyzontem. ICON/ECMWF/GFS/DMI = surowe wartości porównywanych modeli. Kons. = diagnostyka, nie steruje prognozą.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Czas</th><th>T+</th><th>RAW</th><th>BEST≈</th><th>Δ</th><th>Low</th><th>Mid</th><th>High</th><th>Mid 0×</th><th>L/M/H</th><th>ICON-D2</th><th>ICON</th><th>ECMWF</th><th>GFS</th><th>DMI</th><th>KNMI</th><th>Kons.</th></tr></thead><tbody>"
+    +cloudRows.map(r=>{const baseTime=d?.cloudForecast?.timeline?.currentHour;const ahead=baseTime?Math.round((localWallOrdinal(r.time)-localWallOrdinal(baseTime))/3600000):null;const delta=Number.isFinite(Number(r.closestModelDelta))?Math.round(Number(r.closestModelDelta))+" pp":"—";return "<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td>"+(ahead==null?"—":"+"+ahead+"h")+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(r.closestModel||"—")+"</td><td>"+delta+"</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_d2")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="knmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>"}).join("")
     +"</tbody></table></div>"
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
@@ -6059,7 +6059,9 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
 
   const ci=currentHourIndex(data,new Date());
   const weights={icon_eu:0.40,ecmwf_ifs025:0.30,gfs_seamless:0.20,dmi_harmonie_arome_europe:0.10};
+  const diagnosticOnlyModels=new Set(["icon_d2","knmi_harmonie_arome_europe"]);
   const models=modelResults.filter(r=>r?.data?.hourly?.time?.length&&weights[r.model]!=null);
+  const diagnosticModels=modelResults.filter(r=>r?.data?.hourly?.time?.length&&diagnosticOnlyModels.has(r.model));
   if(models.length<2)return;
 
   /*
@@ -6100,7 +6102,17 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       const total=Number(raw);
       if(Number.isFinite(total))map.set(String(t),clamp(total,0,100));
     });
-    return {id:r.model,map};
+    return {id:r.model,map,diagnosticOnly:false};
+  });
+  const byDiagnosticModel=diagnosticModels.map(r=>{
+    const map=new Map();
+    r.data.hourly.time.forEach((t,i)=>{
+      const raw=r.data.hourly.cloud_cover?.[i];
+      if(raw==null||raw==="")return;
+      const total=Number(raw);
+      if(Number.isFinite(total))map.set(String(t),clamp(total,0,100));
+    });
+    return {id:r.model,map,diagnosticOnly:true};
   });
 
   for(let i=ci+1;i<hourly.time.length;i++){
@@ -6114,6 +6126,11 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       const total=m.map.get(t);
       return total==null?null:{model:m.id,total};
     }).filter(Boolean);
+    const diagnosticVals=byDiagnosticModel.map(m=>{
+      const total=m.map.get(t);
+      return total==null?null:{model:m.id,total};
+    }).filter(Boolean);
+    const candidateVals=[...vals,...diagnosticVals];
 
     if(vals.length<2)continue;
 
@@ -6130,7 +6147,7 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
     // BEST_MATCH może korzystać z różnych źródeł w kolejnych krokach czasowych.
     // API nie zwraca jednak źródła dla konkretnej godziny, więc liczymy tylko
     // jawnie oznaczoną heurystykę: który pobrany model ma RAW cloud_cover najbliższy BEST_MATCH.
-    const closest=vals
+    const closest=candidateVals
       .map(x=>({model:x.model,delta:Math.abs(x.total-activeRaw),value:x.total}))
       .sort((a,b)=>a.delta-b.delta)[0]||null;
 
@@ -6173,7 +6190,10 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       modelConsensus:weightedMean==null?null:Math.round(weightedMean),
       median:Math.round(median),
       modelSpread:Math.round(spread),
-      models:vals.map(x=>({model:x.model,total:Math.round(x.total),optical:null}))
+      models:[
+        ...vals.map(x=>({model:x.model,total:Math.round(x.total),optical:null,diagnosticOnly:false})),
+        ...diagnosticVals.map(x=>({model:x.model,total:Math.round(x.total),optical:null,diagnosticOnly:true}))
+      ]
     });
   }
 
