@@ -5514,7 +5514,7 @@ function pipelineInspectorHTML(){
   const layerMark=(state,value)=>state==="OUT_OF_HORIZON"?"↯":state==="NULL"?"∅":state==="NO_ARRAY"?"—":state==="NO_TIME"?"?":state==="INVALID"?"!":value===0?"0":"✓";
   const cloudForecastTable=cloudRows.length
     ?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☁️ Chmury — krótka diagnostyka źródła</div><div class=\"note\" style=\"margin-bottom:7px\">RAW = dokładna wartość z aktywnego modelu. Low/Mid/High = warstwy tego modelu. <b>T+</b> = godziny względem aktualnego slotu. <b>Mid 0×</b> = długość bieżącej serii prawdziwego 0%. <b>L/M/H</b>: ✓ wartość · 0 prawdziwe zero · ∅ brak/NULL · ↯ poza horyzontem. ICON/ECMWF/GFS/DMI = surowe wartości porównywanych modeli. Kons. = diagnostyka, nie steruje prognozą.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Czas</th><th>T+</th><th>RAW</th><th>BEST≈</th><th>Δ</th><th>Low</th><th>Mid</th><th>High</th><th>Mid 0×</th><th>L/M/H</th><th>ICON-D2</th><th>ICON</th><th>ECMWF</th><th>GFS</th><th>DMI</th><th>KNMI</th><th>Kons.</th></tr></thead><tbody>"
-    +cloudRows.map(r=>{const baseTime=d?.cloudForecast?.timeline?.currentHour;const ahead=baseTime?Math.round((localWallOrdinal(r.time)-localWallOrdinal(baseTime))/3600000):null;const delta=Number.isFinite(Number(r.closestModelDelta))?Math.round(Number(r.closestModelDelta))+" pp":"—";return "<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td>"+(ahead==null?"—":"+"+ahead+"h")+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(r.closestModel||"—")+"</td><td>"+delta+"</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_d2")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="knmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>"}).join("")
+    +cloudRows.map(r=>{const baseTime=d?.cloudForecast?.timeline?.currentHour;const ahead=baseTime?Math.round((localWallOrdinal(r.time)-localWallOrdinal(baseTime))/3600000):null;const delta=Number.isFinite(Number(r.closestModelDelta))?Math.round(Number(r.closestModelDelta))+" pp":"—";return "<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td>"+(ahead==null?"—":"+"+ahead+"h")+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(Array.isArray(r.closestModels)&&r.closestModels.length>1?("TIE: "+r.closestModels.join(", ")):(""+(r.closestModel||"—")))+"</td><td>"+delta+"</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_d2")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="knmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>"}).join("")
     +"</tbody></table></div>"
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
@@ -5560,6 +5560,7 @@ function pipelineDiagnosticsText(){
       " H="+(r.high==null?"—":r.high+"%")+
       " M0x="+(r.midZeroStreak==null?"—":r.midZeroStreak)+
       " L/M/H="+(r.layerAvailability?.low??"—")+"/"+(r.layerAvailability?.mid??"—")+"/"+(r.layerAvailability?.high??"—")+
+      " BEST≈="+(Array.isArray(r.closestModels)&&r.closestModels.length>1?("TIE:"+r.closestModels.join(",")):((r.closestModel||"—")))+
       " T+=" +(r.time&&cf.timeline?.currentHour?Math.round((localWallOrdinal(r.time)-localWallOrdinal(cf.timeline.currentHour))/3600000):"—")+
       " "+models+
       " K="+(r.consensus==null?"—":r.consensus+"%");
@@ -6147,9 +6148,14 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
     // BEST_MATCH może korzystać z różnych źródeł w kolejnych krokach czasowych.
     // API nie zwraca jednak źródła dla konkretnej godziny, więc liczymy tylko
     // jawnie oznaczoną heurystykę: który pobrany model ma RAW cloud_cover najbliższy BEST_MATCH.
-    const closest=candidateVals
+    const candidateMatches=candidateVals
       .map(x=>({model:x.model,delta:Math.abs(x.total-activeRaw),value:x.total}))
-      .sort((a,b)=>a.delta-b.delta)[0]||null;
+      .sort((a,b)=>a.delta-b.delta);
+    const closest=candidateMatches[0]||null;
+    const closestDelta=closest?closest.delta:null;
+    const closestTies=closest
+      ?candidateMatches.filter(x=>Math.abs(x.delta-closestDelta)<0.01).map(x=>x.model)
+      :[];
 
     const activeIdx=activeTimeIndex.get(t);
     const rawLow=activeIdx==null?null:activeHourly?.cloud_cover_low?.[activeIdx];
@@ -6180,6 +6186,7 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       closestModel:closest?.model??null,
       closestModelValue:closest?Math.round(closest.value):null,
       closestModelDelta:closest?Math.round(closest.delta):null,
+      closestModels:closestTies,
       activeLow:Number.isFinite(activeLow)?Math.round(clamp(activeLow,0,100)):null,
       activeMid:Number.isFinite(activeMid)?Math.round(clamp(activeMid,0,100)):null,
       activeHigh:Number.isFinite(activeHigh)?Math.round(clamp(activeHigh,0,100)):null,
@@ -6229,6 +6236,7 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       closestModel:row.closestModel??null,
       closestModelValue:row.closestModelValue??null,
       closestModelDelta:row.closestModelDelta??null,
+      closestModels:row.closestModels??[],
       modelConsensus:row.modelConsensus,
       weightedMean:row.modelConsensus,
       median:row.median,
@@ -7021,6 +7029,7 @@ async function loadWCore(lat,lng,name,isRef,token){
         closestModel:r.closestModel??null,
         closestModelValue:r.closestModelValue??null,
         closestModelDelta:r.closestModelDelta??null,
+        closestModels:Array.isArray(r.closestModels)?r.closestModels:[],
         models:Array.isArray(r.models)?r.models.map(m=>({
           model:m.model,
           total:m.total,
