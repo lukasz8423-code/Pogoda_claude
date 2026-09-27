@@ -6082,6 +6082,13 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       :(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;
     const spread=sorted.length?sorted[sorted.length-1]-sorted[0]:0;
 
+    // BEST_MATCH może korzystać z różnych źródeł w kolejnych krokach czasowych.
+    // API nie zwraca jednak źródła dla konkretnej godziny, więc liczymy tylko
+    // jawnie oznaczoną heurystykę: który pobrany model ma RAW cloud_cover najbliższy BEST_MATCH.
+    const closest=vals
+      .map(x=>({model:x.model,delta:Math.abs(x.total-activeRaw),value:x.total}))
+      .sort((a,b)=>a.delta-b.delta)[0]||null;
+
     const activeIdx=activeTimeIndex.get(t);
     const activeLow=activeIdx==null?null:Number(activeHourly?.cloud_cover_low?.[activeIdx]);
     const activeMid=activeIdx==null?null:Number(activeHourly?.cloud_cover_mid?.[activeIdx]);
@@ -6090,6 +6097,9 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       time:t,
       activeModel:activeModelLabel,
       activeModelValue:Math.round(clamp(activeRaw,0,100)),
+      closestModel:closest?.model??null,
+      closestModelValue:closest?Math.round(closest.value):null,
+      closestModelDelta:closest?Math.round(closest.delta):null,
       activeLow:Number.isFinite(activeLow)?Math.round(clamp(activeLow,0,100)):null,
       activeMid:Number.isFinite(activeMid)?Math.round(clamp(activeMid,0,100)):null,
       activeHigh:Number.isFinite(activeHigh)?Math.round(clamp(activeHigh,0,100)):null,
