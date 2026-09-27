@@ -2330,7 +2330,8 @@ async function findNearestIMGW(lat,lng){
   best.observedAt=observedAt;
   best.fetchedAt=fetchedAt;
   best.ageMinutes=ageMinutes;
-  best.isFresh=ageMinutes===null ? true : ageMinutes<180;
+  // Brak timestampu nie może być traktowany jako świeża obserwacja.
+  best.isFresh=ageMinutes!=null&&ageMinutes>=0&&ageMinutes<180;
   const observationFallback=buildObservationFallbackFromSynop(results,lat,lng,Date.now());
   if(observationFallback){
     S.imgwDiag={
@@ -2370,16 +2371,15 @@ async function findNearestIMGW(lat,lng){
 // OBSERVATION_FALLBACK
 // Gdy lokalne METEO Głodowo jest stare, Aura NIE przeskakuje do
 // odległej stacji IMGW. Fallback SYNOP istnieje wyłącznie dla stacji
-// naprawdę lokalnych (<=15 km). Jeżeli takiej stacji nie ma, fallback
-// pozostaje pusty i Aura przechodzi do właściwego źródła modelowego.
+// lokalnych w ustawionym limicie OBSERVATION_FALLBACK_MAX_DISTANCE_KM.
+// Jeżeli takiej świeżej stacji nie ma, Aura przechodzi do modelu.
 // ─────────────────────────────────────────────────────────────
 const OBSERVATION_FALLBACK_MAX_DISTANCE_KM=45;
 
 function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
   if(!Array.isArray(results)||!results.length)return null;
-  // Twardy limit lokalności. Brak stacji <=15 km oznacza BRAK fallbacku.
-  // Nigdy nie używamy Torunia/Płocka ani innej odległej stacji jako
-  // zastępstwa dla Głodowa.
+  // Twardy limit lokalności. Brak świeżej stacji w limicie oznacza BRAK fallbacku.
+  // Fallback nie wybiera odległej stacji tylko dlatego, że jest najbliższa.
   const candidates=results
     .filter(s=>s&&Number.isFinite(Number(s.dist))&&s.dist>2.5&&s.dist<=OBSERVATION_FALLBACK_MAX_DISTANCE_KM)
     .map(s=>{
@@ -2418,7 +2418,12 @@ function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
       };
     })
     .filter(x=>x.isFresh&&(x.tempFresh||x.humidityFresh||x.windFresh||x.windDirFresh))
-    .sort((a,b)=>a.dist-b.dist);
+    // Najpierw świeżość obserwacji, dopiero potem odległość.
+    .sort((a,b)=>{
+      const ageA=Number.isFinite(Number(a.ageMinutes))?Number(a.ageMinutes):Infinity;
+      const ageB=Number.isFinite(Number(b.ageMinutes))?Number(b.ageMinutes):Infinity;
+      return ageA-ageB || a.dist-b.dist;
+    });
   return candidates[0]||null;
 }
 
