@@ -2258,7 +2258,11 @@ async function findNearestIMGW(lat,lng){
       };
       window.__AURA_IMGW_DIAG=S.imgwDiag;
       console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], raw T=${normalized.rawTemperatura}°C, raw RH=${normalized.rawWilgotnoscWzgledna}%, raw wiatr=${normalized.rawPredkoscWiatru}m/s, fresh: ${normalized.freshFields.join(",")}, stale: ${normalized.staleFields.join(",")}`);
-      return {best:normalized,nearby:[normalized]};
+      if(used){
+        return {best:normalized,nearby:[normalized],observationFallback:null};
+      }
+      // Głodowo znalezione, ale bez świeżych pól: NIE kończymy tutaj.
+      // Przechodzimy niżej do niezależnej warstwy obserwacyjnej SYNOP.
     }else{
       const rejectReason="za daleko (>80 km)";
       S.imgwDiag={
@@ -2314,6 +2318,22 @@ async function findNearestIMGW(lat,lng){
   best.fetchedAt=fetchedAt;
   best.ageMinutes=ageMinutes;
   best.isFresh=ageMinutes===null ? true : ageMinutes<180;
+  const observationFallback=buildObservationFallbackFromSynop(results,lat,lng,Date.now());
+  if(observationFallback){
+    S.imgwDiag={
+      ...(S.imgwDiag||{}),
+      observationFallback:{
+        sourceType:observationFallback.sourceType,
+        sourceLabel:observationFallback.sourceLabel,
+        station:observationFallback.station,
+        dist:observationFallback.dist,
+        observedAt:observationFallback.observedAt,
+        ageMinutes:observationFallback.ageMinutes,
+        isFresh:observationFallback.isFresh
+      }
+    };
+    window.__AURA_IMGW_DIAG=S.imgwDiag;
+  }
   if(best.suma_opadu!=null){
     const so=parseFloat(String(best.suma_opadu).replace(",","."));
     best.opad_10min=Number.isFinite(so)?so:null;
@@ -2321,9 +2341,64 @@ async function findNearestIMGW(lat,lng){
     best.opad10minAgeMinutes=ageMinutes;
   }
 
-  return {best,nearby:results.filter(r=>r.dist<=100).slice(0,5)};
+  return {
+    best,
+    nearby:results.filter(r=>r.dist<=100).slice(0,5),
+    observationFallback
+  };
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// OBSERVATION_FALLBACK
+// Gdy lokalne METEO Głodowo jest stare, Aura nie przeskakuje od razu
+// do modeli. Najpierw próbuje świeższej obserwacji SYNOP z najbliższej
+// dostępnej stacji IMGW. To nadal pomiar terenowy, ale z jawną odległością
+// i wiekiem — nigdy nie udajemy, że jest to pomiar z Głodowa.
+// ─────────────────────────────────────────────────────────────
+function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
+  if(!Array.isArray(results)||!results.length)return null;
+  const candidates=results
+    .filter(s=>s&&s.dist>2.5)
+    .map(s=>{
+      const date=String(s.data_pomiaru||"").trim();
+      const hour=Number(s.godzina_pomiaru);
+      let observedAt=null;
+      const m=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(m&&Number.isFinite(hour)&&hour>=0&&hour<=23){
+        observedAt=parseImgwMeteoTimestamp(`${m[1]}-${m[2]}-${m[3]} ${String(hour).padStart(2,"0")}:00:00`);
+      }
+      const ageMinutes=observedAt==null?null:Math.round((nowMs-observedAt)/60000);
+      const temp=parseImgwNumber(s.temperatura);
+      const humidity=parseImgwNumber(s.wilgotnosc_wzgledna);
+      const windMs=parseImgwNumber(s.predkosc_wiatru);
+      const windDir=parseImgwNumber(s.kierunek_wiatru);
+      const pressure=parseImgwNumber(s.cisnienie);
+      const fresh=ageMinutes!=null&&ageMinutes>=0&&ageMinutes<=120;
+      return {
+        sourceType:"OBSERVATION_FALLBACK",
+        sourceLabel:`IMGW SYNOP · ${s.stacja||s.name||"stacja"}`,
+        station:s.stacja||s.name||"IMGW SYNOP",
+        dist:Number(s.dist),
+        observedAt,
+        ageMinutes,
+        isFresh:fresh,
+        temperatura:fresh&&Number.isFinite(temp)?temp:null,
+        wilgotnosc_wzgledna:fresh&&Number.isFinite(humidity)?humidity:null,
+        predkosc_wiatru:fresh&&Number.isFinite(windMs)?windMs:null,
+        kierunek_wiatru:fresh&&Number.isFinite(windDir)?windDir:null,
+        cisnienie:fresh&&Number.isFinite(pressure)?pressure:null,
+        tempFresh:fresh&&Number.isFinite(temp),
+        humidityFresh:fresh&&Number.isFinite(humidity),
+        windFresh:fresh&&Number.isFinite(windMs),
+        windDirFresh:fresh&&Number.isFinite(windDir),
+        rawStation:s
+      };
+    })
+    .filter(x=>x.isFresh&&(x.tempFresh||x.humidityFresh||x.windFresh||x.windDirFresh))
+    .sort((a,b)=>a.dist-b.dist);
+  return candidates[0]||null;
+}
 
 // ══════════════════════════════════════════════
 // PORÓWNANIE WIELU MODELI + ZGODNOŚĆ MODELI
@@ -3065,7 +3140,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,activeModelRaw:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,activeModelRaw:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,observationFallback:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
 // Publiczny most stanu dla zewnętrznych modułów diagnostycznych (np. aura-sync.js).
 // Top-level const S nie jest własnością window, więc moduł ładowany osobnym <script> nie może go bezpośrednio odczytać.
 window.__AURA_STATE__=S;
@@ -6746,9 +6821,11 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.pipelineDiag=null;
   S.liveHealth=null;
   S.sourceMode=null;
+  S.observationFallback=null;
   S.imgwStatus=null;
   S.ensemble=null;
   S.satelliteCloud=null;
+  S.observationFallback=null;
   const sameGps=!!(S.gpsDiag&&Math.abs(S.gpsDiag.lat-lat)<0.000001&&Math.abs(S.gpsDiag.lng-lng)<0.000001);
   if(!sameGps)S.gpsDiag=null;
   if(isRef){
@@ -6923,6 +7000,11 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
+      S.observationFallback=imgwResult.value?.observationFallback||null;
+      if(S.observationFallback){
+        console.log("[AURA OBSERVATION_FALLBACK]",S.observationFallback.sourceLabel,
+          S.observationFallback.dist+" km",S.observationFallback.ageMinutes+" min");
+      }
       // Jedno kanoniczne źródło dla UI, fuzji i diagnostyki IMGW.
       // Wcześniej lokalna zmienna imgwData nie była kopiowana do S.imgwData,
       // przez co aura-sync.js widział stale null i pokazywał „snapshot —”.
@@ -6931,37 +7013,43 @@ async function loadWCore(lat,lng,name,isRef,token){
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
-      if(data&&data.current&&imgwData.isFresh!==false&&imgwData.dist<=45){
-        const imgwTemp=parseFloat(imgwData.temperatura);
+      const effectiveObservation=(
+        imgwData?.isFresh===true &&
+        imgwData?.anyUsable===true
+      ) ? imgwData : (S.observationFallback?.isFresh===true ? S.observationFallback : null);
+      if(data&&data.current&&effectiveObservation){
+        const obs=effectiveObservation;
+        const usingObservationFallback=obs.sourceType==="OBSERVATION_FALLBACK";
+        const imgwTemp=parseFloat(obs.temperatura);
         const imgwHum=parseFloat(imgwData.wilgotnosc_wzgledna);
         const imgwWind=parseFloat(imgwData.predkosc_wiatru)*3.6;
         const imgwWindDir=parseFloat(imgwData.kierunek_wiatru);
         const imgwPress=parseFloat(imgwData.cisnienie);
         const modelTemp=data.current.temperature_2m;
-        const tempFresh=imgwData.tempFresh===true && Number.isFinite(imgwTemp);
+        const tempFresh=obs.tempFresh===true && Number.isFinite(imgwTemp);
         if(data?.current?.apparent_temperature != null && data.__auraRawCurrentApparent == null){
           data.__auraRawCurrentApparent = Number(data.current.apparent_temperature);
         }
 
-        const humidityFresh=imgwData.humidityFresh===true && Number.isFinite(imgwHum);
-        const windFresh=imgwData.windFresh===true && Number.isFinite(imgwWind);
-        const windDirFresh=imgwData.windDirFresh===true && Number.isFinite(imgwWindDir);
+        const humidityFresh=obs.humidityFresh===true && Number.isFinite(imgwHum);
+        const windFresh=obs.windFresh===true && Number.isFinite(imgwWind);
+        const windDirFresh=obs.windDirFresh===true && Number.isFinite(imgwWindDir);
         const plausible=!tempFresh||!Number.isFinite(modelTemp)||Math.abs(imgwTemp-modelTemp)<=12;
 
         // Fuzja obserwacji zamiast twardego nadpisania modelu.
         // Waga zależy od świeżości i odległości stacji, a każdy parametr jest niezależny.
         const fusion=applyObservationFusion(data,{
-          ...imgwData,
+          ...obs,
           ageMinutes:imgwData.latestAgeMinutes??imgwData.ageMinutes,
-          isFresh:imgwData.isFresh,
-          dist:imgwData.dist,
+          isFresh:obs.isFresh,
+          dist:obs.dist,
           temperatura:tempFresh?imgwTemp:null,
           wilgotnosc_wzgledna:humidityFresh?imgwHum:null,
           predkosc_wiatru:windFresh?imgwWind/3.6:null,
           kierunek_wiatru:windDirFresh?imgwWindDir:null,
-          opad_10min:imgwData.opad_10min,
-          opad10minFresh:imgwData.opad10minFresh,
-          opad10minAgeMinutes:imgwData.opad10minAgeMinutes
+          opad_10min:usingObservationFallback?null:imgwData.opad_10min,
+          opad10minFresh:usingObservationFallback?false:imgwData.opad10minFresh,
+          opad10minAgeMinutes:usingObservationFallback?null:imgwData.opad10minAgeMinutes
         });
         if(tempFresh&&!plausible){
           fusion.weight=0;
@@ -6969,6 +7057,10 @@ async function loadWCore(lat,lng,name,isRef,token){
           console.warn("IMGW temp odrzucona:",imgwTemp,"vs model",modelTemp);
         }else if(fusion.used){
           fusion.stationTrendCph=0;
+          fusion.observationSource=usingObservationFallback?"OBSERVATION_FALLBACK":"GŁODOWO";
+          fusion.observationStation=obs.station||"Głodowo";
+          fusion.observationAgeMinutes=obs.ageMinutes??null;
+          fusion.observationDistanceKm=obs.dist??null;
           try{
             const key="aura_imgw_temp_trend_"+(+lat).toFixed(2)+"_"+(+lng).toFixed(2);
             const nowTs=Date.now();
