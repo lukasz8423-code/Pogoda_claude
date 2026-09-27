@@ -6536,7 +6536,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   if(isRef){
     S.refreshing=true;
     WEATHER_FORCE_REFRESH=true;
-    WEATHER_CACHE.clear();
+    // Cache pogodowy pozostaje przy ręcznym odświeżeniu; TTL/run-bucket chroni Open-Meteo przed lawiną requestów.
     render();
   }
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
