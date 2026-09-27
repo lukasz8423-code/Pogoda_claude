@@ -1544,7 +1544,9 @@ const WEATHER_CACHE_POLICY={
   best_match:{runHours:1,ttlMs:15*60*1000}
 };
 const WEATHER_CACHE=new Map();
+const WEATHER_INFLIGHT=new Map();
 let WEATHER_FORCE_REFRESH=false;
+let OPEN_METEO_RATE_LIMIT_UNTIL=0;
 
 function modelRunBucket(modelId,now=Date.now()){
   const h=WEATHER_CACHE_POLICY[modelId]?.runHours??1;
@@ -1559,18 +1561,17 @@ function weatherCacheKey(lat,lng,modelId,days){
 function getWeatherCache(key,ttlMs){
   const x=WEATHER_CACHE.get(key);
   if(!x)return null;
-  if(Date.now()-x.fetchedAt>ttlMs){WEATHER_CACHE.delete(key);return null;}
+  if(Date.now()-x.fetchedAt>ttlMs)return null;
   return x.data;
+}
+function getStaleWeatherCache(key){
+  return WEATHER_CACHE.get(key)?.data||null;
 }
 function putWeatherCache(key,data){
   WEATHER_CACHE.set(key,{fetchedAt:Date.now(),data});
 }
 
-// Pobierz dane z konkretnego modelu (v6: więcej zmiennych, 10 dni)
 async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
-  // Każdy model ma własny zestaw obsługiwanych zmiennych. DWD ICON nie udostępnia
-  // UV w tym endpointcie, więc wspólne zapytanie z uv_index/uv_index_clear_sky daje HTTP 400.
-  // Open-Meteo wymaga forecast_days jako liczby całkowitej. DMI HARMONIE AROME Europe ma horyzont ok. 2.5 doby, więc dla parametru forecast_days żądamy bezpiecznie 2 dób zamiast niepoprawnego 2.5.
   const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10,dmi_harmonie_arome_europe:2,knmi_harmonie_arome_europe:2};
   const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
   const commonCurrent=[
@@ -1589,7 +1590,6 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     "weather_code","temperature_2m_max","temperature_2m_min",
     "precipitation_probability_max","precipitation_sum","sunrise","sunset","wind_speed_10m_max","wind_gusts_10m_max"
   ];
-  // UV/solar dodajemy tylko modelom, dla których API je obsługuje.
   const supportsUv=["best_match","ecmwf_ifs025","gfs_seamless"].includes(modelId);
   if(supportsUv){
     commonCurrent.push("uv_index","uv_index_clear_sky");
@@ -1598,8 +1598,20 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   }
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
   const key=weatherCacheKey(lat,lng,modelId,requestDays);
-  const cached=!forceFresh&&!WEATHER_FORCE_REFRESH?getWeatherCache(key,policy.ttlMs):null;
+  const cached=getWeatherCache(key,policy.ttlMs);
   if(cached)return structuredClone(cached);
+
+  const inflight=WEATHER_INFLIGHT.get(key);
+  if(inflight)return structuredClone(await inflight);
+
+  if(Date.now()<OPEN_METEO_RATE_LIMIT_UNTIL){
+    const stale=getStaleWeatherCache(key);
+    if(stale){
+      console.warn("[AURA Open-Meteo] 429 cooldown → stale cache:",modelId);
+      return structuredClone(stale);
+    }
+    throw new Error("Open-Meteo rate limit (429) — cooldown");
+  }
 
   const p=new URLSearchParams({
     latitude:lat, longitude:lng,
@@ -1611,15 +1623,31 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     past_hours:"24",
     models:modelId
   });
-  const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
-  if(!r.ok)throw new Error("HTTP "+r.status);
-  const data=await r.json();
-  putWeatherCache(key,data);
-  return structuredClone(data);
+
+  const requestPromise=(async()=>{
+    const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
+    if(r.status===429){
+      const retryAfter=Number(r.headers.get("Retry-After"));
+      const cooldownMs=Number.isFinite(retryAfter)&&retryAfter>0
+        ?Math.min(retryAfter*1000,5*60*1000):60*1000;
+      OPEN_METEO_RATE_LIMIT_UNTIL=Date.now()+cooldownMs;
+      const stale=getStaleWeatherCache(key);
+      if(stale){
+        console.warn("[AURA Open-Meteo] HTTP 429 → stale cache:",modelId,"cooldown",Math.round(cooldownMs/1000),"s");
+        return stale;
+      }
+      throw new Error("HTTP 429 — Open-Meteo rate limit");
+    }
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    putWeatherCache(key,data);
+    return data;
+  })();
+
+  WEATHER_INFLIGHT.set(key,requestPromise);
+  try{return structuredClone(await requestPromise);}
+  finally{WEATHER_INFLIGHT.delete(key);}
 }
-
-
-
 
 
 
