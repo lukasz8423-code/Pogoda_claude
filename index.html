@@ -5524,10 +5524,17 @@ function pipelineDiagnosticsText(){
       " "+models+
       " K="+(r.consensus==null?"—":r.consensus+"%");
   }).join("\n");
-  return "☁️ CHMURY — "+rows.length+" godzin"+
-    "\nAktywny model: "+(rows[0]?.activeModel||"—")+
-    "\n"+compactText+
-    "\n\nAura nie modyfikuje tych wartości.";
+  return JSON.stringify({
+    status:S.sourceMode==="IMGW_OFFLINE_ENSEMBLE"?"IMGW Offline → Active Ensemble":"IMGW Online",
+    miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},
+    aura,
+    cloudForecast:{
+      source:cf.source??null,
+      rows:compactCloudForecast
+    },
+    warnings:(S.liveHealth?.alerts||[]).map(a=>({code:a.code,severity:a.severity,message:a.message}))
+  },null,2);
+}
 function openRawSheet(){
   const rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data).map(r=>{
     const x=r.data?.current||{},h=r.data?.hourly||{},ci=currentHourIndex(r.data,new Date()),g=k=>h?.[k]?.[ci];
