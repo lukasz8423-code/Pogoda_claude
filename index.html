@@ -2362,7 +2362,8 @@ async function findNearestIMGW(lat,lng){
   return {
     best:canonicalReturn,
     nearby:results.filter(r=>r.dist<=OBSERVATION_FALLBACK_MAX_DISTANCE_KM).slice(0,5),
-    observationFallback
+    observationFallback,
+    observationFallbackCandidates:S.observationFallbackCandidates||[]
   };
 }
 
@@ -2417,14 +2418,28 @@ function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
         rawStation:s
       };
     })
-    .filter(x=>x.isFresh&&(x.tempFresh||x.humidityFresh||x.windFresh||x.windDirFresh))
+    .map(x=>{
+      const reasons=[];
+      if(!(x.isFresh===true)) reasons.push(x.ageMinutes==null?"BRAK_TIMESTAMP":"STARE");
+      if(!(x.tempFresh||x.humidityFresh||x.windFresh||x.windDirFresh)) reasons.push("BRAK_UŻYWALNYCH_PÓL");
+      x.fallbackEligible=x.isFresh===true&&(x.tempFresh||x.humidityFresh||x.windFresh||x.windDirFresh);
+      x.fallbackRejectReason=reasons.join(" + ")||null;
+      return x;
+    })
     // Najpierw świeżość obserwacji, dopiero potem odległość.
     .sort((a,b)=>{
       const ageA=Number.isFinite(Number(a.ageMinutes))?Number(a.ageMinutes):Infinity;
       const ageB=Number.isFinite(Number(b.ageMinutes))?Number(b.ageMinutes):Infinity;
       return ageA-ageB || a.dist-b.dist;
     });
-  return candidates[0]||null;
+  S.observationFallbackCandidates=candidates.map(x=>({
+    station:x.station,sourceLabel:x.sourceLabel,dist:x.dist,observedAt:x.observedAt,
+    ageMinutes:x.ageMinutes,isFresh:x.isFresh,
+    usableFields:{temperature:x.tempFresh,humidity:x.humidityFresh,wind:x.windFresh,windDirection:x.windDirFresh},
+    eligible:x.fallbackEligible,rejectReason:x.fallbackRejectReason
+  }));
+  window.__AURA_OBSERVATION_FALLBACK_CANDIDATES=S.observationFallbackCandidates;
+  return candidates.find(x=>x.fallbackEligible)||null;
 }
 
 // ══════════════════════════════════════════════
