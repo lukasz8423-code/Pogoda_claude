@@ -6359,6 +6359,91 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
   };
 }
 
+function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=activeModel.id){
+  const hourly=data?.hourly;
+  if(!hourly?.time?.length || !Array.isArray(hourly.cloud_cover)) return null;
+
+  // Nie poprawiamy normalnych prognoz. Guard uruchamia się wyłącznie wtedy,
+  // gdy aktywny model zwraca niemal same zera dla całego horyzontu, a inne
+  // modele mają dla tych samych godzin realne wartości > 0.
+  const ci=currentHourIndex(data,new Date());
+  const horizon=Math.min(hourly.time.length,ci+24);
+  const future=hourly.cloud_cover.slice(ci,horizon).map(Number);
+  const finite=future.filter(Number.isFinite);
+  if(finite.length<8)return null;
+
+  const zeroRatio=finite.filter(v=>v<=0.5).length/finite.length;
+  if(zeroRatio<0.80)return null;
+
+  const activeId=String(activeModelId||"best_match");
+  const candidates=(Array.isArray(modelResults)?modelResults:[])
+    .filter(r=>r?.model&&r.model!==activeId&&r?.data?.hourly?.time?.length&&Array.isArray(r.data.hourly.cloud_cover));
+
+  const maps=candidates.map(r=>{
+    const map=new Map();
+    r.data.hourly.time.forEach((t,i)=>{
+      const v=Number(r.data.hourly.cloud_cover?.[i]);
+      if(Number.isFinite(v))map.set(String(t),clamp(v,0,100));
+    });
+    return {model:r.model,map};
+  });
+
+  const usable=maps.filter(m=>{
+    let n=0,nonZero=0;
+    for(let i=ci;i<horizon;i++){
+      const v=m.map.get(String(hourly.time[i]));
+      if(v==null)continue;
+      n++; if(v>0.5)nonZero++;
+    }
+    return n>=8 && nonZero/n>=0.20;
+  });
+  if(!usable.length)return null;
+
+  // Wybieramy alternatywny model z największym pokryciem i największą
+  // zgodnością z pozostałymi modelami. Nie stosujemy lokalizacji ani stałej
+  // wartości zachmurzenia.
+  const ranked=usable.map(m=>{
+    let coverage=0,nonZero=0,agreement=0,agreementN=0;
+    for(let i=ci;i<horizon;i++){
+      const t=String(hourly.time[i]),v=m.map.get(t);
+      if(v==null)continue;
+      coverage++; if(v>0.5)nonZero++;
+      const peers=usable.filter(x=>x!==m).map(x=>x.map.get(t)).filter(Number.isFinite);
+      if(peers.length){
+        const mean=peers.reduce((a,b)=>a+b,0)/peers.length;
+        agreement+=Math.abs(v-mean); agreementN++;
+      }
+    }
+    return {m,coverage,nonZeroRatio:coverage?nonZero/coverage:0,
+      meanDelta:agreementN?agreement/agreementN:999};
+  }).sort((a,b)=>b.coverage-a.coverage||b.nonZeroRatio-a.nonZeroRatio||a.meanDelta-b.meanDelta);
+
+  const winner=ranked[0];
+  if(!winner)return null;
+
+  let replaced=0;
+  for(let i=Math.max(ci,0);i<horizon;i++){
+    const v=winner.m.map.get(String(hourly.time[i]));
+    if(!Number.isFinite(v))continue;
+    if(Number(hourly.cloud_cover[i])<=0.5){
+      hourly.cloud_cover[i]=Math.round(clamp(v,0,100));
+      replaced++;
+    }
+  }
+
+  if(!replaced)return null;
+  hourly.__auraCloudDegenerateGuard={
+    applied:true,
+    reason:"ACTIVE_MODEL_DEGENERATE_ZERO_CLOUD",
+    activeModel:activeId,
+    replacementModel:winner.m.model,
+    zeroRatio:Math.round(zeroRatio*100),
+    replaced,
+    checkedHours:finite.length
+  };
+  return hourly.__auraCloudDegenerateGuard;
+}
+
 function sanitizeHourlyCloudCover(data){
   const hourly = data?.hourly;
   if(!hourly?.cloud_cover || !Array.isArray(hourly.cloud_cover) || hourly.cloud_cover.length < 1) return;
@@ -7072,6 +7157,12 @@ async function loadWCore(lat,lng,name,isRef,token){
   // TERAZ pozostaje z obecnej fuzji. Tylko przyszłe godziny dostają
   // wielomodelowy konsensus ICON/ECMWF/GFS.
   applyFutureHourlyCloudConsensus(data,cloudCompare,activeModelRawData,activeModel.id);
+  // Guard lokalizacji/modelu: jeśli aktywny model zwrócił degeneracyjną serię
+  // 0% chmur, a alternatywny model ma realne wartości dla tych samych godzin,
+  // używamy wyłącznie jego RAW cloud_cover zamiast pokazywać fałszywe zera.
+  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);
+  S.pipelineDiag=S.pipelineDiag||{};
+  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;
   sanitizeHourlyCloudCover(data);
 
   // Diagnostyka musi być zapisana PO wykonaniu korekty prognozy chmur.
