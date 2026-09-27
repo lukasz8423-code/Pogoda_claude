@@ -5494,7 +5494,7 @@ function pipelineInspectorHTML(){
     ["Poryw",img.rawPorywWiatru==null?(img.poryw_wiatru==null?null:Number(img.poryw_wiatru)*3.6):Number(img.rawPorywWiatru)*3.6,img.poryw_wiatru_data,img.porywWiatruAgeMinutes,img.porywWiatruFresh],
     ["Opad 10 min",img.rawOpad10min??img.opad_10min,img.opad_10min_data,img.opad10minAgeMinutes,img.opad10minFresh]
   ];
-  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
+  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>"}).join("")+"</tbody></table></div>";
   const sourceRows=rawModels.map(r=>{
     const md=r.data||{};
     const gridLat=Number(md.latitude),gridLng=Number(md.longitude);
@@ -5512,8 +5512,8 @@ function pipelineInspectorHTML(){
   const cloudRows=Array.isArray(d?.cloudForecast?.rows)?d.cloudForecast.rows.slice(0,6):[];
   const layerMark=(state,value)=>state==="OUT_OF_HORIZON"?"↯":state==="NULL"?"∅":state==="NO_ARRAY"?"—":state==="NO_TIME"?"?":state==="INVALID"?"!":value===0?"0":"✓";
   const cloudForecastTable=cloudRows.length
-    ?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☁️ Chmury — krótka diagnostyka źródła</div><div class=\"note\" style=\"margin-bottom:7px\">RAW = dokładna wartość z aktywnego modelu. Low/Mid/High = warstwy tego modelu. <b>Mid 0×</b> = długość bieżącej serii prawdziwego 0%. <b>L/M/H</b>: ✓ wartość · 0 prawdziwe zero · ∅ brak/NULL · ↯ poza horyzontem. ICON/ECMWF/GFS/DMI = surowe wartości porównywanych modeli. Kons. = diagnostyka, nie steruje prognozą.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Czas</th><th>RAW</th><th>BEST≈</th><th>Δ</th><th>Low</th><th>Mid</th><th>High</th><th>Mid 0×</th><th>L/M/H</th><th>ICON</th><th>ECMWF</th><th>GFS</th><th>DMI</th><th>Kons.</th></tr></thead><tbody>"
-    +cloudRows.map(r=>"<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(r.closestModel||"—")+"</td><td>"+pct(r.closestModelDelta)+" pp</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>").join("")
+    ?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">☁️ Chmury — krótka diagnostyka źródła</div><div class=\"note\" style=\"margin-bottom:7px\">RAW = dokładna wartość z aktywnego modelu. Low/Mid/High = warstwy tego modelu. <b>T+</b> = godziny względem aktualnego slotu. <b>Mid 0×</b> = długość bieżącej serii prawdziwego 0%. <b>L/M/H</b>: ✓ wartość · 0 prawdziwe zero · ∅ brak/NULL · ↯ poza horyzontem. ICON/ECMWF/GFS/DMI = surowe wartości porównywanych modeli. Kons. = diagnostyka, nie steruje prognozą.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Czas</th><th>T+</th><th>RAW</th><th>BEST≈</th><th>Δ</th><th>Low</th><th>Mid</th><th>High</th><th>Mid 0×</th><th>L/M/H</th><th>ICON</th><th>ECMWF</th><th>GFS</th><th>DMI</th><th>Kons.</th></tr></thead><tbody>"
+    +cloudRows.map(r=>{const baseTime=d?.cloudForecast?.timeline?.currentHour;const ahead=baseTime?Math.round((localWallOrdinal(r.time)-localWallOrdinal(baseTime))/3600000):null;const delta=Number.isFinite(Number(r.closestModelDelta))?Math.round(Number(r.closestModelDelta))+" pp":"—";return "<tr><td>"+esc(new Date(r.time).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}))+"</td><td>"+(ahead==null?"—":"+"+ahead+"h")+"</td><td><b>"+pct(r.activeModelValue??r.value)+"</b></td><td>"+(r.closestModel||"—")+"</td><td>"+delta+"</td><td>"+pct(r.activeLow)+"</td><td>"+pct(r.activeMid)+"</td><td>"+pct(r.activeHigh)+"</td><td>"+(r.midZeroStreak==null?"—":r.midZeroStreak+"×")+"</td><td>"+layerMark(r.lowAvailability,r.activeLow)+"/"+layerMark(r.midAvailability,r.activeMid)+"/"+layerMark(r.highAvailability,r.activeHigh)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="icon_eu")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="ecmwf_ifs025")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="gfs_seamless")?.total)+"</td><td>"+pct((r.models||[]).find(m=>m.model==="dmi_harmonie_arome_europe")?.total)+"</td><td><b>"+pct(r.modelConsensus)+"</b></td></tr>").join("")
     +"</tbody></table></div>"
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
@@ -5559,6 +5559,7 @@ function pipelineDiagnosticsText(){
       " H="+(r.high==null?"—":r.high+"%")+
       " M0x="+(r.midZeroStreak==null?"—":r.midZeroStreak)+
       " L/M/H="+(r.layerAvailability?.low??"—")+"/"+(r.layerAvailability?.mid??"—")+"/"+(r.layerAvailability?.high??"—")+
+      " T+=" +(r.time&&cf.timeline?.currentHour?Math.round((localWallOrdinal(r.time)-localWallOrdinal(cf.timeline.currentHour))/3600000):"—")+
       " "+models+
       " K="+(r.consensus==null?"—":r.consensus+"%");
   }).join("\n");
@@ -6992,6 +6993,10 @@ async function loadWCore(lat,lng,name,isRef,token){
         activeLow:r.activeLow??null,
         activeMid:r.activeMid??null,
         activeHigh:r.activeHigh??null,
+        lowAvailability:r.lowAvailability??null,
+        midAvailability:r.midAvailability??null,
+        highAvailability:r.highAvailability??null,
+        midZeroStreak:r.midZeroStreak??0,
         closestModel:r.closestModel??null,
         closestModelValue:r.closestModelValue??null,
         closestModelDelta:r.closestModelDelta??null,
