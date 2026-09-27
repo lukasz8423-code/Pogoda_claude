@@ -2058,7 +2058,7 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_M
 }
 
 async function fetchIMGWMeteoAll(){
-  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkSource:null,networkFetchedAt:null};
+  S.imgwDiag={status:"pobieranie",connectionStatus:"CHECKING",stationStatus:"UNKNOWN",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkSource:null,networkFetchedAt:null};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   let list=null;
   let isFallback=false;
@@ -2084,6 +2084,7 @@ async function fetchIMGWMeteoAll(){
         // Telemetria sieci: czas odebrania pełnej odpowiedzi live API.
         S.imgwDiag.networkFetchedAt=fetchedAt;
         S.imgwDiag.networkResponseAgeSeconds=0;
+        S.imgwDiag.connectionStatus="IMGW_API_LIVE";
         window.__AURA_IMGW_DIAG=S.imgwDiag;
       }else{
         throw new Error("Stacja Głodowo nieodnaleziona w sieciowym feedzie IMGW");
@@ -2124,7 +2125,9 @@ async function fetchIMGWMeteoAll(){
     });
     S.imgwDiag={
       ...S.imgwDiag,
-      status:isFallback?"snapshot (imgw-meteo.json)":"pobrano na żywo (IMGW API)",
+      status:isFallback?"IMGW API OFFLINE → użyto snapshotu":"IMGW API ONLINE → odpowiedź live",
+      connectionStatus:isFallback?"IMGW_API_OFFLINE":"IMGW_API_LIVE",
+      stationStatus:station?"AVAILABLE":"MISSING",
       networkSource:isFallback?"LOCAL_SNAPSHOT":"IMGW_API_LIVE",
       networkFetchedAt:fetchedAt,
       isFallback,
@@ -2158,6 +2161,7 @@ async function findNearestIMGW(lat,lng){
   const isSnapshot=meteoRes?.isFallback===true;
 
   // Głodowo: automatyczna stacja METEO IMGW, kod 252190030.
+  let canonicalBest=null;
   const rawGlodowo=Array.isArray(meteoAll)
     ? meteoAll.find(s=>{
         const code=String(s.kod_stacji??s.id_stacji??"").trim();
@@ -2250,9 +2254,14 @@ async function findNearestIMGW(lat,lng){
     if(dist<=80){
       const used=anyUsable===true;
       const reason=used?null:`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min lub brak świeżych wartości`;
+      canonicalBest=normalized;
       S.imgwDiag={
         ...S.imgwDiag,
-        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary||"brak świeżych pól"} → ${used?"ACCEPTED":"RETAINED / STALE"}`,
+        connectionStatus:isSnapshot?"IMGW_API_OFFLINE":"IMGW_API_LIVE",
+        stationStatus:used?"FRESH":"STALE",
+        status:isSnapshot
+          ? `IMGW API OFFLINE → Głodowo ${used?"świeże":"nieaktualne"} → snapshot`
+          : `IMGW API ONLINE → Głodowo ${used?"świeże":"nieaktualne"} → ${used?"UŻYTO":"MODEL/FALLBACK"}`,
         used,
         reason
       };
@@ -2348,9 +2357,9 @@ async function findNearestIMGW(lat,lng){
   // Jeśli Głodowo było znalezione, ale stare, nadal pozostaje kanonicznym
   // źródłem IMGW. Nie zwracamy najbliższego SYNOP-a jako "best".
   // Odległe stacje są wyłącznie diagnostyką i nigdy nie trafiają do fuzji.
-  const canonicalBest = (typeof normalized!=="undefined" && normalized) ? normalized : best;
+  const canonicalReturn=canonicalBest||best;
   return {
-    best:canonicalBest,
+    best:canonicalReturn,
     nearby:results.filter(r=>r.dist<=OBSERVATION_FALLBACK_MAX_DISTANCE_KM).slice(0,5),
     observationFallback
   };
@@ -6927,8 +6936,9 @@ async function loadWCore(lat,lng,name,isRef,token){
     const imgwFeedOffline=
       imgwResult.status!=="fulfilled" ||
       !imgwResult.value ||
-      S.imgwDiag?.status==="niedostępne" ||
-      S.imgwDiag?.status==="nieprawidłowa odpowiedź";
+      S.imgwDiag?.connectionStatus==="IMGW_API_OFFLINE" ||
+      S.imgwDiag?.connectionStatus==="ERROR" ||
+      S.imgwDiag?.connectionStatus==="UNAVAILABLE";
     const imgwOffline=imgwFeedOffline;
     S.imgwStatus=imgwOffline?"OFFLINE":"ONLINE";
     // Offline: dla zachmurzenia nie używamy ensemble ani średniej.
