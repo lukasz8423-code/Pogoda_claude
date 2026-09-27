@@ -47,7 +47,7 @@ jobs:
               s=s.replace("<head>", "<head>\n    "+tag, 1)
           # Każdy deploy dostaje nowy URL aura-sync.js, więc GitHub Pages/CDN
           # nie może podać starego pliku diagnostycznego z cache.
-          s=re.sub(r'(?<=aura-sync\\.js\\?v=)[^"\\']+', os.environ["GITHUB_SHA"], s)
+          s=re.sub(r'aura-sync\\.js\\?v=[^"]+', 'aura-sync.js?v='+os.environ["GITHUB_SHA"], s)
           p.write_text(s,encoding="utf-8")
           PY
 
