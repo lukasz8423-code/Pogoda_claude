@@ -5501,6 +5501,9 @@ function pipelineDiagnosticsText(){
     low:r.activeLow??null,
     mid:r.activeMid??null,
     high:r.activeHigh??null,
+    bestMatchClosest:r.closestModel??null,
+    bestMatchClosestValue:r.closestModelValue??null,
+    bestMatchClosestDelta:r.closestModelDelta??null,
     consensus:r.modelConsensus??null,
     bestMatchClosest:r.closestModel??null,
     bestMatchClosestValue:r.closestModelValue??null,
@@ -6057,7 +6060,9 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
   const byModel=models.map(r=>{
     const map=new Map();
     r.data.hourly.time.forEach((t,i)=>{
-      const total=Number(r.data.hourly.cloud_cover?.[i]);
+      const raw=r.data.hourly.cloud_cover?.[i];
+      if(raw==null||raw==="")return;
+      const total=Number(raw);
       if(Number.isFinite(total))map.set(String(t),clamp(total,0,100));
     });
     return {id:r.model,map};
@@ -6065,7 +6070,9 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
 
   for(let i=ci+1;i<hourly.time.length;i++){
     const t=String(hourly.time[i]);
-    const activeRaw=Number(hourly.cloud_cover?.[i]);
+    const activeRawSource=hourly.cloud_cover?.[i];
+    if(activeRawSource==null||activeRawSource==="")continue;
+    const activeRaw=Number(activeRawSource);
     if(!Number.isFinite(activeRaw))continue;
 
     const vals=byModel.map(m=>{
@@ -6093,9 +6100,12 @@ function applyFutureHourlyCloudConsensus(data, modelResults, activeRawData=null,
       .sort((a,b)=>a.delta-b.delta)[0]||null;
 
     const activeIdx=activeTimeIndex.get(t);
-    const activeLow=activeIdx==null?null:Number(activeHourly?.cloud_cover_low?.[activeIdx]);
-    const activeMid=activeIdx==null?null:Number(activeHourly?.cloud_cover_mid?.[activeIdx]);
-    const activeHigh=activeIdx==null?null:Number(activeHourly?.cloud_cover_high?.[activeIdx]);
+    const rawLow=activeIdx==null?null:activeHourly?.cloud_cover_low?.[activeIdx];
+    const rawMid=activeIdx==null?null:activeHourly?.cloud_cover_mid?.[activeIdx];
+    const rawHigh=activeIdx==null?null:activeHourly?.cloud_cover_high?.[activeIdx];
+    const activeLow=rawLow==null||rawLow===""?null:Number(rawLow);
+    const activeMid=rawMid==null||rawMid===""?null:Number(rawMid);
+    const activeHigh=rawHigh==null||rawHigh===""?null:Number(rawHigh);
     activeRows.push({
       time:t,
       activeModel:activeModelLabel,
@@ -6898,6 +6908,11 @@ async function loadWCore(lat,lng,name,isRef,token){
         trendAgreement:r.trendAgreement??null,
         trendStrength:r.trendStrength??null,
         smoothingBlend:r.smoothingBlend??null,
+        activeModel:r.activeModel??null,
+        activeModelValue:r.activeModelValue??r.value??null,
+        activeLow:r.activeLow??null,
+        activeMid:r.activeMid??null,
+        activeHigh:r.activeHigh??null,
         closestModel:r.closestModel??null,
         closestModelValue:r.closestModelValue??null,
         closestModelDelta:r.closestModelDelta??null,
