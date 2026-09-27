@@ -1104,53 +1104,117 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   }
 
   // D. Ciekawostka / Tip z przymrużeniem oka (tip)
-  // Każda pora dnia ma własną pulę. Wybór jest stabilny przez cały dzień,
-  // ale zmienia się między kolejnymi dniami.
-  const tipPools = {
-    morning: [
-      "Kawa wypita przy oknie smakuje lepiej, gdy za oknem naprawdę coś się dzieje.",
-      "Poranek to dobry moment na złapanie świeżego powietrza, zanim dzień rozkręci się na dobre.",
-      "Jeśli rano jest rześko, organizm dostaje darmowy budzik bez funkcji drzemki.",
-      "Pierwsze promienie słońca robią dziś za naturalną lampę – szkoda ich nie wykorzystać.",
-      "Poranek spokojny? To może być najlepsza część dnia, zanim telefon zacznie mieć własne zdanie.",
-      "Dobra pogoda od rana to argument, żeby chociaż na chwilę wyjść spod dachu.",
-      "Jeśli dziś potrzebujesz energii, pogoda właśnie próbuje Ci ją dostarczyć."
+  // 100+ porad: osobne pule dla każdej pory dnia, stabilna rotacja dzienna.
+  const tipPools =   {
+    "morning": [
+      "Poranek najlepiej zacząć od spojrzenia przez okno – aplikacja może potwierdzić to, co widzisz.",
+      "Rześkie powietrze rano działa jak naturalny przycisk START.",
+      "Jeśli niebo jest dziś spokojne, poranek aż prosi się o krótki spacer.",
+      "Pierwsze promienie słońca robią za darmową lampę – warto je złapać.",
+      "Poranna temperatura nie zawsze mówi wszystko – wiatr potrafi dorzucić własny komentarz.",
+      "Jeśli wychodzisz rano, jedna dodatkowa warstwa może dziś zrobić różnicę.",
+      "Poranek to dobry moment na przewietrzenie mieszkania i głowy jednocześnie.",
+      "Świat jeszcze się rozkręca, a pogoda już nadaje ton całemu dniu.",
+      "Jeżeli rano jest bezwietrznie, kurtka może mieć dziś spokojniejszą zmianę.",
+      "Chłodny start dnia? Organizm właśnie dostał darmowy budzik.",
+      "Słońce od rana to jeden z tych bonusów, których nie trzeba ładować.",
+      "Poranek z przejaśnieniami daje dobry pretekst, żeby wyjść choć na kilka minut.",
+      "Zanim dzień przyspieszy, warto złapać trochę świeżego powietrza.",
+      "Jeśli za oknem jest szaro, spokojny początek dnia też ma swój klimat.",
+      "Poranna pogoda często zdradza więcej, niż sugeruje sama temperatura.",
+      "Jedna szybka kontrola nieba przed wyjściem i wiadomo, czy parasol dziś ma pracę.",
+      "Jeśli wieje, czapka może dziś dostać awans z dodatku do podstawowego wyposażenia.",
+      "Rano nawet kilka minut na zewnątrz potrafi dobrze rozpocząć dzień.",
+      "Niebo bez chmur? Natura właśnie włączyła tryb jasnego ekranu.",
+      "Jeśli temperatura rośnie, poranek może być najlepszym momentem na aktywność."
     ],
-    forenoon: [
-      "Przedpołudnie to idealny moment, żeby załatwić sprawy, zanim dzień zrobi się naprawdę intensywny.",
-      "Jeśli pogoda wygląda zachęcająco, krótki spacer teraz może uratować późniejsze lenistwo.",
-      "To ta pora dnia, kiedy można jeszcze powiedzieć: „mam cały dzień przed sobą”.",
-      "Dobre światło i świeże powietrze – natura właśnie otworzyła darmową strefę regeneracji.",
-      "Jeśli temperatura jest dziś niejednoznaczna, ubiór warstwowy nadal pozostaje mistrzem uniwersalności.",
-      "Przedpołudniowe słońce nie pyta o grafik – po prostu warto je złapać.",
-      "Jeszcze nie południe, a pogoda już zdradza, jaki będzie charakter całego dnia."
+    "forenoon": [
+      "Przedpołudnie to dobry moment, żeby załatwić sprawy, zanim dzień nabierze tempa.",
+      "Jeśli pogoda zachęca, krótki spacer teraz może być lepszy niż odkładanie go na później.",
+      "To jeszcze nie południe, więc dzień ma przed sobą sporo miejsca na niespodzianki.",
+      "Dobre światło i świeże powietrze – natura otworzyła dziś darmową strefę regeneracji.",
+      "Warstwowy ubiór nadal wygrywa, gdy temperatura nie może się zdecydować.",
+      "Przedpołudniowe słońce warto wykorzystać, zanim dzień zacznie się wyciszać.",
+      "Jedno spojrzenie w niebo i wiadomo, czy dzisiejszy plan potrzebuje parasola.",
+      "Jeśli wiatr się nasila, temperatura na termometrze może być trochę zbyt optymistyczna.",
+      "Stabilna aura? To dobry moment na sprawy, które najlepiej robi się poza domem.",
+      "Przedpołudnie jest stworzone do krótkiego resetu na świeżym powietrzu.",
+      "Jeśli chmury się rozstępują, natura właśnie robi darmowe doświetlenie.",
+      "Niebo może zmienić zdanie szybciej niż prognoza – warto patrzeć również za okno.",
+      "Jeżeli jest sucho i spokojnie, spacer ma dziś całkiem mocne argumenty.",
+      "Przed południem łatwiej jeszcze znaleźć czas na małą aktywność.",
+      "Jeśli temperatura jest umiarkowana, warunki są dobre na zwykłe wyjście bez wielkiej strategii.",
+      "Pogoda daje dziś znak, żeby nie spędzać całego przedpołudnia pod dachem.",
+      "Jeżeli jest pochmurno, brak ostrego słońca może być całkiem wygodny podczas załatwiania spraw.",
+      "Przedpołudniowe światło potrafi poprawić humor bardziej niż kolejna kontrola prognozy.",
+      "To dobra pora, żeby sprawdzić rzeczywistość zamiast tylko czytać o niej na ekranie.",
+      "Jeśli masz coś na zewnątrz do zrobienia, właśnie teraz warto ocenić warunki."
     ],
-    afternoon: [
-      "Popołudnie to dobry moment, żeby sprawdzić, czy pogoda rzeczywiście jest tak dobra, jak obiecuje aplikacja.",
-      "Jeśli masz coś do zrobienia na zewnątrz, właśnie teraz warto zerknąć na niebo zamiast tylko na ekran.",
-      "Dzienne światło powoli zmierza do mety – korzystaj, póki jeszcze jest po Twojej stronie.",
-      "Popołudniowa pogoda często mówi więcej niż poranna prognoza – wystarczy spojrzeć przez okno.",
+    "afternoon": [
+      "Popołudnie to dobry moment, żeby sprawdzić pogodę własnymi oczami.",
+      "Jeśli masz coś do zrobienia na zewnątrz, nie odkładaj wszystkiego na wieczór.",
+      "Dzienne światło powoli zmierza do mety – korzystaj, póki jest po Twojej stronie.",
+      "Popołudniowa pogoda często mówi więcej niż poranna prognoza.",
       "Jeśli temperatura trzyma fason, krótki spacer może być najlepszą przerwą od siedzenia.",
       "To dobra pora na ruch, świeże powietrze albo zwyczajne nicnierobienie na ławce.",
-      "Pogoda na dziś została właśnie wystawiona na próbę – wyjdź na chwilę i sprawdź ją osobiście."
+      "Jeśli niebo jest spokojne, pogoda właśnie daje Ci darmową przestrzeń do działania.",
+      "Popołudniowe słońce potrafi zmienić zwykły dzień w całkiem przyjemny dzień.",
+      "Jeżeli wiatr przyspiesza, warto pamiętać, że odczuwalna temperatura ma własne zdanie.",
+      "Jeśli chmury dominują, spokojne tempo może być dziś lepsze niż gonitwa.",
+      "Masz wolną chwilę? Pogoda właśnie podpowiada, żeby wykorzystać ją poza czterema ścianami.",
+      "Popołudnie to dobry czas na spacer, rower albo po prostu wyjście po świeże powietrze.",
+      "Jeżeli temperatura spada, dodatkowa warstwa może być dobrym ruchem przed wieczorem.",
+      "Niebo wygląda spokojnie? Można śmiało dać ekranowi chwilę wolnego.",
+      "Jeśli słońce jeszcze świeci, warto złapać ostatnie mocniejsze światło dnia.",
+      "Popołudnie bez deszczu to całkiem niezły pretekst do małej aktywności.",
+      "Jeżeli pada, plan B pod dachem też może mieć swój urok.",
+      "Stabilna pogoda? To jeden z tych dni, kiedy prognoza nie musi być głównym bohaterem.",
+      "Jeśli jest chłodno, szybki spacer może być lepszy niż długie stanie w miejscu.",
+      "Do końca dnia jeszcze kawałek – pogoda może się jeszcze kilka razy zmienić."
     ],
-    evening: [
-      "Wieczorem nawet zwykły spacer potrafi zrobić porządek w głowie lepiej niż kolejna godzina przed ekranem.",
-      "Jeśli temperatura jeszcze rozpieszcza, warto wykorzystać ostatni fragment dnia na świeżym powietrzu.",
+    "evening": [
+      "Wieczorem nawet zwykły spacer potrafi zrobić porządek w głowie.",
+      "Jeśli temperatura jeszcze rozpieszcza, warto wykorzystać ostatni fragment dnia na zewnątrz.",
       "Wieczór to dobry moment, żeby przewietrzyć głowę – dosłownie i w przenośni.",
       "Słońce schodzi ze sceny, ale dzień jeszcze nie musi się kończyć.",
       "Jeśli za oknem jest spokojnie, krótki wieczorny spacer brzmi jak całkiem dobry plan.",
       "Wieczorna aura ma jedną zaletę: nie trzeba już nigdzie się spieszyć.",
-      "Dzień powoli zwalnia – pogoda właśnie dostała zadanie, żeby zrobić to razem z Tobą."
+      "Dzień powoli zwalnia – pogoda właśnie dostała zadanie, żeby zrobić to razem z Tobą.",
+      "Jeśli robi się chłodniej, warto zabrać jedną warstwę więcej niż sugeruje samo popołudnie.",
+      "Spokojne niebo wieczorem to całkiem dobra dekoracja bez potrzeby kupowania biletu.",
+      "Jeżeli wiatr ucichł, wieczór może być wyjątkowo przyjemny na krótki spacer.",
+      "Po całym dniu kilka minut świeżego powietrza może zrobić więcej niż kolejna godzina przed ekranem.",
+      "Jeśli chmury zasłaniają niebo, wieczór nadal może być dobrym momentem na reset.",
+      "Temperatura spada? To znak, że pora przejść z trybu dziennego na warstwowy.",
+      "Jeżeli nie pada, ostatnie wyjście na zewnątrz dnia może być całkiem przyjemne.",
+      "Wieczorem pogoda często uspokaja się razem z całym światem.",
+      "Jeśli słońce jeszcze zagląda nad horyzont, szkoda pozwolić mu odejść niezauważonym.",
+      "Wieczór bez pośpiechu i z dobrą pogodą to całkiem solidny plan sam w sobie.",
+      "Jeżeli dzień był gorący, wieczorne ochłodzenie może być najlepszą częścią doby.",
+      "Chłodny wieczór? Ciepła bluza i krótki spacer tworzą całkiem zgrany duet.",
+      "Dzień się kończy, ale pogoda nadal ma ostatnie słowo."
     ],
-    night: [
-      "Noc jest od odpoczynku – nawet pogoda nie próbuje już robić nadgodzin.",
-      "Chłodniejsze nocne powietrze potrafi zrobić więcej dla przewietrzenia głowy niż kolejny filmik.",
+    "night": [
+      "Noc jest od odpoczynku – nawet pogoda nie próbuje robić nadgodzin.",
+      "Chłodniejsze nocne powietrze potrafi zrobić porządek w głowie.",
       "Jeśli niebo jest czyste, noc ma dziś całkiem niezłą dekorację.",
-      "Dzień zakończony, prognoza sprawdzona – teraz pora dać sobie spokój z ekranem.",
-      "Nocą temperatura spada, więc jutro poranek może mieć zupełnie inny charakter.",
-      "Cisza, chłodniejsze powietrze i mniej bodźców – całkiem niezły zestaw na koniec dnia.",
-      "Pogoda na dziś już zrobiła swoje. Teraz kolej na regenerację."
+      "Dzień zakończony, prognoza sprawdzona – teraz pora dać ekranowi spokój.",
+      "Nocą temperatura spada, więc poranek może mieć zupełnie inny charakter.",
+      "Cisza, chłodniejsze powietrze i mniej bodźców – niezły zestaw na koniec dnia.",
+      "Pogoda na dziś już zrobiła swoje. Teraz kolej na regenerację.",
+      "Bezchmurna noc? Gwiazdy dostały dziś wyjątkowo duży ekran.",
+      "Jeśli jest chłodno, rano warto pamiętać, że noc nie negocjuje temperatury.",
+      "Spokojna noc to dobry moment, żeby odłożyć telefon i zwolnić tempo.",
+      "Jeżeli wieje, nocne podmuchy mogą zapowiadać ciekawszy poranek.",
+      "Nocne chmury potrafią zatrzymać trochę ciepła – natura ma własny koc.",
+      "Jeśli nie pada, kilka minut nocnego powietrza może przyjemnie zamknąć dzień.",
+      "Jutro będzie nowa prognoza, nowe chmury i nowa porcja meteorologicznych niespodzianek.",
+      "Noc nie potrzebuje wielkich planów – wystarczy spokojny reset.",
+      "Jeśli niebo jest spokojne, warto czasem po prostu popatrzeć w górę.",
+      "Temperatura spada? To normalny nocny tryb pracy atmosfery.",
+      "Po całym dniu najlepszą poradą może być po prostu: zwolnij.",
+      "Jeżeli jutro zapowiada się chłodniej, poranek warto przywitać przygotowanym.",
+      "Prognoza może poczekać do rana – teraz najważniejszy jest odpoczynek."
     ]
   };
   const tips = tipPools[daypart] || tipPools.afternoon;
