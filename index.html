@@ -2024,7 +2024,7 @@ function validateImgwStationFields(station,nowMs=Date.now(),maxAgeMinutes=IMGW_M
 }
 
 async function fetchIMGWMeteoAll(){
-  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null};
+  S.imgwDiag={status:"pobieranie",count:null,found:false,used:false,error:null,station:null,temperature:null,timestamp:null,ageMinutes:null,dist:null,reason:null,networkSource:null,networkFetchedAt:null};
   window.__AURA_IMGW_DIAG=S.imgwDiag;
   let list=null;
   let isFallback=false;
@@ -2087,6 +2087,8 @@ async function fetchIMGWMeteoAll(){
     S.imgwDiag={
       ...S.imgwDiag,
       status:isFallback?"snapshot (imgw-meteo.json)":"pobrano na żywo (IMGW API)",
+      networkSource:isFallback?"LOCAL_SNAPSHOT":"IMGW_API_LIVE",
+      networkFetchedAt:fetchedAt,
       isFallback,
       fetchedAt,
       count:list.length,
@@ -2171,8 +2173,8 @@ async function findNearestIMGW(lat,lng){
     };
 
     if(dist<=80){
-      const used=anyUsable||isSnapshot;
-      const reason=used?null:`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`;
+      const used=anyUsable===true;
+      const reason=used?null:`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min lub brak świeżych wartości`;
       S.imgwDiag={
         ...S.imgwDiag,
         status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary||"brak świeżych pól"} → ${used?"ACCEPTED":"RETAINED / STALE"}`,
