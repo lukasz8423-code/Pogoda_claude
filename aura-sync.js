@@ -273,20 +273,24 @@
     const rainUsable=!!ic.rain10min?.fresh&&Number.isFinite(distance)&&distance<=30;
 
     const rows=[];
-    rows.push(fieldDecision('Temperatura',ic.temperature,model.temperature,X.T,'IMGW → Aura fusion',imgwUsable('temperature'),ic.temperature?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
-    rows.push(fieldDecision('Wilgotność',ic.humidity,model.humidity,X.hum,'IMGW → Aura fusion',imgwUsable('humidity'),ic.humidity?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
-    rows.push(fieldDecision('Wiatr',ic.wind,model.wind,X.wind,'IMGW → Aura fusion',imgwUsable('wind'),ic.wind?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
-    rows.push(fieldDecision('Kierunek wiatru',ic.windDirection,model.windDirection,X.wdeg,'IMGW → Aura fusion',imgwUsable('windDirection'),ic.windDirection?.fresh?'świeże IMGW; użyto do fuzji':'timestamp brak/stary lub poza zasięgiem'));
-    rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,'IMGW → Aura final',gustUsable,
-    gustUsable?'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km':
-    'IMGW poryw nie spełnia TTL/zasięgu; Aura zachowuje wartość modelową dla T0.'));
-    rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,'IMGW → T0 precipitation guard',rainUsable,
-    rainUsable?'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain':
-    'Brak świeżego opadu_10min z Głodowa; guard nie może użyć IMGW.'));
-    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,'weather-fusion',false,'brak bezpośredniego pola IMGW; fuzja modeli/obserwacji nie jest polem stacji'));
+    const tSource=imgwUsable('temperature')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
+    const hSource=imgwUsable('humidity')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
+    const wSource=imgwUsable('wind')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
+    const wdSource=imgwUsable('windDirection')?'IMGW → Aura fusion':'Open-Meteo → Aura fallback';
+    const gSource=gustUsable?'IMGW → Aura final':'Open-Meteo → Aura fallback';
+    const pSource=rainUsable?'IMGW → T0 precipitation guard':'Guard → brak świeżego IMGW';
+    rows.push(fieldDecision('Temperatura',ic.temperature,model.temperature,X.T,tSource,imgwUsable('temperature'),ic.temperature?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
+    rows.push(fieldDecision('Wilgotność',ic.humidity,model.humidity,X.hum,hSource,imgwUsable('humidity'),ic.humidity?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
+    rows.push(fieldDecision('Wiatr',ic.wind,model.wind,X.wind,wSource,imgwUsable('wind'),ic.wind?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
+    rows.push(fieldDecision('Kierunek wiatru',ic.windDirection,model.windDirection,X.wdeg,wdSource,imgwUsable('windDirection'),ic.windDirection?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
+    rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,gSource,gustUsable,
+      gustUsable?'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km':'IMGW poza TTL/zasięgiem; zachowano model dla T0.'));
+    rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,pSource,rainUsable,
+      rainUsable?'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain':'Brak świeżego opadu_10min z Głodowa; guard nie może użyć IMGW.'));
+    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,'Open-Meteo → weather-fusion',false,'brak bezpośredniego pola IMGW; fuzja modeli/obserwacji nie jest polem stacji'));
     rows.push(fieldDecision('Temperatura odczuwalna',null,model.apparentFinal,X.feels,'Aura derived',false,'wyliczana po fuzji z temperatury, RH, wiatru i porywów'));
     rows.push(fieldDecision('UV',null,model.uv,X.uv,'Open-Meteo',false,'IMGW Głodowo nie dostarcza pola UV w używanym feedzie'));
-    rows.push(fieldDecision('Widoczność',null,model.visibility,X.visKm,'Open-Meteo / visibility guard',false,'IMGW Głodowo nie dostarcza używanego pola widoczności; sanityzer dopuszcza niską wartość tylko przy zjawisku redukującym widzialność'));
+    rows.push(fieldDecision('Widoczność',null,model.visibility,X.visKm,'Open-Meteo → visibility guard',false,'wartość końcowa pochodzi z Open-Meteo; guard tylko kontroluje jej wiarygodność'));
     rows.push(fieldDecision('Ciśnienie',null,model.pressure,X.press,'Open-Meteo',false,'Głodowo nie dostarcza ciśnienia w tym feedzie'));
     rows.push(fieldDecision('Promieniowanie',null,model.radiation,X.rad,'Open-Meteo',false,'Głodowo nie dostarcza używanego pola promieniowania'));
     rows.push(fieldDecision('Punkt rosy',null,model.dewPoint,X.dewStation??X.dew,'Aura derived / IMGW RH',false,'wyliczany z temperatury i wilgotności; nie jest bezpośrednim pomiarem stacji'));
@@ -370,8 +374,15 @@
         r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)'
       );
       const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
-      const modelText=mod.value==null?'—':esc2(String(mod.value));
-      const finalText=r.final?.value==null?'—':esc2(String(r.final.value));
+      const modelText=displayNum(r.name,mod.value);
+      const displayNum=(name,value)=>{
+        if(value==null)return '—';
+        const n=Number(value);
+        if(!Number.isFinite(n))return esc2(String(value));
+        return esc2(String(['Punkt rosy','Temperatura odczuwalna'].includes(name)?Number(n.toFixed(1)):value));
+      };
+      const finalText=displayNum(r.name,r.final?.value);
+
       return `<tr>
         <td><b>${esc2(r.name)}</b></td>
         <td>${imgText}<br><small>${esc2(img.time||'—')} · ${img.ageMinutes==null?'wiek —':img.ageMinutes+' min'} · TTL ${img.ttlMinutes??IMGW_TTL_MIN} min</small></td>
