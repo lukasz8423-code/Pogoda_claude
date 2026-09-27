@@ -289,7 +289,7 @@
     rows.push(fieldDecision('Ciśnienie',null,model.pressure,X.press,'Open-Meteo',false,'Głodowo nie dostarcza ciśnienia w tym feedzie'));
     rows.push(fieldDecision('Promieniowanie',null,model.radiation,X.rad,'Open-Meteo',false,'Głodowo nie dostarcza używanego pola promieniowania'));
     rows.push(fieldDecision('Punkt rosy',null,model.dewPoint,X.dewStation??X.dew,'Aura derived / IMGW RH',false,'wyliczany z temperatury i wilgotności; nie jest bezpośrednim pomiarem stacji'));
-    rows.push(fieldDecision('Słońce / cień',null,model.sunShade,null,'Aura derived',false,'wynik calcSunShadeTemp(); nie jest pomiarem stacji'));
+    rows.push(fieldDecision('Słońce / cień',null,model.sunShade,model.sunShade?.value??X.sunShade?.sun??null,'Aura derived',false,'wynik calcSunShadeTemp(); nie jest pomiarem stacji'));
     rows.push(fieldDecision('Wilgotność liści',null,null,null,'Aura derived',false,'modelowana z punktu rosy, RH, wiatru, chmur i opadu; brak fizycznego czujnika'));
     rows.push(fieldDecision('Gleba 0–1 cm',null,null,null,'brak danych',false,'aktualny endpoint nie pobiera soil_moisture_0_to_1cm; brak wartości nie jest zastępowany.'));
 
