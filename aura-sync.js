@@ -8,14 +8,12 @@
   function parseLocalTs(raw){
     if(raw==null||raw==='') return null;
     if(raw instanceof Date){const t=raw.getTime();return Number.isFinite(t)?t:null;}
-    const s=String(raw).trim();
-    const m=s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if(m){
-      const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
-      const t=d.getTime();
-      return Number.isFinite(t)?t:null;
+    if(typeof raw==='number'){const t=raw<1e11?raw*1000:raw;return Number.isFinite(t)?t:null;}
+    if(typeof window.AURA_PARSE_TIMESTAMP==='function'){
+      const t=window.AURA_PARSE_TIMESTAMP(raw);
+      if(Number.isFinite(t))return t;
     }
-    const t=Date.parse(s);
+    const t=Date.parse(String(raw).trim());
     return Number.isFinite(t)?t:null;
   }
 
