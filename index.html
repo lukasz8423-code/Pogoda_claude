@@ -1556,7 +1556,8 @@ function putWeatherCache(key,data){
 async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   // Każdy model ma własny zestaw obsługiwanych zmiennych. DWD ICON nie udostępnia
   // UV w tym endpointcie, więc wspólne zapytanie z uv_index/uv_index_clear_sky daje HTTP 400.
-  // Open-Meteo wymaga forecast_days jako liczby całkowitej. DMI HARMONIE AROME Europe ma horyzont ok. 2.5 doby, więc dla parametru forecast_days żądamy bezpiecznie 2 dób zamiast niepoprawnego 2.5.\n  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10,dmi_harmonie_arome_europe:2};
+  // Open-Meteo wymaga forecast_days jako liczby całkowitej. DMI HARMONIE AROME Europe ma horyzont ok. 2.5 doby, więc dla parametru forecast_days żądamy bezpiecznie 2 dób zamiast niepoprawnego 2.5.
+  const maxForecastDays={icon_d2:2,icon_eu:5,ecmwf_ifs025:10,gfs_seamless:10,best_match:16,meteofrance_seamless:10,dmi_harmonie_arome_europe:2};
   const requestDays=Math.min(Number(days)||10,maxForecastDays[modelId]||10);
   const commonCurrent=[
     "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
