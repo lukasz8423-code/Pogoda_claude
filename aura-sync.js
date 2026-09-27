@@ -53,13 +53,55 @@
 
   function buildImgwComponents(im){
     if(!im)return null;
+
+    // IMGW METEO snapshot używa kanonicznych nazw pól:
+    // temperatura_powietrza, wiatr_srednia_predkosc, wiatr_kierunek,
+    // wiatr_poryw_10min, opad_10min. Starsze aliasy pozostają jako
+    // kompatybilność, ale nie mogą powodować utraty danych.
+    const pick=(...keys)=>{
+      for(const key of keys){
+        const value=im[key];
+        if(value!==undefined&&value!==null&&value!=='') return value;
+      }
+      return null;
+    };
     const c={
-      temperature:component(im.temperatura,im.temperatura_data,'°C'),
-      humidity:component(im.wilgotnosc_wzgledna,im.wilgotnosc_wzgledna_data,'%'),
-      wind:component(im.predkosc_wiatru!=null?Number(im.predkosc_wiatru)*3.6:null,im.predkosc_wiatru_data,'km/h',{rawUnit:'m/s'}),
-      windDirection:component(im.kierunek_wiatru,im.kierunek_wiatru_data,'°'),
-      gust:component(im.poryw_wiatru!=null?Number(im.poryw_wiatru)*3.6:null,im.poryw_wiatru_data,'km/h',{rawUnit:'m/s'}),
-      rain10min:component(im.opad_10min,im.opad_10min_data,'mm')
+      temperature:component(
+        pick('temperatura_powietrza','temperatura'),
+        pick('temperatura_powietrza_data','temperatura_data'),
+        '°C'
+      ),
+      humidity:component(
+        pick('wilgotnosc_wzgledna'),
+        pick('wilgotnosc_wzgledna_data'),
+        '%'
+      ),
+      wind:component(
+        pick('wiatr_srednia_predkosc','predkosc_wiatru')!=null
+          ? Number(pick('wiatr_srednia_predkosc','predkosc_wiatru'))*3.6
+          : null,
+        pick('wiatr_srednia_predkosc_data','predkosc_wiatru_data'),
+        'km/h',
+        {rawUnit:'m/s'}
+      ),
+      windDirection:component(
+        pick('wiatr_kierunek','kierunek_wiatru'),
+        pick('wiatr_kierunek_data','kierunek_wiatru_data'),
+        '°'
+      ),
+      gust:component(
+        pick('wiatr_poryw_10min','poryw_wiatru')!=null
+          ? Number(pick('wiatr_poryw_10min','poryw_wiatru'))*3.6
+          : null,
+        pick('wiatr_poryw_10min_data','poryw_wiatru_data'),
+        'km/h',
+        {rawUnit:'m/s'}
+      ),
+      rain10min:component(
+        pick('opad_10min'),
+        pick('opad_10min_data'),
+        'mm'
+      )
     };
     const fresh=Object.entries(c)
       .filter(([,x])=>x.fresh&&x.timestamp)
