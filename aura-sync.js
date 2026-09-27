@@ -368,6 +368,11 @@
       canonicalLatestTimestamp:canonicalLatest?.timestamp||null,
       canonicalLatestTime:canonicalLatest?.time||null,
       canonicalLatestAgeMinutes:canonicalLatest?.ageMinutes??null,
+      networkSource:S.imgwDiag?.networkSource||null,
+      networkFetchedAt:S.imgwDiag?.networkFetchedAt||null,
+      networkFetchedAtTime:S.imgwDiag?.networkFetchedAt?fmtTime(S.imgwDiag.networkFetchedAt):null,
+      networkStatus:S.imgwDiag?.status||null,
+      networkFallback:S.imgwDiag?.isFallback===true,
       rows
     };
   }
@@ -458,7 +463,7 @@
       .filter(([,x])=>x?.fresh).map(([k,x])=>k+' '+x.time+' ('+x.ageMinutes+' min)').join(' · ');
     return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
       <div class="note">Kanoniczny snapshot Głodowa: <b>${esc2(all.canonicalLatestTime||'—')}</b> · ${all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min'} · TTL IMGW <b>${IMGW_TTL_MIN} min</b>.</div>
-      <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
+      <div class="note">Połączenie IMGW: <b>${esc2(all.networkSource||'—')}</b> · pobrano odpowiedź: <b>${esc2(all.networkFetchedAtTime||'—')}</b> · ${all.networkFallback?'użyto snapshotu lokalnego':'użyto odpowiedzi live API'}.</div>\n      <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
       <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>→ GUARD</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
       <div class="diag-xscroll component-diag-scroll" tabindex="0" aria-label="Pełna diagnostyka komponentów — przewijanie poziome"><table class="component-diag-table" style="width:max-content;min-width:1100px;border-collapse:collapse;font-size:11px">
         <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead>
