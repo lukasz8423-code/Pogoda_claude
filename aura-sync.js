@@ -187,16 +187,20 @@
       decision='USED';
       decisionLabel='✓ UŻYTO IMGW';
       decisionColor='var(--ok)';
+    }else if(hasFinal && (sourceText.includes('aura derived') || sourceText.includes('derived'))){
+      decision='DERIVED';
+      decisionLabel='◌ WYLICZONO';
+      decisionColor='var(--ink2)';
+    }else if(hasFinal && (sourceText.includes('guard') || sourceText.includes('precipitation guard'))){
+      decision='SYSTEM';
+      decisionLabel='→ GUARD';
+      decisionColor='var(--ink2)';
     }else if(hasModel && hasFinal){
       // modelComp potwierdza realne wejście modelowe; opis procesu fuzji nie
       // może udawać źródła końcowej wartości.
       decision='MODEL_ONLY';
       decisionLabel='◉ MODEL';
       decisionColor='var(--rain)';
-    }else if(hasFinal && (sourceText.includes('aura derived') || sourceText.includes('derived'))){
-      decision='DERIVED';
-      decisionLabel='◌ WYLICZONO';
-      decisionColor='var(--ink2)';
     }else if(hasFinal && sourceText!=='brak danych'){
       decision='SOURCE_ONLY';
       decisionLabel='→ ŹRÓDŁO';
@@ -287,7 +291,7 @@
     rows.push(fieldDecision('Punkt rosy',null,model.dewPoint,X.dewStation??X.dew,'Aura derived / IMGW RH',false,'wyliczany z temperatury i wilgotności; nie jest bezpośrednim pomiarem stacji'));
     rows.push(fieldDecision('Słońce / cień',null,model.sunShade,null,'Aura derived',false,'wynik calcSunShadeTemp(); nie jest pomiarem stacji'));
     rows.push(fieldDecision('Wilgotność liści',null,null,null,'Aura derived',false,'modelowana z punktu rosy, RH, wiatru, chmur i opadu; brak fizycznego czujnika'));
-    rows.push(fieldDecision('Gleba 0–1 cm',null,null,null,'brak danych',false,'aktualny endpoint nie pobiera soil_moisture_0_to_1cm; brak wartości nie jest zastępowany'));
+    rows.push(fieldDecision('Gleba 0–1 cm',null,null,null,'brak danych',false,'aktualny endpoint nie pobiera soil_moisture_0_to_1cm; brak wartości nie jest zastępowany.'));
 
     return {
       capturedAt:Date.now(),
@@ -353,6 +357,7 @@
         r.decision==='USED'?'✓ UŻYTO IMGW':
         r.decision==='MODEL_ONLY'?'◉ MODEL':
         r.decision==='DERIVED'?'◌ WYLICZONO':
+        r.decision==='SYSTEM'?'→ GUARD':
         r.decision==='SOURCE_ONLY'?'→ ŹRÓDŁO':
         r.decision==='VALUE'?'✓ WARTOŚĆ':'— BRAK DANYCH'
       );
@@ -360,6 +365,7 @@
         r.decision==='USED'?'var(--ok)':
         r.decision==='MODEL_ONLY'?'var(--rain)':
         r.decision==='DERIVED'?'var(--ink2)':
+        r.decision==='SYSTEM'?'var(--ink2)':
         r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)'
       );
       const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
@@ -378,7 +384,7 @@
     return `<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>
       <div class="note">Kanoniczny snapshot Głodowa: <b>${esc2(all.canonicalLatestTime||'—')}</b> · ${all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min'} · TTL IMGW <b>${IMGW_TTL_MIN} min</b>.</div>
       <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
-      <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
+      <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>→ GUARD</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
       <div style="overflow:auto"><table style="width:100%;min-width:980px;border-collapse:collapse;font-size:11px">
         <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead>
         <tbody>${tr}</tbody>
