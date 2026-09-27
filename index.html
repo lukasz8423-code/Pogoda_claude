@@ -5494,7 +5494,7 @@ function pipelineInspectorHTML(){
     ["Poryw",img.rawPorywWiatru==null?(img.poryw_wiatru==null?null:Number(img.poryw_wiatru)*3.6):Number(img.rawPorywWiatru)*3.6,img.poryw_wiatru_data,img.porywWiatruAgeMinutes,img.porywWiatruFresh],
     ["Opad 10 min",img.rawOpad10min??img.opad_10min,img.opad_10min_data,img.opad10minAgeMinutes,img.opad10minFresh]
   ];
-  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>"}).join("")+"</tbody></table></div>";
+  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
   const sourceRows=rawModels.map(r=>{
     const md=r.data||{};
     const gridLat=Number(md.latitude),gridLng=Number(md.longitude);
