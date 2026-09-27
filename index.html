@@ -940,8 +940,20 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
 
   const safeActivity = (outdoorText, indoorText) => blockedOutdoor ? indoorText : outdoorText;
 
-  // Ziarno wariacji tekstu (zależne od dnia i pory, aby nie było powtarzalne)
-  const seed = (hour + (new Date().getDate() * 7)) % 3;
+  // Stabilna rotacja porad: osobna pula dla każdej pory dnia.
+  // Data wpływa na wybór, ale odświeżenie aplikacji nie zmienia porady w trakcie dnia.
+  const localDayKey = (() => {
+    try {
+      const tz = dataTimeZone(S.data);
+      const parts = new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+      const o = Object.fromEntries(parts.map(x=>[x.type,x.value]));
+      return `${o.year}-${o.month}-${o.day}`;
+    } catch {
+      const d=new Date();
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    }
+  })();
+  const daySeed = localDayKey.split("-").reduce((n,v)=>n*31+Number(v),0);
 
   // 1. Zjawiska ekstremalne i opadowe (mają najwyższy priorytet)
   if(isStorm){
@@ -1092,25 +1104,58 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
   }
 
   // D. Ciekawostka / Tip z przymrużeniem oka (tip)
-  const tips = [
-    t >= 12 && t <= 16
-      ? `${t}°C to ten unikalny stan, kiedy na ulicy spotkasz jednocześnie ludzi w puchówkach i kogoś w krótkich spodenkach udającego, że wciąż jest lato.`
-      : isWindy
-        ? "Przy tych podmuchach wiatru darmowa stylizacja fryzury w stylu 'artystyczny nieład' jest gwarantowana w pakiecie."
-        : "Optymalna temperatura do myślenia – neurony pracują na najwyższych obrotach bez ryzyka przegrzania.",
-    daypart === "morning"
-      ? "Kawa wypita przy oknie smakuje o 20% lepiej, a pierwszy łyk rześkiego powietrza zastępuje drugie espresso."
-      : daypart === "evening"
-        ? "Wieczorny reset na świeżym powietrzu obniża poziom stresu szybciej niż bezcelowe przewijanie social mediów."
-        : "Ruch na świeżym powietrzu przy stabilnej aurze doskonale dotlenia i czyści głowę.",
-    isOvercast
-      ? "Brak bezpośredniego słońca to wymarzona pogoda dla fotografów i ekranów telefonów – zero irytujących odblasków!"
-      : isClear
-        ? "Czyste niebo to darmowa dawka witaminy D – korzystaj, póki natura nie zmieni zdania."
-        : "Najlepszy moment na zrobienie swoich dziennych kroków jest właśnie teraz."
-  ];
-
-  wittyTip = tips[seed];
+  // Każda pora dnia ma własną pulę. Wybór jest stabilny przez cały dzień,
+  // ale zmienia się między kolejnymi dniami.
+  const tipPools = {
+    morning: [
+      "Kawa wypita przy oknie smakuje lepiej, gdy za oknem naprawdę coś się dzieje.",
+      "Poranek to dobry moment na złapanie świeżego powietrza, zanim dzień rozkręci się na dobre.",
+      "Jeśli rano jest rześko, organizm dostaje darmowy budzik bez funkcji drzemki.",
+      "Pierwsze promienie słońca robią dziś za naturalną lampę – szkoda ich nie wykorzystać.",
+      "Poranek spokojny? To może być najlepsza część dnia, zanim telefon zacznie mieć własne zdanie.",
+      "Dobra pogoda od rana to argument, żeby chociaż na chwilę wyjść spod dachu.",
+      "Jeśli dziś potrzebujesz energii, pogoda właśnie próbuje Ci ją dostarczyć."
+    ],
+    forenoon: [
+      "Przedpołudnie to idealny moment, żeby załatwić sprawy, zanim dzień zrobi się naprawdę intensywny.",
+      "Jeśli pogoda wygląda zachęcająco, krótki spacer teraz może uratować późniejsze lenistwo.",
+      "To ta pora dnia, kiedy można jeszcze powiedzieć: „mam cały dzień przed sobą”.",
+      "Dobre światło i świeże powietrze – natura właśnie otworzyła darmową strefę regeneracji.",
+      "Jeśli temperatura jest dziś niejednoznaczna, ubiór warstwowy nadal pozostaje mistrzem uniwersalności.",
+      "Przedpołudniowe słońce nie pyta o grafik – po prostu warto je złapać.",
+      "Jeszcze nie południe, a pogoda już zdradza, jaki będzie charakter całego dnia."
+    ],
+    afternoon: [
+      "Popołudnie to dobry moment, żeby sprawdzić, czy pogoda rzeczywiście jest tak dobra, jak obiecuje aplikacja.",
+      "Jeśli masz coś do zrobienia na zewnątrz, właśnie teraz warto zerknąć na niebo zamiast tylko na ekran.",
+      "Dzienne światło powoli zmierza do mety – korzystaj, póki jeszcze jest po Twojej stronie.",
+      "Popołudniowa pogoda często mówi więcej niż poranna prognoza – wystarczy spojrzeć przez okno.",
+      "Jeśli temperatura trzyma fason, krótki spacer może być najlepszą przerwą od siedzenia.",
+      "To dobra pora na ruch, świeże powietrze albo zwyczajne nicnierobienie na ławce.",
+      "Pogoda na dziś została właśnie wystawiona na próbę – wyjdź na chwilę i sprawdź ją osobiście."
+    ],
+    evening: [
+      "Wieczorem nawet zwykły spacer potrafi zrobić porządek w głowie lepiej niż kolejna godzina przed ekranem.",
+      "Jeśli temperatura jeszcze rozpieszcza, warto wykorzystać ostatni fragment dnia na świeżym powietrzu.",
+      "Wieczór to dobry moment, żeby przewietrzyć głowę – dosłownie i w przenośni.",
+      "Słońce schodzi ze sceny, ale dzień jeszcze nie musi się kończyć.",
+      "Jeśli za oknem jest spokojnie, krótki wieczorny spacer brzmi jak całkiem dobry plan.",
+      "Wieczorna aura ma jedną zaletę: nie trzeba już nigdzie się spieszyć.",
+      "Dzień powoli zwalnia – pogoda właśnie dostała zadanie, żeby zrobić to razem z Tobą."
+    ],
+    night: [
+      "Noc jest od odpoczynku – nawet pogoda nie próbuje już robić nadgodzin.",
+      "Chłodniejsze nocne powietrze potrafi zrobić więcej dla przewietrzenia głowy niż kolejny filmik.",
+      "Jeśli niebo jest czyste, noc ma dziś całkiem niezłą dekorację.",
+      "Dzień zakończony, prognoza sprawdzona – teraz pora dać sobie spokój z ekranem.",
+      "Nocą temperatura spada, więc jutro poranek może mieć zupełnie inny charakter.",
+      "Cisza, chłodniejsze powietrze i mniej bodźców – całkiem niezły zestaw na koniec dnia.",
+      "Pogoda na dziś już zrobiła swoje. Teraz kolej na regenerację."
+    ]
+  };
+  const tips = tipPools[daypart] || tipPools.afternoon;
+  const tipIndex = ((daySeed % tips.length) + tips.length) % tips.length;
+  wittyTip = tips[tipIndex];
 
   return {
     daypartLabel,
