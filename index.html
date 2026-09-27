@@ -4250,7 +4250,7 @@ function getHourlyCode(hourlyData,idx){
   const cloud=Number(hourlyData?.cloud_cover?.[idx]??0);
 
   // Zasadnicza zasada: brak opadu (pr <= 0.05 mm) oznaczamy kodem zachmurzenia bezopadowym.
-  if(pr<=0.05 || cloud<=15){
+  if(pr<=0.05 && cloud<=15){
     if(rawCode===45||rawCode===48)return rawCode;
     if(cloud<=15)return 0;
     if(cloud<=40)return 1;
@@ -4302,7 +4302,7 @@ function hourlyHTML(X){
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
     const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30,cloud)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span></div>`;
   }
 
   return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span></div></div><div class="hstrip">${out}</div></section>`;
@@ -4400,7 +4400,7 @@ function dailyRows(){
         const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
         const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
         const hCode=getHourlyCode(hourly,k);
-        hs+=`<div class="hi"><span class="t tn">${String(t).slice(11,13)}</span>${ico(hCode,isDayAt(t),28)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
+        hs+=`<div class="hi"><span class="t tn">${String(t).slice(11,13)}</span>${ico(hCode,isDayAt(t),28,c)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
       {
