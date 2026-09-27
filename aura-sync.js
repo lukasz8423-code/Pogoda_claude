@@ -121,7 +121,9 @@
 
   function sync(){
     try{
-      // S jest zadeklarowane jako globalny lexical binding (const), więc nie musi być właściwością window.\n      // Poprzedni warunek sprawdzał window.S i blokował synchronizację diagnostyki mimo poprawnego S.imgwData.\n      if(typeof S==='undefined'||!S||!S.imgwData)return null;
+      // S jest zadeklarowane jako globalny lexical binding (const), więc nie musi być właściwością window.
+      // Poprzedni warunek sprawdzał window.S i blokował synchronizację diagnostyki mimo poprawnego S.imgwData.
+      if(typeof S==='undefined'||!S||!S.imgwData)return null;
       const d=buildImgwComponents(S.imgwData);
       if(!d)return null;
       S.imgwData.componentDiagnostics=d;
@@ -142,7 +144,10 @@
     }
   }
 
-  // Publiczny hook: główny pipeline może wymusić synchronizację dokładnie po zapisaniu S.imgwData.\n  window.AURA_SYNC_IMGW=function(){return sync();};\n\n  function geminiAuraContext(){
+  // Publiczny hook: główny pipeline może wymusić synchronizację dokładnie po zapisaniu S.imgwData.
+  window.AURA_SYNC_IMGW=function(){return sync();};
+
+  function geminiAuraContext(){
     try{
       const d=S.data||{}, c=d.current||{}, h=d.hourly||{};
       const ci=typeof currentHourIndex==='function'?currentHourIndex(d,new Date()):0;
