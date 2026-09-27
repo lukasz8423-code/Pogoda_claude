@@ -644,11 +644,12 @@ a.btn{text-decoration:none;color:inherit}
 .sheet h3{font-size:18px;font-weight:600;margin-bottom:4px}
 .diag-section{margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025)}
 .diag-section-title{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:8px;display:flex;align-items:center;gap:7px}
-.diag-xscroll{width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:thin}
-.diag-xscroll::-webkit-scrollbar{display:block;height:7px}
+.diag-xscroll{display:block;width:100%;min-width:0;max-width:100%;overflow-x:scroll;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:auto;scroll-behavior:auto;cursor:grab;padding-bottom:4px}
+.diag-xscroll:active{cursor:grabbing}
+.diag-xscroll::-webkit-scrollbar{display:block;width:9px;height:9px}
 .diag-xscroll::-webkit-scrollbar-track{background:rgba(255,255,255,.06);border-radius:999px}
-.diag-xscroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.28);border-radius:999px}
-.diag-xscroll table{width:max-content}
+.diag-xscroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.38);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+.diag-xscroll table{display:table;width:max-content!important;min-width:max-content!important;max-width:none!important;table-layout:auto}
 .sheet .sd{color:var(--ink2);font-size:13.5px;margin-bottom:14px}
 .mi{display:flex;width:100%;align-items:center;gap:12px;padding:12px;border-radius:16px;text-align:left;border:1px solid transparent}
 .mi:active{background:rgba(255,255,255,.08)}
@@ -5253,7 +5254,35 @@ function skeletonHTML(){
 }
 
 // ── arkusze (model, surowe dane, zagrożenia)
-function openSheet(html){$("#sheet-root").innerHTML=`<div class="sheet-bg" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><button class="ib x" data-act="close" aria-label="Zamknij" style="float:right;width:36px;height:36px">${mini("close")}</button>${html}</div></div>`;}
+function openSheet(html){$("#sheet-root").innerHTML=`<div class="sheet-bg" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><button class="ib x" data-act="close" aria-label="Zamknij" style="float:right;width:36px;height:36px">${mini("close")}</button>${html}</div></div>`;bindDiagHorizontalScroll();}
+function bindDiagHorizontalScroll(){
+  const scrollers=document.querySelectorAll("#sheet-root .diag-xscroll");
+  scrollers.forEach(el=>{
+    if(el.dataset.hscrollBound==="1") return;
+    el.dataset.hscrollBound="1";
+    let dragging=false,startX=0,startLeft=0;
+    el.addEventListener("wheel",e=>{
+      if(Math.abs(e.deltaY)>Math.abs(e.deltaX) && el.scrollWidth>el.clientWidth){
+        e.preventDefault();
+        el.scrollLeft+=e.deltaY;
+      }
+    },{passive:false});
+    el.addEventListener("pointerdown",e=>{
+      if(el.scrollWidth<=el.clientWidth) return;
+      dragging=true;startX=e.clientX;startLeft=el.scrollLeft;
+      el.setPointerCapture?.(e.pointerId);
+    });
+    el.addEventListener("pointermove",e=>{
+      if(!dragging) return;
+      const dx=e.clientX-startX;
+      el.scrollLeft=startLeft-dx;
+    });
+    const stop=()=>{dragging=false;};
+    el.addEventListener("pointerup",stop);
+    el.addEventListener("pointercancel",stop);
+    el.addEventListener("lostpointercapture",stop);
+  });
+}
 function closeSheet(){$("#sheet-root").innerHTML="";}
 
 function openThreatsSheet(X){
