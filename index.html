@@ -6624,7 +6624,7 @@ function isActiveLoad(token,lat,lng){
     (S.lng==null || Math.abs(Number(S.lng)-Number(lng))<0.000001);
 }
 
-function lockFusionState(token,lat,lng,data,imgwData){
+function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null){
   if(token!==LOAD_SEQ)return false;
   S.isFusionLocked=true;
   S.fusionLock={
@@ -6638,12 +6638,52 @@ function lockFusionState(token,lat,lng,data,imgwData){
       Number(imgwData?.dist)<=30
     )
   };
-  // Renderer dostaje referencję do już skorygowanego obiektu. Nie kopiujemy
-  // surowych danych ponownie po tej granicy.
+
+  // Godzinowe zachmurzenie musi pochodzić z aktywnego modelu i być
+  // dopasowane po dokładnym timestampie. Nie pozwalamy, aby obiekt
+  // IMGW_OFFLINE_ENSEMBLE albo inna fuzja po cichu stała się źródłem
+  // godzinowych chmur w UI.
+  const targetHourly=data?.hourly;
+  const sourceHourly=activeModelRawData?.hourly;
+  if(targetHourly?.time?.length&&sourceHourly?.time?.length&&Array.isArray(sourceHourly.cloud_cover)){
+    const sourceCloudByTime=new Map();
+    sourceHourly.time.forEach((t,i)=>{
+      const v=Number(sourceHourly.cloud_cover?.[i]);
+      if(Number.isFinite(v))sourceCloudByTime.set(String(t),clamp(v,0,100));
+    });
+    let matched=0;
+    for(let i=0;i<targetHourly.time.length;i++){
+      const v=sourceCloudByTime.get(String(targetHourly.time[i]));
+      if(v!=null){
+        targetHourly.cloud_cover[i]=v;
+        matched++;
+      }
+    }
+    const currentIndex=currentHourIndex(data,new Date());
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.hourlyCloudCanonical={
+      source:"active_model_raw_timestamp_match",
+      model:activeModelRawData?.__auraSourceMeta?.requestedModel||activeModel.id,
+      requested:{lat:Number(lat),lng:Number(lng)},
+      response:{
+        lat:Number.isFinite(Number(activeModelRawData?.latitude))?Number(activeModelRawData.latitude):null,
+        lng:Number.isFinite(Number(activeModelRawData?.longitude))?Number(activeModelRawData.longitude):null,
+        timezone:activeModelRawData?.timezone||null,
+        utcOffsetSeconds:Number.isFinite(Number(activeModelRawData?.utc_offset_seconds))
+          ?Number(activeModelRawData.utc_offset_seconds):null
+      },
+      matchedSlots:matched,
+      targetSlots:targetHourly.time.length,
+      currentIndex,
+      currentSlot:targetHourly.time[currentIndex]||null,
+      activeCurrentCloud:Number.isFinite(Number(activeModelRawData?.current?.cloud_cover))
+        ?Number(activeModelRawData.current.cloud_cover):null
+    };
+  }
+
   S.fusionLockedHourly=data?.hourly||null;
   return true;
 }
-
 async function loadW(lat,lng,name,isRef){
   const token=++LOAD_SEQ;
   S.isFusionLocked=false;
