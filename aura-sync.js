@@ -128,10 +128,13 @@
 
   function sync(){
     try{
-      // S jest zadeklarowane jako globalny lexical binding (const), więc nie musi być właściwością window.
-      // Poprzedni warunek sprawdzał window.S i blokował synchronizację diagnostyki mimo poprawnego S.imgwData.
-      if(typeof S==='undefined'||!S||!S.imgwData)return null;
-      const d=buildImgwComponents(S.imgwData);
+      // Synchronizacja nie może zależeć od momentu uruchomienia aura-sync.js.
+      // Pipeline może zapisać S.imgwData dopiero po odpowiedzi IMGW.
+      if(typeof S==='undefined'||!S)return null;
+      const source=S.imgwData||S.imgwDiag?.normalized||null;
+      if(!source)return null;
+      if(!S.imgwData)S.imgwData=source;
+      const d=buildImgwComponents(source);
       if(!d)return null;
       S.imgwData.componentDiagnostics=d;
       S.imgwData.imgwCanonicalSnapshot=d;
@@ -151,8 +154,14 @@
     }
   }
 
-  // Publiczny hook: główny pipeline może wymusić synchronizację dokładnie po zapisaniu S.imgwData.
+  // Publiczny hook: główny pipeline może wymusić synchronizację dokładnie po zapisaniu danych IMGW.
   window.AURA_SYNC_IMGW=function(){return sync();};
+  // Fallback na wypadek, gdy hook wykona się przed zakończeniem inicjalizacji S.
+  let syncAttempts=0;
+  const syncTimer=setInterval(()=>{
+    syncAttempts++;
+    if(sync()||syncAttempts>=30)clearInterval(syncTimer);
+  },500);
 
   function geminiAuraContext(){
     try{
