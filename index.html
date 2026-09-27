@@ -1918,6 +1918,12 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
     anyUsable,
     freshFields,
     staleFields,
+    rawTemperatura:tempRaw,
+    rawWilgotnoscWzgledna:humidityRaw,
+    rawPredkoscWiatru:windRaw,
+    rawKierunekWiatru:windDirRaw,
+    rawPorywWiatru:gustRaw,
+    rawOpad10min:rainRaw,
     sourceType:isSnapshot?"IMGW_METEO_SNAPSHOT":"IMGW_METEO",
     sourceLabel:isSnapshot?"IMGW Głodowo (snapshot)":"IMGW Głodowo (na żywo)"
   };
@@ -2109,26 +2115,28 @@ async function findNearestIMGW(lat,lng){
       rawStation:rawGlodowo
     };
 
-    if((dist<=80 && anyUsable) || (isSnapshot && dist<=80)){
+    if(dist<=80){
+      const used=anyUsable||isSnapshot;
+      const reason=used?null:`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`;
       S.imgwDiag={
         ...S.imgwDiag,
-        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary||"aktywne"} → ACCEPTED`,
-        used:true,
-        reason:null
+        status:`IMGW Głodowo (${isSnapshot?"snapshot":"na żywo"}): ${diagSummary||"brak świeżych pól"} → ${used?"ACCEPTED":"RETAINED / STALE"}`,
+        used,
+        reason
       };
       window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], T=${normalized.temperatura}°C, wilg=${normalized.wilgotnosc_wzgledna}%, wiatr=${normalized.predkosc_wiatru}m/s, kier=${normalized.kierunek_wiatru}° (fresh: ${normalized.freshFields.join(",")})`);
+      console.log(`Lokalna stacja IMGW METEO: Głodowo (${normalized.dist} km) [${normalized.sourceLabel}], raw T=${normalized.rawTemperatura}°C, raw RH=${normalized.rawWilgotnoscWzgledna}%, raw wiatr=${normalized.rawPredkoscWiatru}m/s, fresh: ${normalized.freshFields.join(",")}, stale: ${normalized.staleFields.join(",")}`);
       return {best:normalized,nearby:[normalized]};
     }else{
-      const rejectReason=dist>80?"za daleko (>80 km)":!anyUsable?`wszystkie pola pomiarowe > ${IMGW_MAX_FIELD_AGE_MINUTES} min`:"nieznany";
+      const rejectReason="za daleko (>80 km)";
       S.imgwDiag={
         ...S.imgwDiag,
-        status:`IMGW Głodowo: ${diagSummary} → REJECTED (${rejectReason}) → Active Ensemble`,
+        status:`IMGW Głodowo: ${diagSummary} → REJECTED (${rejectReason})`,
         used:false,
         reason:rejectReason
       };
       window.__AURA_IMGW_DIAG=S.imgwDiag;
-      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded,freshFields:normalized.freshFields,staleFields:normalized.staleFields});
+      console.warn("Głodowo pominięte jako lokalne źródło:",{powod:rejectReason,dist:distRounded});
     }
   }else{
     if(S.imgwDiag)S.imgwDiag={...S.imgwDiag,status:meteoAll?"Głodowo nie znalezione":"METEO niedostępne",found:false,used:false,reason:"brak stacji 252190030 w danych"};
@@ -5475,12 +5483,12 @@ function pipelineInspectorHTML(){
   const rows=[["Temperatura","°C",img.temperatura,cur.temperature_2m,S.X?.T],["Wilgotność","%",img.wilgotnosc_wzgledna,cur.relative_humidity_2m,S.X?.hum],["Wiatr","km/h",Number.isFinite(Number(img.predkosc_wiatru))?Number(img.predkosc_wiatru)*3.6:null,cur.wind_speed_10m,S.X?.wind],["Porywy","km/h",stationFreshGustKmH(img),cur.wind_gusts_10m,S.X?.gusts],["Ciśnienie","hPa",img.cisnienie,cur.pressure_msl,S.X?.press],["Opad 10 min","mm",img.opad_10min,null,currentRainMm(S.X||{})]];
   const sourceTable="<div style=\"overflow:auto\"><table style=\"width:100%;min-width:720px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Parametr</th><th>IMGW Głodowo</th><th>Open-Meteo RAW</th><th>Aura</th><th>Różnica Aura−IMGW</th></tr></thead><tbody>"+rows.map(r=>{const imgwValue=Number(r[2]), auraValue=Number(r[4]); const diff=Number.isFinite(imgwValue)&&Number.isFinite(auraValue)?auraValue-imgwValue:null;return "<tr><td><b>"+r[0]+"</b></td><td class=\"tn\">"+fmt(r[2])+(r[2]!=null?" "+r[1]:"")+"</td><td class=\"tn\">"+fmt(r[3])+(r[3]!=null?" "+r[1]:"")+"</td><td class=\"tn\"><b>"+fmt(r[4])+(r[4]!=null?" "+r[1]:"")+"</b></td><td class=\"tn\">"+(diff==null?"—":(diff>0?"+":"")+fnum(diff,1)+" "+r[1])+"</td></tr>";}).join("")+"</tbody></table></div>";
   const imgwFieldRows=[
-    ["Temperatura",img.temperatura,img.temperatura_data,img.tempAgeMinutes,img.tempFresh],
-    ["Wilgotność",img.wilgotnosc_wzgledna,img.wilgotnosc_wzgledna_data,img.humidityAgeMinutes,img.humidityFresh],
-    ["Wiatr",img.predkosc_wiatru==null?null:Number(img.predkosc_wiatru)*3.6,img.predkosc_wiatru_data,img.windAgeMinutes,img.windFresh],
-    ["Kierunek",img.kierunek_wiatru,img.kierunek_wiatru_data,img.windDirAgeMinutes,img.windDirFresh],
-    ["Poryw",img.poryw_wiatru==null?null:Number(img.poryw_wiatru)*3.6,img.poryw_wiatru_data,img.porywWiatruAgeMinutes,img.porywWiatruFresh],
-    ["Opad 10 min",img.opad_10min,img.opad_10min_data,img.opad10minAgeMinutes,img.opad10minFresh]
+    ["Temperatura",img.rawTemperatura??img.temperatura,img.temperatura_data,img.tempAgeMinutes,img.tempFresh],
+    ["Wilgotność",img.rawWilgotnoscWzgledna??img.wilgotnosc_wzgledna,img.wilgotnosc_wzgledna_data,img.humidityAgeMinutes,img.humidityFresh],
+    ["Wiatr",img.rawPredkoscWiatru==null?(img.predkosc_wiatru==null?null:Number(img.predkosc_wiatru)*3.6):Number(img.rawPredkoscWiatru)*3.6,img.predkosc_wiatru_data,img.windAgeMinutes,img.windFresh],
+    ["Kierunek",img.rawKierunekWiatru??img.kierunek_wiatru,img.kierunek_wiatru_data,img.windDirAgeMinutes,img.windDirFresh],
+    ["Poryw",img.rawPorywWiatru==null?(img.poryw_wiatru==null?null:Number(img.poryw_wiatru)*3.6):Number(img.rawPorywWiatru)*3.6,img.poryw_wiatru_data,img.porywWiatruAgeMinutes,img.porywWiatruFresh],
+    ["Opad 10 min",img.rawOpad10min??img.opad_10min,img.opad_10min_data,img.opad10minAgeMinutes,img.opad10minFresh]
   ];
   const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
   const modelTable=modelRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">Open-Meteo — surowe modele, bieżący slot</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>T</th><th>RH</th><th>Wiatr</th><th>Chmury</th><th>Low</th><th>Mid</th><th>High</th><th>Opad</th><th>WMO</th></tr></thead><tbody>"+modelRows.map(m=>"<tr><td>"+esc(m.model)+"</td><td>"+fmt(m.temp)+"°</td><td>"+fmt(m.hum)+"%</td><td>"+fmt(m.wind)+" km/h</td><td><b>"+pct(m.cloud)+"</b></td><td>"+pct(m.low)+"</td><td>"+pct(m.mid)+"</td><td>"+pct(m.high)+"</td><td>"+fmt(m.precip)+"</td><td>"+fmt(m.code)+"</td></tr>").join("")+"</tbody></table></div><div class=\"note\">Konsensus zachmurzenia: <b>"+(consensus==null?"—":Math.round(consensus)+"%")+"</b> · Aura: <b>"+(S.X?.cloud==null?"—":Math.round(S.X.cloud)+"%")+"</b></div>":"<div class=\"note\">Brak surowych danych Open-Meteo.</div>";
