@@ -7326,7 +7326,7 @@ async function loadWCore(lat,lng,name,isRef,token){
   // po tej chwili wynik fuzji jest własnością bieżącej generacji.
   // Żaden późniejszy surowy fetch starej generacji nie może go nadpisać.
   if(token!==LOAD_SEQ)return;
-  if(!lockFusionState(token,lat,lng,data,imgwData))return;
+  if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;
 
   try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
