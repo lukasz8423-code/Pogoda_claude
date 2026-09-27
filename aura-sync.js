@@ -191,16 +191,17 @@
       decision='DERIVED';
       decisionLabel='◌ WYLICZONO';
       decisionColor='var(--ink2)';
+    }else if(hasModel && hasFinal){
+      // Jeśli istnieje konkretne wejście modelowe i Aura ma wartość finalną,
+      // źródłem jest model. Sam fakt istnienia "guard" w nazwie ścieżki
+      // nie oznacza, że guard zastąpił wartość modelową.
+      decision='MODEL_ONLY';
+      decisionLabel='◉ MODEL';
+      decisionColor='var(--rain)';
     }else if(hasFinal && (sourceText.includes('guard') || sourceText.includes('precipitation guard'))){
       decision='SYSTEM';
       decisionLabel='→ GUARD';
       decisionColor='var(--ink2)';
-    }else if(hasModel && hasFinal){
-      // modelComp potwierdza realne wejście modelowe; opis procesu fuzji nie
-      // może udawać źródła końcowej wartości.
-      decision='MODEL_ONLY';
-      decisionLabel='◉ MODEL';
-      decisionColor='var(--rain)';
     }else if(hasFinal && sourceText!=='brak danych'){
       decision='SOURCE_ONLY';
       decisionLabel='→ ŹRÓDŁO';
