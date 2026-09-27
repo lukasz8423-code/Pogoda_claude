@@ -1556,7 +1556,11 @@ function modelRunBucket(modelId,now=Date.now()){
   return d.getTime();
 }
 function weatherCacheKey(lat,lng,modelId,days){
-  return [modelId,modelRunBucket(modelId),Number(lat).toFixed(3),Number(lng).toFixed(3),days].join("|");
+  // 0.001° (~100 m) było zbyt grubym kluczem dla lokalizacji wybieranych
+  // przez GPS/wyszukiwarkę. Po zmianie miejsca Aura mogła dostać cache
+  // poprzedniego punktu i wyglądało to jak "korekta tylko dla jednej lokalizacji".
+  // 4 miejsca dziesiętne dają rozdzielczość ~11 m.
+  return [modelId,modelRunBucket(modelId),Number(lat).toFixed(4),Number(lng).toFixed(4),days].join("|");
 }
 function getWeatherCache(key,ttlMs){
   const x=WEATHER_CACHE.get(key);
@@ -1598,8 +1602,25 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
   }
   const policy=WEATHER_CACHE_POLICY[modelId]||WEATHER_CACHE_POLICY.best_match;
   const key=weatherCacheKey(lat,lng,modelId,requestDays);
-  const cached=getWeatherCache(key,policy.ttlMs);
-  if(cached)return structuredClone(cached);
+
+  // Ręczne odświeżenie / zmiana lokalizacji ma ominąć świeży cache.
+  // Wcześniej forceFresh było przekazywane przez cały pipeline, ale tutaj
+  // nie wpływało na getWeatherCache(), więc Aura potrafiła pokazać poprzedni
+  // snapshot dla tego samego zaokrąglonego klucza.
+  const cached=forceFresh?null:getWeatherCache(key,policy.ttlMs);
+  if(cached){
+    const out=structuredClone(cached);
+    out.__auraSourceMeta={
+      ...(out.__auraSourceMeta||{}),
+      cache:"memory",
+      cacheKey:key,
+      cacheAgeMs:Date.now()-(WEATHER_CACHE.get(key)?.fetchedAt||Date.now()),
+      requestedLatitude:Number(lat),
+      requestedLongitude:Number(lng),
+      requestedModel:modelId
+    };
+    return out;
+  }
 
   const inflight=WEATHER_INFLIGHT.get(key);
   if(inflight)return structuredClone(await inflight);
@@ -1640,6 +1661,19 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     }
     if(!r.ok)throw new Error("HTTP "+r.status);
     const data=await r.json();
+    data.__auraSourceMeta={
+      cache:"live",
+      cacheKey:key,
+      fetchedAt:Date.now(),
+      requestedLatitude:Number(lat),
+      requestedLongitude:Number(lng),
+      responseLatitude:Number(data?.latitude),
+      responseLongitude:Number(data?.longitude),
+      timezone:data?.timezone||null,
+      utcOffsetSeconds:Number.isFinite(Number(data?.utc_offset_seconds))?Number(data.utc_offset_seconds):null,
+      requestedModel:modelId,
+      modelRunBucket:modelRunBucket(modelId)
+    };
     putWeatherCache(key,data);
     return data;
   })();
