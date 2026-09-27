@@ -6709,6 +6709,7 @@ async function loadWCore(lat,lng,name,isRef,token){
       // Wcześniej lokalna zmienna imgwData nie była kopiowana do S.imgwData,
       // przez co aura-sync.js widział stale null i pokazywał „snapshot —”.
       S.imgwData=imgwData;
+      // Synchronizuj diagnostykę natychmiast po otrzymaniu kanonicznego snapshotu IMGW.\n      // Nie czekamy na timer aura-sync.js ani ponowne otwarcie inspektora.\n      if(typeof window.AURA_SYNC_IMGW==='function') window.AURA_SYNC_IMGW();
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
