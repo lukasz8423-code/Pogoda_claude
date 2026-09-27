@@ -1876,7 +1876,7 @@ function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IM
   const calcAgeMin=ts=>ts==null?null:Math.round((nowMs-ts)/60000);
   const isFresh=(val,ts)=>{
     if(val===null||ts===null)return false;
-    if(isSnapshot)return true;
+    // Snapshot lokalny nigdy nie jest automatycznie świeży.
     const ageMs=nowMs-ts;
     return Number.isFinite(ageMs)&&ageMs>=-10*60*1000&&ageMs<=maxAgeMs;
   };
@@ -2032,7 +2032,7 @@ async function fetchIMGWMeteoAll(){
 
   // 1. Spróbuj pobrać bezpośrednio z IMGW METEO API z progiem timeout
   try{
-    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/",{
+    const r=await fetch("https://danepubliczne.imgw.pl/api/data/meteo/?aura=1790505414934",{
       mode:"cors",cache:"no-store",headers:{Accept:"application/json"},signal:AbortSignal.timeout(8000)
     });
     if(!r.ok)throw new Error("HTTP "+r.status);
