@@ -27,7 +27,7 @@
   }
 
   function fmtTime(ts){
-    const t=parseLocalTs(ts);
+    const t=(typeof ts==='number'&&Number.isFinite(ts))?ts:parseLocalTs(ts);
     return t==null?null:new Date(t).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
   }
 
@@ -326,11 +326,13 @@
 
   function buildAllComponentDiagnostics(){
     sync();
-    const im=S.imgwData||{};
+    const state=window.__AURA_STATE__||S||{};
+    const diag=window.__AURA_IMGW_DIAG||state.imgwDiag||{};
+    const im=state.imgwData||diag.normalized||{};
     const ic=window.__AURA_IMGW_COMPONENT_DIAG?.components||{};
     const model=modelComponentDiagnostics()||{};
-    const X=S.X||{};
-    const finalFusion=S.finalWeatherFusion||{};
+    const X=state.X||{};
+    const finalFusion=state.finalWeatherFusion||{};
     const distance=Number(im.dist);
     const canFuse=Number.isFinite(distance)&&distance<=45;
     const imgwUsable=(k)=>!!ic[k]?.fresh&&canFuse;
@@ -379,11 +381,11 @@
       canonicalLatestTimestamp:canonicalLatest?.timestamp||null,
       canonicalLatestTime:canonicalLatest?.time||null,
       canonicalLatestAgeMinutes:canonicalLatest?.ageMinutes??null,
-      networkSource:S.imgwDiag?.networkSource||null,
-      networkFetchedAt:S.imgwDiag?.networkFetchedAt||null,
-      networkFetchedAtTime:S.imgwDiag?.networkFetchedAt?fmtTime(S.imgwDiag.networkFetchedAt):null,
-      networkStatus:S.imgwDiag?.status||null,
-      networkFallback:S.imgwDiag?.isFallback===true,
+      networkSource:diag.networkSource||null,
+      networkFetchedAt:diag.networkFetchedAt||null,
+      networkFetchedAtTime:diag.networkFetchedAt?fmtTime(diag.networkFetchedAt):null,
+      networkStatus:diag.status||null,
+      networkFallback:diag.isFallback===true,
       rows
     };
   }
