@@ -2521,12 +2521,12 @@ function localHourKey(data=S.data,ms=Date.now()){
 }
 function localWallOrdinal(value){
   const s=String(value||"");
-  const m=s.match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})/);
+  const m=s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
   if(!m)return NaN;
   return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);
 }
 function hhmm(value,data=S.data){
-  if(typeof value==="string" && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/.test(value) && !/[zZ]|[+-]\\d{2}:?\\d{2}$/.test(value)){
+  if(typeof value==="string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)){
     return value.slice(11,16);
   }
   const ms=value instanceof Date?value.getTime():Number(value);
@@ -4245,7 +4245,7 @@ function isDayAt(iso){
   const sunrise=di>=0?String(daily.sunrise?.[di]||"").slice(11,16):"";
   const sunset=di>=0?String(daily.sunset?.[di]||"").slice(11,16):"";
   const hm=s.slice(11,16);
-  if(/^\\d{2}:\\d{2}$/.test(hm)&&/^\\d{2}:\\d{2}$/.test(sunrise)&&/^\\d{2}:\\d{2}$/.test(sunset)){
+  if(/^\d{2}:\d{2}$/.test(hm)&&/^\d{2}:\d{2}$/.test(sunrise)&&/^\d{2}:\d{2}$/.test(sunset)){
     return hm>=sunrise&&hm<sunset;
   }
   const h=Number(hm.slice(0,2));
