@@ -142,7 +142,7 @@
     }
   }
 
-  function geminiAuraContext(){
+  // Publiczny hook: główny pipeline może wymusić synchronizację dokładnie po zapisaniu S.imgwData.\n  window.AURA_SYNC_IMGW=function(){return sync();};\n\n  function geminiAuraContext(){
     try{
       const d=S.data||{}, c=d.current||{}, h=d.hourly||{};
       const ci=typeof currentHourIndex==='function'?currentHourIndex(d,new Date()):0;
