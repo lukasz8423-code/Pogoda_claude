@@ -132,13 +132,14 @@
       // Synchronizacja nie może zależeć od momentu uruchomienia aura-sync.js.
       // Pipeline może zapisać S.imgwData dopiero po odpowiedzi IMGW.
       if(typeof S==='undefined'||!S)return null;
-      const source=S.imgwData||S.imgwDiag?.normalized||null;
+      const diag=window.__AURA_IMGW_DIAG||{};
+      const source=S?.imgwData||S?.imgwDiag?.normalized||diag.normalized||null;
       if(!source)return null;
       if(!S.imgwData)S.imgwData=source;
       const d=buildImgwComponents(source);
       if(!d)return null;
-      S.imgwData.componentDiagnostics=d;
-      S.imgwData.imgwCanonicalSnapshot=d;
+      if(S){ S.imgwData.componentDiagnostics=d;
+      S.imgwData.imgwCanonicalSnapshot=d; }
       if(d.latestTimestamp){
         const ms=parseLocalTs(d.latestTimestamp);
         S.imgwData.latestObservedAtMs=ms;
