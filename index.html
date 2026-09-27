@@ -2933,7 +2933,7 @@ function mini(n){return`<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // ═══════════════════════════════════════════════
 // v6 — stan aplikacji
 // ═══════════════════════════════════════════════
-const S={phase:"intro",lat:null,lng:null,city:"",data:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
+const S={phase:"intro",lat:null,lng:null,city:"",data:null,activeModelRaw:null,isDemo:false,loading:false,refreshing:false,stationInfo:null,imgwData:null,imgwDiag:null,modelCompare:null,confidence:null,lastUpdate:null,minutely:null,air:null,expDay:null,enter:false,ambKey:"",X:null,gpsDiag:null,cloudSource:null,cloudEngine:null,pipelineDiag:null,liveHealth:null,sourceMode:null,imgwStatus:null,ensemble:null,satelliteCloud:null,weatherapi:null,geminiAnalysis:null};
 let searchTimer=null,searchRes=[],gpsErr="",netErr=false;
 const uvWord=v=>v<3?"Niskie":v<6?"Umiarkowane":v<8?"Wysokie":v<11?"B. wysokie":"Ekstremalne";
 const uvHeroLabel=v=>v<3?"niski":v<6?"umiark.":v<8?"wysoki":v<11?"b. wys.":"ekstr.";
@@ -5463,7 +5463,11 @@ function geminiObservationDiagnosticsHTML(){
     '<div class="note" style="margin-top:10px;font-weight:700">Ostatnie obserwacje</div>'+recent;
 }
 function pipelineInspectorHTML(){
-  const d=S.pipelineDiag, rawModels=Array.isArray(S.modelCompareRaw)?S.modelCompareRaw.filter(x=>x&&x.data):[];
+  const d=S.pipelineDiag;
+  const rawModels=[
+    ...(S.activeModelRaw?.data?[S.activeModelRaw]:S.activeModelRaw?[{model:activeModel.id,name:activeModel.name,data:S.activeModelRaw}]:[]),
+    ...(Array.isArray(S.modelCompareRaw)?S.modelCompareRaw:[])
+  ].filter(x=>x&&x.data).filter((x,i,a)=>a.findIndex(y=>String(y.model)===String(x.model))===i);
   const health=runLiveDataQualityGuard()||{status:"OK",alerts:[]}, img=S.imgwData||{}, cur=S.data?.current||{};
   const fmt=v=>v==null||v===""?"—":(Number.isFinite(Number(v))?fnum(Number(v),1):esc(String(v)));
   const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v))+"%":"—";
@@ -5491,6 +5495,19 @@ function pipelineInspectorHTML(){
     ["Opad 10 min",img.rawOpad10min??img.opad_10min,img.opad_10min_data,img.opad10minAgeMinutes,img.opad10minFresh]
   ];
   const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — świeżość każdego pola</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
+  const sourceRows=rawModels.map(r=>{
+    const md=r.data||{};
+    const gridLat=Number(md.latitude),gridLng=Number(md.longitude);
+    const dist=Number.isFinite(gridLat)&&Number.isFinite(gridLng)?stationDist(Number(S.lat),Number(S.lng),gridLat,gridLng):null;
+    const currentTime=md.current?.time||null;
+    const expected=localHourKey(md,Date.now());
+    const delta=currentTime&&expected?Math.abs(localWallOrdinal(currentTime)-localWallOrdinal(expected))/60000:null;
+    const ci=currentHourIndex(md,new Date());
+    const slot=md.hourly?.time?.[ci]||null;
+    const hourDelta=slot&&expected?Math.abs(localWallOrdinal(slot)-localWallOrdinal(expected))/60000:null;
+    return {model:r.model||r.name||"—",gridLat,gridLng,dist,currentTime,expected,delta,slot,hourDelta,tz:md.timezone||null,cloud:md.current?.cloud_cover};
+  });
+  const sourceDiagTable=sourceRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">🧭 Kontrola lokalizacji i czasu Open-Meteo</div><div class=\"note\" style=\"margin-bottom:7px\">Żądanie Aury: <b>"+fmt(S.lat)+", "+fmt(S.lng)+"</b>. Siatka odpowiedzi może być przesunięta względem punktu zapytania.</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:900px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>Grid lat</th><th>Grid lon</th><th>Odległość</th><th>timezone</th><th>current.time</th><th>Oczekiwana godz.</th><th>Δ current</th><th>Slot hourly</th><th>Δ slot</th></tr></thead><tbody>"+sourceRows.map(m=>"<tr><td><b>"+esc(m.model)+"</b></td><td>"+fmt(m.gridLat)+"</td><td>"+fmt(m.gridLng)+"</td><td>"+(m.dist==null?"—":fnum(m.dist,2)+" km")+"</td><td>"+esc(m.tz||"—")+"</td><td>"+esc(m.currentTime||"—")+"</td><td>"+esc(m.expected||"—")+"</td><td>"+(m.delta==null?"—":fnum(m.delta,0)+" min")+"</td><td>"+esc(m.slot||"—")+"</td><td>"+(m.hourDelta==null?"—":fnum(m.hourDelta,0)+" min")+"</td></tr>").join("")+"</tbody></table></div>":"<div class=\"note\">Brak odpowiedzi Open-Meteo do kontroli źródła.</div>";
   const modelTable=modelRows.length?"<div class=\"note\" style=\"margin-top:14px;font-weight:700\">Open-Meteo — surowe modele, bieżący slot</div><div style=\"overflow:auto\"><table style=\"width:100%;min-width:760px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Model</th><th>T</th><th>RH</th><th>Wiatr</th><th>Chmury</th><th>Low</th><th>Mid</th><th>High</th><th>Opad</th><th>WMO</th></tr></thead><tbody>"+modelRows.map(m=>"<tr><td>"+esc(m.model)+"</td><td>"+fmt(m.temp)+"°</td><td>"+fmt(m.hum)+"%</td><td>"+fmt(m.wind)+" km/h</td><td><b>"+pct(m.cloud)+"</b></td><td>"+pct(m.low)+"</td><td>"+pct(m.mid)+"</td><td>"+pct(m.high)+"</td><td>"+fmt(m.precip)+"</td><td>"+fmt(m.code)+"</td></tr>").join("")+"</tbody></table></div><div class=\"note\">Konsensus zachmurzenia: <b>"+(consensus==null?"—":Math.round(consensus)+"%")+"</b> · Aura: <b>"+(S.X?.cloud==null?"—":Math.round(S.X.cloud)+"%")+"</b></div>":"<div class=\"note\">Brak surowych danych Open-Meteo.</div>";
   const cloudRows=Array.isArray(d?.cloudForecast?.rows)?d.cloudForecast.rows.slice(0,6):[];
   const layerMark=(state,value)=>state==="OUT_OF_HORIZON"?"↯":state==="NULL"?"∅":state==="NO_ARRAY"?"—":state==="NO_TIME"?"?":state==="INVALID"?"!":value===0?"0":"✓";
@@ -5500,7 +5517,7 @@ function pipelineInspectorHTML(){
     +"</tbody></table></div>"
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const alerts=(health.alerts||[]).map(a=>"<div class=\"err warn\"><b>"+esc(a.code)+"</b> — "+esc(a.message)+"</div>").join("");
-  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?formatImgwTimestamp(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+solarDiagnosticBlock()+sourceTable+imgwFieldTable+modelTable+cloudForecastTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+geminiDiag+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
+  return "<h3>🔬 Diagnostyka źródeł</h3><div class=\"sd\">RAW → fuzja → Aura. Panel jest tylko odczytem.</div>"+(alerts||"<div class=\"note\">✅ Brak wykrytych rozbieżności.</div>")+sourceDiagTable+"<div class=\"note\"><b>IMGW:</b> "+esc(img.stacja||"Głodowo")+" · "+fmt(img.dist)+" km · pomiar "+(img.observedAt?formatImgwTimestamp(img.observedAt):"—")+" · wiek "+(img.ageMinutes==null?"—":fmt(img.ageMinutes)+" min")+"</div>"+solarDiagnosticBlock()+sourceTable+imgwFieldTable+modelTable+cloudForecastTable+(d?"<div class=\"note\"><b>Fuzja:</b> "+esc(d.bridgeSource||"—")+" · waga T "+(d.weights?.temperature==null?"—":Math.round(d.weights.temperature*100)+"%")+" · RH "+(d.weights?.humidity==null?"—":Math.round(d.weights.humidity*100)+"%")+" · wiatr "+(d.weights?.wind==null?"—":Math.round(d.weights.wind*100)+"%")+"</div>":"")+geminiDiag+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
 function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
 function pipelineDiagnosticsText(){
@@ -5553,6 +5570,7 @@ function pipelineDiagnosticsText(){
       source:cf.source??null,
       rows:compactCloudForecast
     },
+    sourceIntegrity:d.sourceIntegrity||null,
     warnings:(S.liveHealth?.alerts||[]).map(a=>({code:a.code,severity:a.severity,message:a.message}))
   },null,2);
 }
@@ -6932,6 +6950,26 @@ async function loadWCore(lat,lng,name,isRef,token){
   // pokazywał source:null/applied:false/rows:[] mimo że funkcja działała.
   const cloudDiag=data.hourly?.__auraHourlyCloudConsensus||null;
   S.pipelineDiag=S.pipelineDiag||{};
+  const activeRawForDiag=activeModelRawData||data;
+  const activeRespTime=activeRawForDiag?.current?.time||null;
+  const activeExpectedHour=activeRawForDiag?localHourKey(activeRawForDiag,Date.now()):null;
+  const activeHourlyTimes=Array.isArray(activeRawForDiag?.hourly?.time)?activeRawForDiag.hourly.time:[];
+  const activeCi=activeRawForDiag?currentHourIndex(activeRawForDiag,new Date()):0;
+  const activeSlotTime=activeHourlyTimes[activeCi]||null;
+  const activeGridLat=Number(activeRawForDiag?.latitude);
+  const activeGridLng=Number(activeRawForDiag?.longitude);
+  const sourceDistanceKm=Number.isFinite(activeGridLat)&&Number.isFinite(activeGridLng)?stationDist(lat,lng,activeGridLat,activeGridLng):null;
+  const sourceTimeDeltaMinutes=activeRespTime&&activeExpectedHour?Math.abs(localWallOrdinal(activeRespTime)-localWallOrdinal(activeExpectedHour))/60000:null;
+  S.pipelineDiag.sourceIntegrity={
+    requested:{lat:Number(lat),lng:Number(lng)},
+    response:{lat:Number.isFinite(activeGridLat)?activeGridLat:null,lng:Number.isFinite(activeGridLng)?activeGridLng:null,timezone:activeRawForDiag?.timezone||null,utcOffsetSeconds:Number.isFinite(Number(activeRawForDiag?.utc_offset_seconds))?Number(activeRawForDiag.utc_offset_seconds):null},
+    currentTime:activeRespTime,
+    expectedLocalHour:activeExpectedHour,
+    nearestHourlySlot:activeSlotTime,
+    currentVsExpectedDeltaMinutes:Number.isFinite(sourceTimeDeltaMinutes)?Math.round(sourceTimeDeltaMinutes):null,
+    gridDistanceKm:Number.isFinite(sourceDistanceKm)?Math.round(sourceDistanceKm*100)/100:null,
+    model:activeModel.id
+  };
   S.pipelineDiag.cloudForecast={
     source:cloudDiag?.source||null,
     timeline:{timezone:data?.timezone||AURA_TIME_ZONE,currentHourIndex:currentHourIndex(data,new Date()),currentHour:data?.hourly?.time?.[currentHourIndex(data,new Date())]||null},
@@ -7021,7 +7059,7 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   if(token!==LOAD_SEQ)return;
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,activeModelRaw:activeModelRawData,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
   S.isFusionLocked=true;
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
