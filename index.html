@@ -2167,6 +2167,42 @@ async function findNearestIMGW(lat,lng){
     : null;
 
   if(rawGlodowo){
+    // Zachowujemy historię timestampów Głodowa między odświeżeniami.
+    // Dzięki temu diagnostyka rozróżnia: "stacja nie nadała nowego pomiaru"
+    // od "nowy pomiar był, ale Aura go nie odebrała".
+    const nowDiag=Date.now();
+    const rawTsSnapshot={
+      temperatura_powietrza:rawGlodowo.temperatura_powietrza_data??rawGlodowo.temperatura_data??null,
+      wilgotnosc_wzgledna:rawGlodowo.wilgotnosc_wzgledna_data??null,
+      wiatr_srednia_predkosc:rawGlodowo.wiatr_srednia_predkosc_data??rawGlodowo.predkosc_wiatru_data??null,
+      wiatr_kierunek:rawGlodowo.wiatr_kierunek_data??rawGlodowo.kierunek_wiatru_data??null,
+      wiatr_poryw_10min:rawGlodowo.wiatr_poryw_10min_data??rawGlodowo.wiatr_predkosc_maksymalna_data??null,
+      opad_10min:rawGlodowo.opad_10min_data??null
+    };
+    const prevDiag=S.imgwDiag?.glodowoHistory||{};
+    const prevTs=prevDiag.lastTimestamps||{};
+    const changedFields=Object.keys(rawTsSnapshot).filter(k=>rawTsSnapshot[k]&&String(rawTsSnapshot[k])!==String(prevTs[k]||''));
+    const unchangedFields=Object.keys(rawTsSnapshot).filter(k=>rawTsSnapshot[k]&&String(rawTsSnapshot[k])===String(prevTs[k]||''));
+    const history=(Array.isArray(prevDiag.samples)?prevDiag.samples.slice(-7):[]);
+    history.push({
+      checkedAt:nowDiag,
+      checkedAtIso:new Date(nowDiag).toISOString(),
+      timestamps:rawTsSnapshot,
+      changedFields,
+      unchangedFields,
+      source:isSnapshot?"LOCAL_SNAPSHOT":"IMGW_API_LIVE"
+    });
+    S.imgwDiag.glodowoHistory={
+      checks:history.length,
+      samples:history,
+      lastTimestamps:rawTsSnapshot,
+      lastChangedFields:changedFields,
+      lastUnchangedFields:unchangedFields,
+      lastCheckedAt:nowDiag,
+      lastCheckedAtIso:new Date(nowDiag).toISOString(),
+      observationUpdateDetected:changedFields.length>0
+    };
+
     const dist=stationDist(lat,lng,52.8306,19.2356);
     const distRounded=Math.round(dist*10)/10;
     const nowMs=Date.now();
@@ -2207,7 +2243,8 @@ async function findNearestIMGW(lat,lng){
       rain:normalized.opad_10min,
       observedAt:normalized.observedAt,
       ageMinutes:normalized.ageMinutes,
-      rawStation:rawGlodowo
+      rawStation:rawGlodowo,
+      glodowoHistory:S.imgwDiag.glodowoHistory||null
     };
 
     if(dist<=80){
