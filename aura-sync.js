@@ -3,6 +3,7 @@
   'use strict';
 
   const IMGW_TTL_MIN = 120;
+  const S=window.__AURA_STATE__||window.S||null;
 
   function parseLocalTs(raw){
     if(raw==null||raw==='') return null;
