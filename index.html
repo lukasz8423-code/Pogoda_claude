@@ -6705,6 +6705,10 @@ async function loadWCore(lat,lng,name,isRef,token){
     }
     if(imgwResult.status==="fulfilled"&&imgwResult.value){
       imgwData=imgwResult.value.best||imgwResult.value;
+      // Jedno kanoniczne źródło dla UI, fuzji i diagnostyki IMGW.
+      // Wcześniej lokalna zmienna imgwData nie była kopiowana do S.imgwData,
+      // przez co aura-sync.js widział stale null i pokazywał „snapshot —”.
+      S.imgwData=imgwData;
       stationInfo=`${imgwData.stacja||imgwData.name}, ${imgwData.dist} km`;
       // Fuzja stacyjna działa tylko w zasięgu 45 km; świeżość i waga każdego
       // parametru są liczone niezależnie przez Weather Fusion Engine.
