@@ -400,7 +400,8 @@
       latestField:d.latestField,
       latestTimestamp:d.latestTimestamp,
       latestTime:d.latestTime,
-      latestAgeMinutes:d.latestAgeMinutes
+      latestAgeMinutes:d.latestAgeMinutes,
+      ttlMinutes:d.ttlMinutes
     };
   }
 
@@ -416,10 +417,13 @@
         if(!chip&&/Głodowo|Glodowo/i.test(c.textContent||''))chip=c;
       });
       if(!chip)return;
+      const ageMin=Number(d.latestAgeMinutes);
       const age=d.latestAgeMinutes==null?'wiek nieznany':(Math.max(0,Math.round(d.latestAgeMinutes))<60?Math.max(0,Math.round(d.latestAgeMinutes))+' min temu':fmtAgeSafe(d.latestAgeMinutes));
-      chip.innerHTML=(typeof mini==='function'?mini('sat'):'')+esc2(d.station||'Głodowo')+', '+esc2(String(d.distanceKm??'—'))+' km, ostatni świeży pomiar z '+esc2(d.latestTime||'—')+', '+esc2(age);
-      chip.classList.remove('warn');
-      chip.classList.add('ok');
+      const fresh=Number.isFinite(ageMin)&&ageMin<=Number(d.ttlMinutes??IMGW_TTL_MIN);
+      const label=fresh?'ostatni świeży pomiar z':'ostatni odebrany pomiar z';
+      chip.innerHTML=(typeof mini==='function'?mini('sat'):'')+esc2(d.station||'Głodowo')+', '+esc2(String(d.distanceKm??'—'))+', '+label+' '+esc2(d.latestTime||'—')+', '+esc2(age)+(fresh?'':' (nieaktualne)');
+      chip.classList.remove('warn','ok');
+      chip.classList.add(fresh?'ok':'warn');
       chip.title='Kanoniczny snapshot IMGW: '+String(d.latestTimestamp||'—')+' · pole: '+String(d.latestField||'—');
     }catch(err){console.debug('[AURA HERO IMGW]',err);}
   }
