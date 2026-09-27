@@ -398,7 +398,7 @@
       <div class="note">Kanoniczny snapshot Głodowa: <b>${esc2(all.canonicalLatestTime||'—')}</b> · ${all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min'} · TTL IMGW <b>${IMGW_TTL_MIN} min</b>.</div>
       <div class="note">Świeże pola IMGW: ${esc2(freshFields||'brak')}.</div>
       <div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>→ GUARD</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>
-      <div style="overflow:auto"><table style="width:100%;min-width:980px;border-collapse:collapse;font-size:11px">
+      <div class="diag-xscroll component-diag-scroll" tabindex="0" aria-label="Pełna diagnostyka komponentów — przewijanie poziome"><table class="component-diag-table" style="width:max-content;min-width:1100px;border-collapse:collapse;font-size:11px">
         <thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead>
         <tbody>${tr}</tbody>
       </table></div>`;
