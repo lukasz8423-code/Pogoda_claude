@@ -4543,6 +4543,15 @@ function hourlyHTML(X){
 
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
     const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
+    const hoursAhead=i;
+    // T0 pozostaje X.cloud. Dla najbliższych 1–3 godzin dziennych
+    // pokazujemy tę samą korektę optyczną co „Teraz”, ale wyłącznie w UI.
+    const opticalCloud=(hoursAhead>=1&&hoursAhead<=3&&isDayAt(hourly.time[idx]))
+      ?hourlyOpticalCloudDisplay(S.data,idx)
+      :null;
+    const displayCloud=Number.isFinite(opticalCloud)
+      ?opticalCloud
+      :cloudNow;
     const cloudForCode = i === 0
       ? (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0)
       : cloudNow;
@@ -4559,7 +4568,11 @@ function hourlyHTML(X){
     const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
       ?Number(X.cloud)
       :Number(hourly.cloud_cover?.[idx]??0);
-    const cloud=Math.round(clamp(rawCloud,0,100));
+    const cloud=Math.round(clamp(
+      i===0
+        ?rawCloud
+        :displayCloud,
+      0,100));
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
     const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
 
