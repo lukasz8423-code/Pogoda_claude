@@ -7954,28 +7954,64 @@ document.addEventListener("visibilitychange",()=>{
   }
 
   if ('serviceWorker' in navigator) {
-    // SW aktualizuje się automatycznie — użytkownik nie musi wchodzić w DevTools.
-    navigator.serviceWorker.register('./sw.js', {updateViaCache:'none'}).then(reg => {
-      reg.update().catch(()=>{});
-      setInterval(() => reg.update().catch(()=>{}), 15 * 60 * 1000);
-    }).catch(err => console.error('SW Registration Error:', err));
-
-    // Po przejęciu karty przez nowy SW wykonujemy dokładnie jeden kontrolowany reload.
-    // Dzięki temu bieżący dokument przechodzi na nową wersję bez pętli reloadów.
+    // SW: najpierw pobieramy manifest wersji z sieci z cache-bustingiem.
+    // Dzięki temu zwykłe odświeżenie może wykryć nowy sw.js bez DevTools → Update.
+    const AURA_SW_CHECK_INTERVAL = 15 * 60 * 1000;
+    const hadController = !!navigator.serviceWorker.controller;
     let auraSwReloading = false;
+
+    async function auraGetSwBuild() {
+      try {
+        const url = './sw.js?aura_sw_check=' + Date.now();
+        const res = await fetch(url, {
+          cache: 'no-store',
+          credentials: 'same-origin'
+        });
+        if (!res.ok) return null;
+        const text = await res.text();
+        const m = text.match(/AURA_SW_BUILD\\s*=\\s*['"]([^'"]+)['"]/);
+        return m ? m[1] : null;
+      } catch (e) {
+        console.warn('[AURA SW] version check failed', e);
+        return null;
+      }
+    }
+
+    async function auraRegisterSw() {
+      try {
+        const build = await auraGetSwBuild();
+        const swUrl = build
+          ? './sw.js?build=' + encodeURIComponent(build)
+          : './sw.js';
+
+        const reg = await navigator.serviceWorker.register(swUrl, {
+          updateViaCache: 'none'
+        });
+
+        // Jeszcze jeden standardowy update-check po rejestracji.
+        await reg.update().catch(() => {});
+
+        console.info('[AURA SW] registered', swUrl);
+        return reg;
+      } catch (err) {
+        console.error('[AURA SW] Registration Error:', err);
+        return null;
+      }
+    }
+
+    auraRegisterSw();
+    setInterval(() => {
+      auraRegisterSw();
+    }, AURA_SW_CHECK_INTERVAL);
+
+    // Gdy nowy SW przejmie już kontrolowaną kartę, przeładuj ją dokładnie raz.
+    // Na pierwszym wejściu bez kontrolera nie robimy zbędnego reloadu.
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       console.info('[AURA SW] controller changed — kontrolowany reload');
-      if (auraSwReloading) return;
+      if (!hadController || auraSwReloading) return;
       if (!navigator.serviceWorker.controller) return;
-      try {
-        const key = 'aura_sw_controller_reload';
-        const current = navigator.serviceWorker.controller.scriptURL || '';
-        const previous = sessionStorage.getItem(key);
-        if (previous === current) return;
-        sessionStorage.setItem(key, current);
-      } catch {}
       auraSwReloading = true;
-      setTimeout(() => window.location.reload(), 0);
+      window.location.reload();
     });
   }
 })();
