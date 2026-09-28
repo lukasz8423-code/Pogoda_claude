@@ -795,16 +795,26 @@ function calcSunShadeTemp(tempC, feelsC, radiation, windKmh, humidity){
   // wilgotności ani wiatru, bo są już uwzględnione w feels-like.
   const shadeFeels = Math.round(f * 10) / 10;
 
-  // Solar gain: osobna korekta ekspozycji na promieniowanie.
-  // GHI jest już promieniowaniem docierającym do powierzchni, więc nie
-  // mnożymy go ponownie przez "procent słońca". Krzywa nasycenia
-  // ogranicza przeszacowanie przy wysokim GHI.
-  const solarFraction = Math.pow(clamp(rad / 1000, 0, 1), 0.8);
+  // Solar gain: liczony z bilansu promieniowania, a nie z arbitralnej
+  // "frakcji słońca". GHI [W/m²] opisuje energię padającą na poziomą
+  // powierzchnię. Dla człowieka część promieniowania jest pochłaniana
+  // (absorpcja skóry/odzieży), a część wynika z geometrii sylwetki).
+  // Przybliżenie 0.70 * 0.30 daje efektywnie ~21% GHI jako obciążenie
+  // promieniste ciała. To celowo nie jest temperatura powierzchni.
+  const solarAbsorption = 0.70;
+  const bodyProjection = 0.30;
+  const absorbedSolar = rad * solarAbsorption * bodyProjection;
 
-  // Wiatr odbiera część dodatkowego obciążenia cieplnego. Używamy m/s,
-  // ale wynik pozostaje wyrażony w °C jako korekta odczuwalności.
-  const windDamping = 1 + 0.12 * Math.sqrt(windMs);
-  const solarGain = clamp((7.0 * solarFraction) / windDamping, 0, 8);
+  // Radiacyjna postać korekty Steadmana: większy wiatr zwiększa
+  // konwekcyjne chłodzenie, więc ten sam strumień promieniowania daje
+  // mniejszy wzrost odczuwalnej temperatury. Cień pozostaje bez zmian,
+  // bo wpływ wiatru jest już zawarty w kanonicznym feels-like.
+  const windDenominator = windMs + 10;
+  const solarGain = clamp(
+    (0.70 * absorbedSolar) / windDenominator,
+    0,
+    12
+  );
 
   const sunFeels = Math.round((shadeFeels + solarGain) * 10) / 10;
   const shadeAir = Math.round(t * 10) / 10;
@@ -820,8 +830,10 @@ function calcSunShadeTemp(tempC, feelsC, radiation, windKmh, humidity){
     // Diagnostyka: pokazujemy składniki zamiast ukrywać je w jednej liczbie.
     radiation: Math.round(rad),
     windKmh: Math.round(windMs * 3.6 * 10) / 10,
-    solarFraction: Math.round(solarFraction * 1000) / 1000,
-    windDamping: Math.round(windDamping * 1000) / 1000
+    solarAbsorption,
+    bodyProjection,
+    absorbedSolar: Math.round(absorbedSolar * 10) / 10,
+    windDenominator: Math.round(windDenominator * 1000) / 1000
   };
 }
 
