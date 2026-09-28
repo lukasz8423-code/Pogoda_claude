@@ -1880,7 +1880,32 @@ async function apiGeminiAnalysisSnapshot(lat,lng){
 }
 
 
+// Nazwa miejscowości jest warstwą WYŚWIETLANIA i nie może zmieniać współrzędnych
+// używanych przez pogodę, IMGW ani modele. Dla znanego obszaru Głodowa
+// omijamy niejednoznaczność reverse-geocodera (Głodowo/Kolankowo).
+const GLODOWO_DISPLAY_CENTER={lat:52.80978,lng:19.22107};
+const GLODOWO_DISPLAY_RADIUS_KM=1.5;
+
+function distanceKmBetween(lat1,lng1,lat2,lng2){
+  const rad=Math.PI/180;
+  const p1=Number(lat1)*rad,p2=Number(lat2)*rad;
+  const dp=(Number(lat2)-Number(lat1))*rad;
+  const dl=(Number(lng2)-Number(lng1))*rad;
+  const a=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(Math.max(0,1-a)));
+}
+
+function forcedDisplayLocality(lat,lng){
+  if(!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng)))return null;
+  return distanceKmBetween(lat,lng,GLODOWO_DISPLAY_CENTER.lat,GLODOWO_DISPLAY_CENTER.lng)<=GLODOWO_DISPLAY_RADIUS_KM
+    ?"Głodowo"
+    :null;
+}
+
 async function apiCity(lat,lng){
+  const forced=forcedDisplayLocality(lat,lng);
+  if(forced)return forced;
+
   try{
     const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pl`,{signal:AbortSignal.timeout(6000)});
     if(r.ok){
