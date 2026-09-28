@@ -4662,14 +4662,27 @@ function hourlyOpticalCloudDisplay(data,index){
       is_day:Number.isFinite(Number(valueAt('is_day')))?Number(valueAt('is_day')):(isDayAt(targetTime)?1:0),
       weather_code:Number.isFinite(Number(valueAt('weather_code')))?Number(valueAt('weather_code')):0,
       sunshine_duration:Number(valueAt('sunshine_duration')),
-      interval:Number(valueAt('interval'))||900,
+      // „interval” jest metadanymi odpowiedzi modelu, nie polem hourly.
+      // Dla godzinowego slotu używamy tego samego interwału, który obowiązuje
+      // dla bieżącego modelu; fallback 900 s zachowuje dotychczasowy próg.
+      interval:Number(raw?.interval)||900,
       direct_normal_irradiance:Number(valueAt('direct_normal_irradiance')),
       shortwave_radiation:Number(valueAt('shortwave_radiation')),
       shortwave_radiation_instant:Number(valueAt('shortwave_radiation_instant'))
     };
-    const optical=optiCloudFromModels([{model:raw?.__auraSourceMeta?.requestedModel||activeModel.id,data:{current}}]);
-    if(!optical?.length)return null;
-    return Number.isFinite(Number(optical[0].optical))?Math.round(Number(optical[0].optical)):null;
+    // Używamy dokładnie tej samej funkcji optycznej co dla „Teraz”.
+    // optiCloudFromModels() zwraca obiekt { value, models }, nie tablicę.
+    // Wcześniejsze sprawdzanie optical?.length powodowało, że ta funkcja
+    // zawsze zwracała null i UI wracało do surowego hourly.cloud_cover.
+    const optical=optiCloudFromModels([{
+      model:raw?.__auraSourceMeta?.requestedModel||activeModel.id,
+      data:{current}
+    }]);
+    if(!optical||!Array.isArray(optical.models)||!optical.models.length)return null;
+    const row=optical.models[0];
+    return Number.isFinite(Number(row?.optical))
+      ?Math.round(Number(row.optical))
+      :null;
   }catch(err){
     console.debug('[AURA HOURLY OPTICAL CLOUD]',err);
     return null;
