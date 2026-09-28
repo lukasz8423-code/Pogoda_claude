@@ -531,8 +531,11 @@ a.btn{text-decoration:none;color:inherit}
 .mg-kind{font-size:8.5px;font-weight:700;color:var(--rain);display:block;margin-top:1px;white-space:nowrap}
 .hi .c{font-size:11px;color:var(--ink2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2}
 .hi .c svg{width:11px;height:11px;stroke-width:2;flex:none;opacity:.85}
-.hi .w{font-size:10.5px;color:var(--ink2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2;white-space:nowrap}
+.hi .w,.hi .g{font-size:10.5px;color:var(--ink2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:2px;line-height:1.2;white-space:nowrap}
 .hi .w svg{width:11px;height:11px;stroke-width:2;flex:none;opacity:.85}
+.hi .w b,.hi .g b{font-weight:700;color:var(--ink)}
+.hi .g{font-size:10px;color:var(--ink3);margin-top:-1px}
+.hi .g:first-letter{font-size:11px}
 .hi.sun .t{color:var(--sun)}
 .h-legend{display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:500}
 .h-leg-item{display:inline-flex;align-items:center;gap:3px}
@@ -4421,10 +4424,10 @@ function hourlyHTML(X){
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
     const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30,cloud)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span><span class="w tn" title="Wiatr / porywy">${mini("wind")}${wind??"—"}${gust!==null?` / ${gust}`:""} km/h</span></div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30,cloud)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span><span class="w tn" title="Wiatr">${mini("wind")}<b>${wind??"—"}</b> km/h</span>${gust!==null?`<span class="g tn" title="Poryw wiatru">↗ <b>${gust}</b> km/h</span>`:""}</div>`;
   }
 
-  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span><span class="h-leg-item wind">${mini("wind")} Wiatr / porywy</span></div></div><div class="hstrip">${out}</div></section>`;
+  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span><span class="h-leg-item wind">${mini("wind")} Wiatr</span><span class="h-leg-item gust">↗ Porywy</span></div></div><div class="hstrip">${out}</div></section>`;
 }
 
 
