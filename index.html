@@ -6826,7 +6826,9 @@ async function handleGPS(){
     // podstawie loadW/forcedDisplayLocality ustala nazwę miejscowości.
     S.gpsDiag={lat,lng,accuracy,model:activeModel.id,cloud:null,code:null};
     console.log("GPS fresh:",S.gpsDiag);
-    await loadW(lat,lng,null,false);
+    // forceNew=true jest kluczowe: poprzedni pipeline pogodowy może jeszcze
+    // kończyć requesty, ale świeży odczyt GPS nie może być przez niego odrzucony.
+    await loadW(lat,lng,null,false,true);
   }catch(err){
     if(gpsRequest!==GPS_REQUEST_SEQ)return;
     S.loading=false;
@@ -6932,11 +6934,13 @@ function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null,clo
   }
   return true;
 }
-async function loadW(lat,lng,name,isRef){
-  if(LOAD_IN_PROGRESS){
+async function loadW(lat,lng,name,isRef,forceNew=false){
+  if(LOAD_IN_PROGRESS&&!forceNew){
     console.warn("[AURA] loadW pominięty — pipeline już trwa");
     return false;
   }
+  // GPS ma pierwszeństwo: unieważnia poprzedni pipeline i może uruchomić
+  // własny pipeline natychmiast, bez czekania na stare requesty sieciowe.
   LOAD_IN_PROGRESS=true;
   const token=++LOAD_SEQ;
   S.isFusionLocked=false;
@@ -6950,7 +6954,8 @@ async function loadW(lat,lng,name,isRef){
     else Object.assign(S,{phase:"error",loadError:{lat,lng,name:name||S.city||null,msg:String(e?.message||e||"Nieznany błąd")}});
     render();
   }
-  LOAD_IN_PROGRESS=false;
+  // Stary pipeline nie może zwolnić blokady należącej już do nowszego GPS.
+  if(token===LOAD_SEQ)LOAD_IN_PROGRESS=false;
 }
 async function loadWCore(lat,lng,name,isRef,token){
   if(token!==LOAD_SEQ)return;
