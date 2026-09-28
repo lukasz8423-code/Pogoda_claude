@@ -1733,16 +1733,21 @@ async function apiWeather(lat,lng,forceFresh=false){
 
 function classifyEumetviewClmFeature(feature){
   const p=feature?.properties||feature||{};
-  const directKeys=["cloudMaskCode","cloud_mask_code","CLM","clm","cloudMask","cloud_mask","class_code"];
-  for(const k of directKeys){
-    const n=Number(p[k]);
-    if(Number.isFinite(n)&&n>=0&&n<=3)return n;
+  const containers=[p,p.properties,p.attributes,p.data,p.pixel,p.value].filter(x=>x&&typeof x==="object");
+  const directKeys=["cloudMaskCode","cloud_mask_code","CLM","clm","cloudMask","cloud_mask","class_code","classCode","code","pixel_value","pixelValue","raster_value","rasterValue","value"];
+  for(const obj of containers){
+    for(const k of directKeys){
+      const raw=obj[k];
+      if(raw===null||raw===undefined||raw==="")continue;
+      const n=Number(String(raw).trim().replace(",","."));
+      if(Number.isFinite(n)&&n>=0&&n<=3)return Math.round(n);
+    }
   }
-  const text=String(p.class||p.CLASS||p.classification||"").toLowerCase();
-  if(/cloud|chmur/.test(text)&&!/clear|bezchmur/.test(text))return 2;
-  if(/clear.?land|clear.?sky.?land/.test(text))return 1;
-  if(/clear.?water|clear.?sky.?water/.test(text))return 0;
-  if(/no.?data|not.?processed/.test(text))return 3;
+  const text=containers.map(x=>String(x.class??x.CLASS??x.classification??x.label??x.name??"")).join(" ").toLowerCase();
+  if(/no.?data|not.?processed|nodata/.test(text))return 3;
+  if(/clear.?land|clear.?sky.?land|clear land/.test(text))return 1;
+  if(/clear.?water|clear.?sky.?water|clear water/.test(text))return 0;
+  if(/cloud|chmur/.test(text))return 2;
   return null;
 }
 
