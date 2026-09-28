@@ -43,29 +43,41 @@ def point_query(lat, lon):
         text = resp.read().decode("utf-8", errors="replace")
 
     text_clean = re.sub(r"\s+", " ", text).strip()
-    low = text_clean.lower()
+    try:
+        payload = json.loads(text)
+    except Exception:
+        payload = None
 
-    if "not processed" in low or "off earth" in low:
-        cls = "not_processed"
-    elif "clear sky over land" in low or "clear land" in low:
-        cls = "clear_land"
-    elif "clear sky over water" in low or "clear water" in low:
-        cls = "clear_water"
-    elif re.search(r"\bcloud(?:y|s)?\b", low):
-        cls = "cloud"
-    else:
-        # EUMETView can return only rendered RGB values for this layer.
-        # RGB alone is NOT a semantic CLM classification and must never be
-        # converted into "cloud" by heuristic parsing.
-        cls = "unknown"
+    # EUMETSAT CLM code table 4.217:
+    # 0 clear water, 1 clear land, 2 cloud, 3 no data.
+    def find_code(obj):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                key_l = str(key).lower()
+                if key_l in {"cloud_mask", "cloudmask", "clm"}:
+                    if isinstance(value, (int, float)) and int(value) in (0, 1, 2, 3):
+                        return int(value)
+                    if isinstance(value, str) and re.fullmatch(r"\s*[0-3]\s*", value):
+                        return int(value)
+                found = find_code(value)
+                if found is not None:
+                    return found
+        elif isinstance(obj, list):
+            for item in obj:
+                found = find_code(item)
+                if found is not None:
+                    return found
+        return None
 
+    code = find_code(payload)
+    classes = {0: "clear_water", 1: "clear_land", 2: "cloud", 3: "no_data"}
     return {
         "lat": lat,
         "lon": lon,
-        "class": cls,
+        "class": classes.get(code, "unknown"),
+        "cloudMaskCode": code,
         "raw": text_clean[:500],
     }
-
 
 def main():
     generated = dt.datetime.now(dt.timezone.utc)
@@ -100,7 +112,8 @@ def main():
         "lat": LAT,
         "lon": LON,
         "cloudFraction": cloud_fraction,
-        "classification": "cloud_fraction_from_9_real_satellite_pixels",
+        "classification": "cloud_fraction_from_9_real_satellite_cloud_mask_pixels",
+        "cloudMaskCodes": {"0": "clear_water", "1": "clear_land", "2": "cloud", "3": "no_data"},
         "sampleCount": len(valid),
         "cloudPixels": len(cloudy),
         "clearPixels": len(clear),
@@ -109,7 +122,7 @@ def main():
         "observationAt": None,
         "observationTimeStatus": "UNKNOWN_FETCH_ONLY",
         "status": "OK" if valid else "NO_VALID_SAMPLES",
-        "note": "Only explicit categorical MSG/SEVIRI Cloud Mask classes are accepted. Rendered RGB values are rejected; generatedAt is fetch time, not observation time."
+        "note": "Only explicit categorical MSG/SEVIRI Cloud Mask classes are accepted. Rendered RGB values are rejected; generatedAt is fetch time, not observation time. CLM codes: 0 clear water, 1 clear land, 2 cloud, 3 no data."
     }
 
     content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
