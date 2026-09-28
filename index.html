@@ -1906,17 +1906,13 @@ function forcedDisplayLocality(lat,lng){
   const la=Number(lat),lo=Number(lng);
   if(!Number.isFinite(la)||!Number.isFinite(lo))return null;
 
-  // WAŻNE: po ręcznym GPS nazwa nie może być przypinana do Głodowa
-  // tylko dlatego, że aktualna pozycja leży w jego promieniu.
-  // Głodowo jest stacją obserwacyjną IMGW, a nie blokadą lokalizacji telefonu.
-  // Po świeżym fixie GPS nazwa musi zostać ustalona z aktualnych współrzędnych.
-  if(S?.gpsDiag?.lat!=null && S?.gpsDiag?.lng!=null){
-    return null;
-  }
-
-  for(const rule of DISPLAY_LOCALITY_RULES){
-    if(distanceKmBetween(la,lo,rule.lat,rule.lng)<=rule.radiusKm)return rule.name;
-  }
+  // Głodowo jest stacją IMGW, NIE lokalizacją telefonu.
+  // Nie wolno przypinać nazwy miejscowości na podstawie promienia stacji.
+  // To powodowało błąd po ponownym uruchomieniu aplikacji:
+  // po GPS poprawne współrzędne były zapisane, ale po starcie S.gpsDiag
+  // nie istniało jeszcze i reguła ponownie wymuszała "Głodowo".
+  // Nazwa lokalizacji ma być zawsze wyznaczana z aktualnych/persistowanych
+  // współrzędnych użytkownika. Stacja Głodowo pozostaje niezależną warstwą IMGW.
   return null;
 }
 
