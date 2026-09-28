@@ -139,7 +139,25 @@
         temperature:component(c.temperature_2m??h.temperature_2m?.[ci]??null,currentTime,'°C',{source:'Open-Meteo current'}),
         feelsLike:component(c.apparent_temperature??h.apparent_temperature?.[ci]??null,currentTime,'°C',{source:'Open-Meteo current'}),
         uv:component(c.uv_index??h.uv_index?.[ci]??null,currentTime,'index',{source:'Open-Meteo current'}),
-        cloud:component(c.cloud_cover??h.cloud_cover?.[ci]??null,currentTime,'%',{source:'Aura weather-fusion'}),
+        cloud:component(
+          Number.isFinite(Number(S.cloudSource?.fusion?.satelliteCloud))
+            ?Number(S.cloudSource.fusion.satelliteCloud)
+            :(c.cloud_cover??h.cloud_cover?.[ci]??null),
+          Number.isFinite(Number(S.cloudSource?.fusion?.satelliteCloud))
+            ?(S.cloudSource.fusion.satelliteObservationTime||null)
+            :currentTime,
+          '%',
+          Number.isFinite(Number(S.cloudSource?.fusion?.satelliteCloud))
+            ?{
+              source:'EUMETSAT CLM → Aura',
+              sourceType:'REMOTE_OBSERVATION',
+              observationAt:S.cloudSource.fusion.satelliteObservationTime||null,
+              ageBasis:'observation_time',
+              satelliteUsed:true,
+              modelValue:Number.isFinite(Number(c.cloud_cover??h.cloud_cover?.[ci]))?Number(c.cloud_cover??h.cloud_cover?.[ci]):null
+            }
+            :{source:'Aura weather-fusion',sourceType:'MODEL_FUSION'}
+        ),
         visibility:component(c.visibility??h.visibility?.[ci]??null,currentTime,'m',{source:'Open-Meteo current'}),
         wind:component(c.wind_speed_10m??h.wind_speed_10m?.[ci]??null,currentTime,'km/h',{source:'Open-Meteo current'}),
         gust:component(c.wind_gusts_10m??h.wind_gusts_10m?.[ci]??null,currentTime,'km/h',{source:'Open-Meteo current'}),
@@ -188,7 +206,12 @@
     rows.push(fieldDecision('Kierunek wiatru',ic.windDirection,model.windDirection,X.wdeg,wdSource,imgwUsable('windDirection'),ic.windDirection?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
     rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,gSource,gustUsable,gustUsable?'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km':'IMGW poza TTL/zasięgiem; zachowano model dla T0.'));
     rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,pSource,rainUsable,rainUsable?'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain':'Brak świeżego opadu_10min z Głodowa; guard nie może użyć IMGW.'));
-    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,'Open-Meteo → weather-fusion',false,'brak bezpośredniego pola IMGW; fuzja modeli/obserwacji nie jest polem stacji'));
+    const satCloudDiag=Number.isFinite(Number(model.cloud?.value))&&model.cloud?.satelliteUsed===true;
+    const cloudFinalSource=satCloudDiag?'EUMETSAT CLM → Aura':'Open-Meteo → weather-fusion';
+    const cloudReason=satCloudDiag
+      ?'bezpośrednia obserwacja satelitarna CLM została użyta w fuzji; wiek liczony od czasu obserwacji'
+      :'brak użytecznej obserwacji satelitarnej; wartość pochodzi z fuzji modeli';
+    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,cloudFinalSource,false,cloudReason));
     rows.push(fieldDecision('Temperatura odczuwalna',null,model.apparentFinal,X.feels,'Aura derived',false,'wyliczana po fuzji z temperatury, RH, wiatru i porywów'));
     rows.push(fieldDecision('UV',null,model.uv,X.uv,'Open-Meteo',false,'IMGW Głodowo nie dostarcza pola UV w używanym feedzie'));
     rows.push(fieldDecision('Widoczność',null,model.visibility,X.visKm,'Open-Meteo → visibility guard',false,'wartość końcowa pochodzi z Open-Meteo; guard tylko kontroluje jej wiarygodność'));
@@ -266,7 +289,13 @@
         const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
         const displayNum=(name,value)=>{if(value==null)return '—';const n=Number(value);if(!Number.isFinite(n))return esc2(String(value));return esc2(String(['Punkt rosy','Temperatura odczuwalna'].includes(name)?Number(n.toFixed(1)):value));};
         const modelText=displayNum(r.name,mod.value),finalText=displayNum(r.name,r.final?.value);
-        return '<tr><td><b>'+esc2(r.name)+'</b></td><td>'+imgText+'<br><small>'+esc2(img.time||'—')+' · '+(img.ageMinutes==null?'wiek —':img.ageMinutes+' min')+' · TTL '+(img.ttlMinutes??IMGW_TTL_MIN)+' min</small></td><td>'+modelText+'<br><small>'+esc2(mod.source||'—')+' · '+(mod.ageMinutes==null?'wiek —':mod.ageMinutes+' min')+'</small></td><td><b>'+finalText+'</b><br><small>'+esc2(r.final?.source||'—')+'</small></td><td><b style="color:'+statusColor+'">'+status+'</b><br><small>'+esc2(r.reason||'—')+'</small></td></tr>';
+        const modelAge=mod.ageMinutes==null?'wiek —':mod.ageMinutes+' min';
+        const modelSource=mod.source||'—';
+        const modelExtra=mod.satelliteUsed===true
+          ?' · 🛰️ pomiar '+esc2(mod.observationAt?fmtTime(mod.observationAt):'—')
+          :'';
+        const modelCell=modelText+'<br><small>'+esc2(modelSource)+' · '+modelAge+modelExtra+'</small>';
+        return '<tr><td><b>'+esc2(r.name)+'</b></td><td>'+imgText+'<br><small>'+esc2(img.time||'—')+' · '+(img.ageMinutes==null?'wiek —':img.ageMinutes+' min')+' · TTL '+(img.ttlMinutes??IMGW_TTL_MIN)+' min</small></td><td>'+modelCell+'</td><td><b>'+finalText+'</b><br><small>'+esc2(r.final?.source||'—')+'</small></td><td><b style="color:'+statusColor+'">'+status+'</b><br><small>'+esc2(r.reason||'—')+'</small></td></tr>';
       }).join('');
       const freshFields=Object.entries(window.__AURA_IMGW_COMPONENT_DIAG?.components||{}).filter(([,x])=>x?.fresh).map(([k,x])=>k+' '+x.time+' ('+x.ageMinutes+' min)').join(' · ');
       const timeDiag=typeof window.AURA_TIME_DIAGNOSTICS==='function'?window.AURA_TIME_DIAGNOSTICS():null;
