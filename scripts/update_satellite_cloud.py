@@ -15,6 +15,9 @@ PUBLIC_OUT = Path("public/satellite-cloud.json")
 
 OFFSETS_KM = (-4.0, 0.0, 4.0)
 TIMEOUT = 15
+# EUMETView/CLM can lag behind the wall clock. Try the latest completed
+# quarter-hour and walk backwards until a real product is available.
+MAX_LOOKBACK_SLOTS = 8
 
 
 def point_query(lat, lon, observation_time):
@@ -47,9 +50,6 @@ def point_query(lat, lon, observation_time):
         payload = json.loads(text)
     except Exception:
         payload = None
-
-    # GetFeatureInfo from EUMETView can expose the raster bands either as
-    # JSON fields or only in the raw response text. Support both forms.
     if payload is None:
         payload = {}
 
@@ -58,8 +58,7 @@ def point_query(lat, lon, observation_time):
             r'"?RED_BAND"?\s*[:=]\s*([0-9.]+).*?'
             r'"?GREEN_BAND"?\s*[:=]\s*([0-9.]+).*?'
             r'"?BLUE_BAND"?\s*[:=]\s*([0-9.]+)',
-            value,
-            re.I | re.S,
+            value, re.I | re.S,
         )
         if not m:
             return None
@@ -68,13 +67,11 @@ def point_query(lat, lon, observation_time):
         except Exception:
             return None
 
-    # EUMETView exposes the official categorical CLM layer.
-    # Accept only the known categorical palette; arbitrary RGB imagery is rejected.
     def rgb(obj):
         if not isinstance(obj, dict):
             return None
         try:
-            return tuple(int(round(float(obj[k]))) for k in ("RED_BAND","GREEN_BAND","BLUE_BAND"))
+            return tuple(int(round(float(obj[k]))) for k in ("RED_BAND", "GREEN_BAND", "BLUE_BAND"))
         except Exception:
             return None
 
@@ -127,12 +124,9 @@ def point_query(lat, lon, observation_time):
         "raw": text_clean[:500],
     }
 
-def main():
-    generated = dt.datetime.now(dt.timezone.utc)
-    observation = generated.replace(second=0, microsecond=0)
-    observation -= dt.timedelta(minutes=observation.minute % 15)
-    samples = []
 
+def query_slot(observation):
+    samples = []
     for dy in OFFSETS_KM:
         for dx in OFFSETS_KM:
             lat = LAT + dy / 111.0
@@ -146,15 +140,41 @@ def main():
                     "class": "error",
                     "error": str(exc)[:300],
                 })
+    return samples
 
-    valid = [x for x in samples if x["class"] in {"cloud", "clear_land", "clear_water"}]
+
+def main():
+    generated = dt.datetime.now(dt.timezone.utc)
+    base = generated.replace(second=0, microsecond=0)
+    base -= dt.timedelta(minutes=base.minute % 15)
+
+    selected_observation = None
+    selected_samples = None
+    selected_valid = []
+    attempts = []
+
+    for slot in range(MAX_LOOKBACK_SLOTS + 1):
+        observation = base - dt.timedelta(minutes=15 * slot)
+        samples = query_slot(observation)
+        valid = [x for x in samples if x["class"] in {"cloud", "clear_land", "clear_water"}]
+        attempts.append({
+            "observationAt": observation.isoformat().replace("+00:00", "Z"),
+            "sampleCount": len(valid),
+        })
+        if valid:
+            selected_observation = observation
+            selected_samples = samples
+            selected_valid = valid
+            break
+
+    samples = selected_samples if selected_samples is not None else [
+        {"lat": LAT, "lon": LON, "class": "error", "error": "No valid CLM product in lookback window"}
+    ]
+    valid = selected_valid
     cloudy = [x for x in valid if x["class"] == "cloud"]
     clear = [x for x in valid if x["class"] in {"clear_land", "clear_water"}]
 
-    cloud_fraction = None
-    if valid:
-        cloud_fraction = round(100.0 * len(cloudy) / len(valid), 1)
-
+    cloud_fraction = round(100.0 * len(cloudy) / len(valid), 1) if valid else None
     result = {
         "source": "EUMETSAT EUMETView",
         "collection": "EO:EUM:DAT:MSG:CLM",
@@ -169,10 +189,11 @@ def main():
         "clearPixels": len(clear),
         "samples": samples,
         "generatedAt": generated.isoformat(),
-        "observationAt": observation.isoformat().replace("+00:00", "Z"),
-        "observationTimeStatus": "REQUESTED_CLM_PRODUCT_TIME",
+        "observationAt": selected_observation.isoformat().replace("+00:00", "Z") if selected_observation else None,
+        "observationTimeStatus": "LATEST_AVAILABLE_CLM_PRODUCT" if selected_observation else "NO_CLM_PRODUCT_AVAILABLE",
+        "lookbackAttempts": attempts,
         "status": "OK" if valid else "NO_VALID_SAMPLES",
-        "note": "EUMETView msg_fes:clm is the official EUMETSAT Cloud Mask WMS layer. Samples are accepted only when the categorical palette matches a CLM class. observationAt is the completed 15-minute CLM product time requested from EUMETSAT; generatedAt is fetch time. CLM codes: 0 clear water, 1 clear land, 2 cloud, 3 no data."
+        "note": "Queries the latest completed 15-minute EUMETSAT CLM product and walks backwards when the newest slot is not yet available. generatedAt is fetch time; observationAt is the actual CLM product time used."
     }
 
     content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
