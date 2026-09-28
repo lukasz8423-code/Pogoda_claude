@@ -615,11 +615,12 @@ a.btn{text-decoration:none;color:inherit}
 .kvs{display:flex;flex-wrap:wrap;gap:6px}
 
 /* comparison rows */
-.mrow{display:grid;grid-template-columns:96px 1fr 52px;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(70px,1.15fr) 58px;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;min-width:0;overflow:hidden}
 .mrow:first-of-type{border-top:0}
-.mtrack{position:relative;height:4px;border-radius:4px;background:rgba(255,255,255,.16)}
+.mrow>span:first-child{display:block;min-width:0;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding-right:4px}
+.mtrack{position:relative;height:4px;border-radius:4px;background:rgba(255,255,255,.16);min-width:70px}
 .mtrack u{position:absolute;top:-4px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--sun);box-shadow:0 0 0 3px rgba(8,15,32,.55)}
-.mrow b{text-align:right;font-weight:600}
+.mrow b{min-width:58px;white-space:nowrap;text-align:right;font-weight:600}
 .meter{height:8px;border-radius:8px;background:rgba(255,255,255,.14);overflow:hidden;margin:8px 0 4px}
 .meter i{display:block;height:100%;border-radius:8px}
 .stg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
