@@ -17,7 +17,7 @@ OFFSETS_KM = (-4.0, 0.0, 4.0)
 TIMEOUT = 15
 
 
-def point_query(lat, lon):
+def point_query(lat, lon, observation_time):
     dlat = 0.015
     dlon = 0.015 / max(0.2, math.cos(math.radians(lat)))
     bbox = f"{lat-dlat},{lon-dlon},{lat+dlat},{lon+dlon}"
@@ -35,7 +35,7 @@ def point_query(lat, lon):
         "I": "50",
         "J": "50",
         "INFO_FORMAT": "application/json",
-        "TIME": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "TIME": observation_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     url = WMS_URL + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": "AuraWeather/1.0"})
@@ -48,39 +48,66 @@ def point_query(lat, lon):
     except Exception:
         payload = None
 
-    # EUMETSAT CLM code table 4.217:
-    # 0 clear water, 1 clear land, 2 cloud, 3 no data.
-    def find_code(obj):
+    # EUMETView exposes the official categorical CLM layer.
+    # Accept only the known categorical palette; arbitrary RGB imagery is rejected.
+    def rgb(obj):
+        if not isinstance(obj, dict):
+            return None
+        try:
+            return tuple(int(round(float(obj[k]))) for k in ("RED_BAND","GREEN_BAND","BLUE_BAND"))
+        except Exception:
+            return None
+
+    def collect_rgb(obj, out):
         if isinstance(obj, dict):
-            for key, value in obj.items():
-                key_l = str(key).lower()
-                if key_l in {"cloud_mask", "cloudmask", "clm"}:
-                    if isinstance(value, (int, float)) and int(value) in (0, 1, 2, 3):
-                        return int(value)
-                    if isinstance(value, str) and re.fullmatch(r"\s*[0-3]\s*", value):
-                        return int(value)
-                found = find_code(value)
-                if found is not None:
-                    return found
+            r = rgb(obj)
+            if r is not None:
+                out.append(r)
+            for value in obj.values():
+                collect_rgb(value, out)
         elif isinstance(obj, list):
             for item in obj:
-                found = find_code(item)
-                if found is not None:
-                    return found
-        return None
+                collect_rgb(item, out)
 
-    code = find_code(payload)
+    rgbs = []
+    collect_rgb(payload, rgbs)
+
+    palette = {
+        "clear_land": (0, 192, 0),
+        "clear_water": (0, 0, 192),
+        "cloud": (255, 255, 255),
+        "no_data": (0, 0, 0),
+    }
+
+    def classify_rgb(colour):
+        if colour is None:
+            return "unknown"
+        best_name = "unknown"
+        best_dist = 10**9
+        for name, ref in palette.items():
+            dist = sum(abs(colour[i] - ref[i]) for i in range(3))
+            if dist < best_dist:
+                best_dist = dist
+                best_name = name
+        return best_name if best_dist <= 6 else "unknown"
+
     classes = {0: "clear_water", 1: "clear_land", 2: "cloud", 3: "no_data"}
+    class_name = next((classify_rgb(x) for x in rgbs if classify_rgb(x) != "unknown"), "unknown")
+    code = next((k for k, v in classes.items() if v == class_name), None)
+
     return {
         "lat": lat,
         "lon": lon,
         "class": classes.get(code, "unknown"),
         "cloudMaskCode": code,
+        "rgb": rgbs[0] if rgbs else None,
         "raw": text_clean[:500],
     }
 
 def main():
     generated = dt.datetime.now(dt.timezone.utc)
+    observation = generated.replace(second=0, microsecond=0)
+    observation -= dt.timedelta(minutes=observation.minute % 15)
     samples = []
 
     for dy in OFFSETS_KM:
@@ -88,7 +115,7 @@ def main():
             lat = LAT + dy / 111.0
             lon = LON + dx / (111.0 * max(0.2, math.cos(math.radians(LAT))))
             try:
-                samples.append(point_query(lat, lon))
+                samples.append(point_query(lat, lon, observation))
             except Exception as exc:
                 samples.append({
                     "lat": lat,
@@ -119,10 +146,10 @@ def main():
         "clearPixels": len(clear),
         "samples": samples,
         "generatedAt": generated.isoformat(),
-        "observationAt": None,
-        "observationTimeStatus": "UNKNOWN_FETCH_ONLY",
+        "observationAt": observation.isoformat().replace("+00:00", "Z"),
+        "observationTimeStatus": "REQUESTED_CLM_PRODUCT_TIME",
         "status": "OK" if valid else "NO_VALID_SAMPLES",
-        "note": "Only explicit categorical MSG/SEVIRI Cloud Mask classes are accepted. Rendered RGB values are rejected; generatedAt is fetch time, not observation time. CLM codes: 0 clear water, 1 clear land, 2 cloud, 3 no data."
+        "note": "EUMETView msg_fes:clm is the official EUMETSAT Cloud Mask WMS layer. Samples are accepted only when the categorical palette matches a CLM class. observationAt is the completed 15-minute CLM product time requested from EUMETSAT; generatedAt is fetch time. CLM codes: 0 clear water, 1 clear land, 2 cloud, 3 no data."
     }
 
     content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
