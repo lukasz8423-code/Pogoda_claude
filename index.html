@@ -1858,8 +1858,19 @@ function parseImgwMeteoTimestamp(value){
   if(!raw)return null;
   const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
   if(m){
-    // IMGW przekazuje godzinę pomiaru jako czas lokalny stacji (Europe/Warsaw).
-    // Najpierw interpretujemy ją jako lokalną, a dopiero potem sprowadzamy do UTC.
+    // IMGW METEO: timestampy pól telemetrycznych bez offsetu są w UTC.
+    const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
+    return Date.UTC(y,mo-1,d,h,mi,s);
+  }
+  const parsed=Date.parse(raw);
+  return Number.isFinite(parsed)?parsed:null;
+}
+
+function parseImgwSynopTimestamp(value){
+  if(value==null||value==="")return null;
+  const raw=String(value).trim();
+  const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(m){
     const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
     const localAsUtc=Date.UTC(y,mo-1,d,h,mi,s);
     const parts=new Intl.DateTimeFormat("en-GB",{
