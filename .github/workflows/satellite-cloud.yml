@@ -25,15 +25,40 @@ jobs:
       - name: Install satellite tools
         run: pip install --disable-pip-version-check requests
 
-      - name: Fetch latest MSG/SEVIRI Cloud Mask
-        run: python scripts/update_satellite_cloud.py
-
-      - name: Publish satellite observation
+      - name: Synchronize with main before generating data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add satellite-cloud.json public/satellite-cloud.json
-          git diff --cached --quiet && exit 0
-          git commit -m "Aktualizuj obserwację zachmurzenia satelitarnego"
-          git pull --rebase origin main || true
-          git push
+          git pull --rebase origin main
+
+      - name: Fetch latest MSG/SEVIRI Cloud Mask
+        run: python scripts/update_satellite_cloud.py
+
+      - name: Publish satellite observation safely
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git add satellite-cloud.json public/satellite-cloud.json
+
+            if git diff --cached --quiet; then
+              echo "Brak zmian danych satelitarnych."
+              exit 0
+            fi
+
+            git commit -m "Aktualizuj obserwację zachmurzenia satelitarnego" || true
+
+            if git push origin HEAD:main; then
+              echo "Publikacja zakończona."
+              exit 0
+            fi
+
+            echo "Push nieudany — synchronizacja z najnowszym main i ponowne wygenerowanie danych."
+            git fetch origin main
+            git rebase origin/main
+            python scripts/update_satellite_cloud.py
+          done
+
+          echo "Nie udało się opublikować danych po 3 próbach."
+          exit 1
