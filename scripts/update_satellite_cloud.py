@@ -48,6 +48,26 @@ def point_query(lat, lon, observation_time):
     except Exception:
         payload = None
 
+    # GetFeatureInfo from EUMETView can expose the raster bands either as
+    # JSON fields or only in the raw response text. Support both forms.
+    if payload is None:
+        payload = {}
+
+    def extract_rgb_from_text(value):
+        m = re.search(
+            r'"?RED_BAND"?\s*[:=]\s*([0-9.]+).*?'
+            r'"?GREEN_BAND"?\s*[:=]\s*([0-9.]+).*?'
+            r'"?BLUE_BAND"?\s*[:=]\s*([0-9.]+)',
+            value,
+            re.I | re.S,
+        )
+        if not m:
+            return None
+        try:
+            return tuple(int(round(float(x))) for x in m.groups())
+        except Exception:
+            return None
+
     # EUMETView exposes the official categorical CLM layer.
     # Accept only the known categorical palette; arbitrary RGB imagery is rejected.
     def rgb(obj):
@@ -71,6 +91,9 @@ def point_query(lat, lon, observation_time):
 
     rgbs = []
     collect_rgb(payload, rgbs)
+    text_rgb = extract_rgb_from_text(text)
+    if text_rgb is not None and text_rgb not in rgbs:
+        rgbs.append(text_rgb)
 
     palette = {
         "clear_land": (0, 192, 0),
