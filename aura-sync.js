@@ -306,8 +306,39 @@
     rows.push(fieldDecision('Promieniowanie',null,model.radiation,X.rad,'Open-Meteo',false,'Głodowo nie dostarcza używanego pola promieniowania'));
     rows.push(fieldDecision('Punkt rosy',null,model.dewPoint,X.dewStation??X.dew,'Aura derived / IMGW RH',false,'wyliczany z temperatury i wilgotności; nie jest bezpośrednim pomiarem stacji'));
     rows.push(fieldDecision('Słońce / cień',null,model.sunShade,model.sunShade?.value??X.sunShade?.sun??null,'Aura derived',false,'wynik calcSunShadeTemp(); nie jest pomiarem stacji'));
-    rows.push(fieldDecision('Wilgotność liści',null,null,null,'Aura derived',false,'modelowana z punktu rosy, RH, wiatru, chmur i opadu; brak fizycznego czujnika'));
-    rows.push(fieldDecision('Gleba 0–1 cm',null,null,null,'brak danych',false,'aktualny endpoint nie pobiera soil_moisture_0_to_1cm; brak wartości nie jest zastępowany.'));
+    const derivedBaseTimestamp=model?.dewPoint?.basedOnTimestamp??model?.temperature?.timestamp??model?.humidity?.timestamp??canonicalLatest?.timestamp??null;
+    rows.push(fieldDecision(
+      'Wilgotność liści',
+      null,
+      component(null,derivedBaseTimestamp,'%',{
+        source:'Aura derived',
+        sourceType:'DERIVED',
+        computedAt:Date.now(),
+        basedOnTimestamp:derivedBaseTimestamp,
+        basedOn:'punkt rosy + RH + temperatura + wiatr + chmury + opad',
+        calculation:'dewWetness()'
+      }),
+      null,
+      'Aura derived',
+      false,
+      'modelowana lokalnie z punktu rosy, RH, temperatury, wiatru, chmur i opadu; brak fizycznego czujnika.'
+    ));
+    rows.push(fieldDecision(
+      'Gleba 0–1 cm',
+      null,
+      component(null,derivedBaseTimestamp,'m³/m³',{
+        source:'Aura derived',
+        sourceType:'DERIVED',
+        computedAt:Date.now(),
+        basedOnTimestamp:derivedBaseTimestamp,
+        basedOn:'ostatnie dostępne dane bazowe Aury',
+        calculation:'soil_moisture_0_to_1cm — brak źródła'
+      }),
+      null,
+      'Aura derived',
+      false,
+      'brak wartości pomiarowej/modelowej gleby 0–1 cm; diagnostyka zachowuje czas danych bazowych bez udawania wartości.'
+    ));
     return {capturedAt:Date.now(),station:window.__AURA_IMGW_COMPONENT_DIAG?.station||im.stacja||'Głodowo',distanceKm:Number.isFinite(distance)?distance:null,ttlMinutes:IMGW_TTL_MIN,canonicalLatestTimestamp:canonicalLatest?.timestamp||null,canonicalLatestTime:canonicalLatest?.time||null,canonicalLatestAgeMinutes:canonicalLatest?.ageMinutes??null,networkSource:diag.networkSource||null,networkFetchedAt:diag.networkFetchedAt||null,networkFetchedAtTime:diag.networkFetchedAt?fmtTime(diag.networkFetchedAt):null,networkStatus:diag.status||null,networkFallback:diag.isFallback===true,rows};
   }
 
