@@ -1,0 +1,75 @@
+name: Apply hourly cloud guard fix
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch index.html
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='AURA_CLOUD_DEGENERATE_GUARD_V2'
+          if marker in s:
+              print('already patched')
+              raise SystemExit(0)
+
+          old_sig='function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null){'
+          new_sig='function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null,cloudCompare=null){'
+          if old_sig not in s: raise SystemExit('lockFusionState signature not found')
+          s=s.replace(old_sig,new_sig,1)
+
+          anchor='''    S.pipelineDiag.hourlyCloudCanonical={\n      source:"active_model_raw_timestamp_match",'''
+          # Insert the guard immediately after the active-model hourly copy block.
+          # The exact insertion point is the end of the if(targetHourly...){...} block,
+          # immediately before S.fusionLockedHourly.
+          lock_marker='''  }\n\n  S.fusionLockedHourly=data?.hourly||null;\n  return true;\n}'''
+          guard_insert='''  }\n\n  // AURA_CLOUD_DEGENERATE_GUARD_V2: guard runs AFTER the raw active-model\n  // cloud_cover has been copied to targetHourly. This is the array consumed by UI.\n  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);\n  S.pipelineDiag=S.pipelineDiag||{};\n  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;\n\n  S.fusionLockedHourly=data?.hourly||null;\n  return true;\n}'''
+          if lock_marker not in s: raise SystemExit('lock insertion marker not found')
+          s=s.replace(lock_marker,guard_insert,1)
+
+          old_guard='''  // Guard lokalizacji/modelu: jeśli aktywny model zwrócił degeneracyjną serię\n  // 0% chmur, a alternatywny model ma realne wartości dla tych samych godzin,\n  // używamy wyłącznie jego RAW cloud_cover zamiast pokazywać fałszywe zera.\n  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);\n  S.pipelineDiag=S.pipelineDiag||{};\n  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;\n  sanitizeHourlyCloudCover(data);'''
+          new_guard='''  // Guard degeneracji jest wykonywany w lockFusionState(), PO skopiowaniu\n  // RAW cloud_cover aktywnego modelu do tablicy używanej przez UI.\n  sanitizeHourlyCloudCover(data);'''
+          if old_guard not in s: raise SystemExit('old guard block not found')
+          s=s.replace(old_guard,new_guard,1)
+
+          old_call='if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;'
+          new_call='if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData,cloudCompare))return;'
+          if old_call not in s: raise SystemExit('lock call not found')
+          s=s.replace(old_call,new_call,1)
+
+          # Preserve the guard result after any later whole-object pipelineDiag assignment.
+          persist_anchor='''  if(token!==LOAD_SEQ)return;\n\n  try{localStorage.setItem("aura_v7"'''
+          persist_replace='''  if(token!==LOAD_SEQ)return;\n  if(data?.hourly?.__auraCloudDegenerateGuard){\n    S.pipelineDiag=S.pipelineDiag||{};\n    S.pipelineDiag.cloudDegenerateGuard=data.hourly.__auraCloudDegenerateGuard;\n  }\n\n  try{localStorage.setItem("aura_v7"'''
+          if persist_anchor not in s: raise SystemExit('persistence anchor not found')
+          s=s.replace(persist_anchor,persist_replace,1)
+
+          # Small UI note under the hourly forecast. It is DOM-only and does not alter data/fusion logic.
+          ui='''\n<!-- AURA_CLOUD_DEGENERATE_GUARD_V2 -->\n<script>\n(function(){\n  function updateAuraCloudGuardNote(){\n    try{\n      const g=window.__AURA_STATE__?.data?.hourly?.__auraCloudDegenerateGuard\n        ||window.S?.data?.hourly?.__auraCloudDegenerateGuard\n        ||window.S?.pipelineDiag?.cloudDegenerateGuard;\n      const existing=document.querySelector('[data-aura-cloud-degenerate-note]');\n      if(!g?.applied){if(existing)existing.remove();return;}\n      let cells=[...document.querySelectorAll('.hi')];\n      if(!cells.length)return;\n      let host=null;\n      for(const cell of cells){\n        let n=cell.parentElement;\n        for(let i=0;i<6&&n;i++,n=n.parentElement){\n          const count=n.querySelectorAll?.('.hi').length||0;\n          if(count>=Math.min(3,cells.length)&&count<=36){host=n;break;}\n        }\n        if(host)break;\n      }\n      if(!host)return;\n      if(existing&&existing.parentElement===host){\n        existing.textContent='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';\n        return;\n      }\n      if(existing)existing.remove();\n      const note=document.createElement('div');\n      note.dataset.auraCloudDegenerateNote='1';\n      note.style.cssText='margin:6px 2px 10px;font-size:11px;line-height:1.35;color:var(--ink3);';\n      note.textContent='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';\n      host.appendChild(note);\n    }catch(e){}\n  }\n  window.__AURA_UPDATE_CLOUD_GUARD_NOTE=updateAuraCloudGuardNote;\n  new MutationObserver(updateAuraCloudGuardNote).observe(document.body,{childList:true,subtree:true});\n  setInterval(updateAuraCloudGuardNote,1000);\n  window.addEventListener('load',updateAuraCloudGuardNote,{once:true});\n})();\n</script>\n'''
+          if '</body>' in s:
+              s=s.replace('</body>',ui+'</body>',1)
+          else:
+              s += ui
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate
+        run: |
+          node --check index.html
+      - name: Commit patched index
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git rm --cached .github/workflows/apply-cloud-degenerate-fix.yml || true
+          git rm .github/workflows/apply-cloud-degenerate-fix.yml || true
+          if git diff --cached --quiet; then echo 'no changes'; exit 0; fi
+          git commit -m 'fix: run hourly cloud degenerate guard after fusion lock'
+          git push
