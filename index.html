@@ -1883,6 +1883,9 @@ async function apiGeminiAnalysisSnapshot(lat,lng){
 // Nazwa miejscowości jest warstwą WYŚWIETLANIA i nie może zmieniać współrzędnych
 // używanych przez pogodę, IMGW ani modele. Dla znanego obszaru Głodowa
 // omijamy niejednoznaczność reverse-geocodera (Głodowo/Kolankowo).
+// DISPLAY-ONLY geograficzna korekta. Nie zmienia S.lat/S.lng ani żadnego
+// parametru przekazywanego do Open-Meteo, IMGW lub innych źródeł pogodowych.
+// GPS zwraca współrzędne niezależnie od nazwy miejscowości; nazwa jest tylko etykietą UI.
 const GLODOWO_DISPLAY_CENTER={lat:52.80978,lng:19.22107};
 const GLODOWO_DISPLAY_RADIUS_KM=1.5;
 
@@ -1897,12 +1900,12 @@ function distanceKmBetween(lat1,lng1,lat2,lng2){
 
 function forcedDisplayLocality(lat,lng){
   if(!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng)))return null;
-  return distanceKmBetween(lat,lng,GLODOWO_DISPLAY_CENTER.lat,GLODOWO_DISPLAY_CENTER.lng)<=GLODOWO_DISPLAY_RADIUS_KM
-    ?"Głodowo"
-    :null;
+  const distance=distanceKmBetween(lat,lng,GLODOWO_DISPLAY_CENTER.lat,GLODOWO_DISPLAY_CENTER.lng);
+  return distance<=GLODOWO_DISPLAY_RADIUS_KM?"Głodowo":null;
 }
 
 async function apiCity(lat,lng){
+  // Najpierw warstwa nazwy UI. Reverse-geocoder nie może nadpisać tej etykiety.
   const forced=forcedDisplayLocality(lat,lng);
   if(forced)return forced;
 
@@ -6952,7 +6955,10 @@ async function loadWCore(lat,lng,name,isRef,token){
   }
   else{resetRadar();Object.assign(S,{phase:"loading",loading:true});render();}
 
-  let city=name;
+  // Nazwa jest wyłącznie warstwą prezentacji. Współrzędne lat/lng pozostają
+  // dokładnie tymi z GPS i są używane niezależnie przez cały pipeline pogodowy.
+  const forcedDisplay=forcedDisplayLocality(lat,lng);
+  let city=forcedDisplay||name;
   if(!city)city=await apiCity(lat,lng)||`${(+lat).toFixed(3)}, ${(+lng).toFixed(3)}`;
   document.title="Aura – "+city;
 
