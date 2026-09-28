@@ -4440,15 +4440,17 @@ function meteogramHTML(X){
   const currentMm=Number(X?.currentState?.mm??0);
   for(let i=0;i<N;i++){
     const idx=currentIdx+i;
-    let rawPr=+(hourly.precipitation?.[idx]??0);
+    const timeKey=String(hourly.time?.[idx]||"");
     const hourlyCode=getHourlyCode(hourly,idx);
     const hourlyIsRain=isRainCode(hourlyCode);
+    let rawPr=+(hourly.precipitation?.[idx]??0);
     let pr=(hourlyIsRain&&rawPr>0.05)?rawPr:0;
     if(i===0){
       pr=(currentIsRain && currentMm > 0.05)?currentMm:0;
     }
     pts.push({
-      t:new Date(hourly.time[idx]),
+      timeKey,
+      t:new Date(timeKey),
       temp:i===0?X.T:+(hourly.temperature_2m[idx]??X.T),
       pr,
       pop:+(hourly.precipitation_probability?.[idx]??0),
@@ -4458,7 +4460,14 @@ function meteogramHTML(X){
   }
   const maxPr=Math.max(.5,...pts.map(p=>p.pr));
   const cells=pts.map((p,i)=>{
-    const day=i===0||p.t.toDateString()!==pts[i-1].t.toDateString();
+    // hourly.time z Open-Meteo jest lokalnym znacznikiem czasu (timezone=auto).
+    // Nie wycinamy godziny z String(Date) — to dawało dzień miesiąca zamiast godziny
+    // i mogło powodować powtarzające się etykiety w meteogramie.
+    const timeKey=String(p.timeKey||"");
+    const dayKey=timeKey.slice(0,10);
+    const prevDayKey=String(pts[i-1]?.timeKey||"").slice(0,10);
+    const hourLabel=/^\d{4}-\d{2}-\d{2}T\d{2}/.test(timeKey)?timeKey.slice(11,13):pad(p.t.getHours());
+    const day=i===0||dayKey!==prevDayKey;
     const displayPr=Number.isFinite(p.pr)&&p.pr>0.05?p.pr:0;
     const wind=p.wind==null?"—":Math.round(p.wind);
     const gust=p.gust==null?"":"/"+Math.round(p.gust);
@@ -4471,7 +4480,7 @@ function meteogramHTML(X){
     const prLabel=displayPr>0?fnum(displayPr,1)+" mm":(isTrace?"< 0,1 mm":"0 mm");
 
     return `<div class="mg-cell ${day?"mg-day":""}">
-      <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${String(p.t).slice(11,13)}:00</b>
+      <b class="mg-time">${day?(i===0?"Dziś":DAY_SHORT(p.t))+" · ":""}${hourLabel}:00</b>
       <strong class="mg-temp tn">${Math.round(p.temp)}°</strong>
       <div class="mg-rain">
         <span class="mg-rainbar ${displayPr>0||isTrace?"on":""}" style="height:${Math.max(displayPr>0||isTrace?3:0,bar)}px"></span>
