@@ -2488,12 +2488,26 @@ async function fetchAllModelsCompare(lat,lng,forceFresh=false){
   // Dla fallbacku IMGW Offline potrzebujemy pełnej prognozy wielodniowej.
   // ICON-EU ma krótszy horyzont, więc nie blokujemy całego ensemble, jeśli
   // któryś model zwróci mniej dni lub chwilowo nie odpowie.
+  // Ważne: nie odpalamy 6 requestów Open-Meteo jednocześnie. Taki burst
+  // nie daje Aurze żadnej korzyści, a przy wspólnym publicznym endpointcie
+  // może niepotrzebnie wywołać HTTP 429. Maksymalnie 2 modele naraz.
   const modelsToCheck = ["icon_d2","icon_eu","ecmwf_ifs025","gfs_seamless","dmi_harmonie_arome_europe","knmi_harmonie_arome_europe"];
-  const results = await Promise.allSettled(
-    modelsToCheck.map(m=>apiWeatherModel(lat,lng,m,10,forceFresh))
-  );
+  const results=new Array(modelsToCheck.length);
+  let next=0;
+  const worker=async()=>{
+    while(true){
+      const i=next++;
+      if(i>=modelsToCheck.length)return;
+      try{
+        results[i]={status:"fulfilled",value:await apiWeatherModel(lat,lng,modelsToCheck[i],10,forceFresh)};
+      }catch(error){
+        results[i]={status:"rejected",reason:error};
+      }
+    }
+  };
+  await Promise.all([worker(),worker()]);
   return results
-    .map((r,i)=>({model:modelsToCheck[i],data:r.status==="fulfilled"?r.value:null}))
+    .map((r,i)=>({model:modelsToCheck[i],data:r?.status==="fulfilled"?r.value:null}))
     .filter(r=>r.data);
 }
 
