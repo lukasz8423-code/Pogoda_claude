@@ -9,11 +9,22 @@
     if(raw==null||raw==='') return null;
     if(raw instanceof Date){const t=raw.getTime();return Number.isFinite(t)?t:null;}
     if(typeof raw==='number'){const t=raw<1e11?raw*1000:raw;return Number.isFinite(t)?t:null;}
+    const text=String(raw).trim();
     if(typeof window.AURA_PARSE_TIMESTAMP==='function'){
-      const t=window.AURA_PARSE_TIMESTAMP(raw);
+      const t=window.AURA_PARSE_TIMESTAMP(text);
       if(Number.isFinite(t))return t;
     }
-    const t=Date.parse(String(raw).trim());
+    // IMGW bez offsetu = czas lokalny Europe/Warsaw. Nigdy nie używamy
+    // Date.parse("YYYY-MM-DD HH:mm:ss"), bo silnik JS może potraktować to jako UTC.
+    const m=text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if(m){
+      const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
+      const naive=Date.UTC(y,mo-1,d,h,mi,s);
+      const off=typeof window.AURA_TIMEZONE_OFFSET_MINUTES==='function'
+        ? window.AURA_TIMEZONE_OFFSET_MINUTES(naive,'Europe/Warsaw') : 60;
+      return naive-(Number.isFinite(off)?off:60)*60000;
+    }
+    const t=Date.parse(text);
     return Number.isFinite(t)?t:null;
   }
 
