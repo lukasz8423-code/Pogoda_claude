@@ -2067,8 +2067,15 @@ async function findNearestIMGW(lat,lng){
     const normalized=normalizeImgwStationRecord(raw,Date.now(),IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot,known);
     if(normalized){normalized.dist=Math.round(dist*10)/10;meteoCandidates.push(normalized);}
   });
-  meteoCandidates.sort((a,b)=>a.dist-b.dist);
-  const meteoBest=meteoCandidates[0]||null;
+  // Lokalny snapshot imgw-meteo.json jest historycznie przygotowany dla Głodowa.
+  // Nie wolno przenosić go do ręcznie wybranych miast (np. Toruń/Gdańsk).
+  // Snapshot może być użyty jako obserwacja tylko wtedy, gdy wybrana lokalizacja
+  // faktycznie leży przy Głodowie; dla innych lokalizacji pozostaje MODEL/SYNOP.
+  const usableMeteoCandidates=isSnapshot
+    ? meteoCandidates.filter(s=>String(s.stacja||s.name||"").toLowerCase().includes("głodowo") && Number(s.dist)<=5)
+    : meteoCandidates;
+  usableMeteoCandidates.sort((a,b)=>a.dist-b.dist);
+  const meteoBest=usableMeteoCandidates[0]||null;
   if(meteoBest){
     const used=meteoBest.anyUsable===true;
     S.imgwDiag={...(S.imgwDiag||{}),found:true,used,station:meteoBest.stacja,dist:meteoBest.dist,isFallback:isSnapshot,fetchedAt,normalized:meteoBest,fieldFreshnessTtlMinutes:IMGW_MAX_FIELD_AGE_MINUTES,freshFields:meteoBest.freshFields,staleFields:meteoBest.staleFields,sourceType:meteoBest.sourceType,sourceLabel:meteoBest.sourceLabel,temperature:meteoBest.temperatura,humidity:meteoBest.wilgotnosc_wzgledna,wind:meteoBest.predkosc_wiatru,rain:meteoBest.opad_10min,observedAt:meteoBest.observedAt,ageMinutes:meteoBest.ageMinutes,rawStation:meteoBest};
