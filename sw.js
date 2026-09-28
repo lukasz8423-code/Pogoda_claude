@@ -1,4 +1,5 @@
-// Aura Service Worker v10 - 2026-09-27
+// Aura Service Worker v11 - 2026-09-28
+const AURA_SW_BUILD='2136';
 const AURA_SYNC=new URL('aura-sync.js?v=20260927-9',self.registration.scope).href;
 self.addEventListener('install',(event)=>{event.waitUntil(self.skipWaiting());});
 self.addEventListener('activate',(event)=>{
