@@ -15,17 +15,12 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
-
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
           marker='// AURA_HOURLY_OPTICAL_DISPLAY_V1'
           if marker in s:
               print('Patch already present')
               raise SystemExit(0)
-
-          # The optical function already used by "Teraz" is deliberately reused
-          # for future display slots. No second copy of its weights/thresholds.
           helper=r'''// AURA_HOURLY_OPTICAL_DISPLAY_V1
 function hourlyOpticalCloudDisplay(data,index){
   try{
@@ -64,22 +59,15 @@ function hourlyOpticalCloudDisplay(data,index){
   }
 }
 '''
-          if 'function dailyRows(){' not in s:
-              raise SystemExit('dailyRows not found')
+          if 'function dailyRows(){' not in s: raise SystemExit('dailyRows not found')
           s=s.replace('function dailyRows(){',helper+'function dailyRows(){',1)
-
-          # Hourly radiation fields are needed by the same solarClear calculation
-          # used by optiCloudFromModels(). Keep existing fields untouched and only
-          # add the missing hourly counterparts.
           old='''    "relative_humidity_2m","pressure_msl","visibility","cape","lightning_potential","freezing_level_height"
   ];'''
           new='''    "relative_humidity_2m","pressure_msl","visibility","cape","lightning_potential","freezing_level_height",
     "sunshine_duration","direct_normal_irradiance","shortwave_radiation_instant"
   ];'''
-          if old not in s:
-              raise SystemExit('commonHourly block not found')
+          if old not in s: raise SystemExit('commonHourly block not found')
           s=s.replace(old,new,1)
-
           old_line='''        const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
         const hCode=getHourlyCode(hourly,k);'''
           new_line='''        const hCode=getHourlyCode(hourly,k);
@@ -89,12 +77,9 @@ function hourlyOpticalCloudDisplay(data,index){
           ?hourlyOpticalCloudDisplay(S.data,k)
           :null;
         const c=Number.isFinite(opticalCloud)?opticalCloud:rawCloud;'''
-          if old_line not in s:
-              raise SystemExit('daily cloud line not found')
+          if old_line not in s: raise SystemExit('daily cloud line not found')
           s=s.replace(old_line,new_line,1)
-
           p.write_text(s,encoding='utf-8')
-          print('Patched index.html')
       - name: Verify syntax
         run: node --check index.html
       - name: Commit patch
