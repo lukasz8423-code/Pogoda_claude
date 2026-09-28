@@ -2354,7 +2354,7 @@ async function findNearestIMGW(lat,lng){
     const dm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(best.data_pomiaru));
     const hh=parseInt(best.godzina_pomiaru,10);
     if(dm&&Number.isFinite(hh)&&hh>=0&&hh<=23){
-      observedAt=parseImgwMeteoTimestamp(`${dm[1]}-${dm[2]}-${dm[3]} ${String(hh).padStart(2,"0")}:00:00`);
+      observedAt=parseImgwSynopTimestamp(`${dm[1]}-${dm[2]}-${dm[3]} ${String(hh).padStart(2,"0")}:00:00`);
       const rawAge=(fetchedAt-observedAt)/60000;
       ageMinutes=rawAge < -30 ? null : Math.max(0,Math.round(rawAge));
     }
@@ -2421,7 +2421,7 @@ function buildObservationFallbackFromSynop(results,lat,lng,nowMs=Date.now()){
       let observedAt=null;
       const m=date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       if(m&&Number.isFinite(hour)&&hour>=0&&hour<=23){
-        observedAt=parseImgwMeteoTimestamp(`${m[1]}-${m[2]}-${m[3]} ${String(hour).padStart(2,"0")}:00:00`);
+        observedAt=parseImgwSynopTimestamp(`${m[1]}-${m[2]}-${m[3]} ${String(hour).padStart(2,"0")}:00:00`);
       }
       const ageMinutes=observedAt==null?null:Math.round((nowMs-observedAt)/60000);
       const temp=parseImgwNumber(s.temperatura);
