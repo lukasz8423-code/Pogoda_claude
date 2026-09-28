@@ -6778,7 +6778,7 @@ function isActiveLoad(token,lat,lng){
     (S.lng==null || Math.abs(Number(S.lng)-Number(lng))<0.000001);
 }
 
-function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null){
+function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null,cloudCompare=null){
   if(token!==LOAD_SEQ)return false;
   S.isFusionLocked=true;
   S.fusionLock={
@@ -6834,6 +6834,12 @@ function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null){
         ?Number(activeModelRawData.current.cloud_cover):null
     };
   }
+
+  // AURA_CLOUD_DEGENERATE_GUARD_V2: guard runs AFTER the raw active-model
+  // cloud_cover has been copied to targetHourly. This is the array consumed by UI.
+  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);
+  S.pipelineDiag=S.pipelineDiag||{};
+  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;
 
   S.fusionLockedHourly=data?.hourly||null;
   return true;
@@ -7452,12 +7458,8 @@ async function loadWCore(lat,lng,name,isRef,token){
   // TERAZ pozostaje z obecnej fuzji. Tylko przyszłe godziny dostają
   // wielomodelowy konsensus ICON/ECMWF/GFS.
   applyFutureHourlyCloudConsensus(data,cloudCompare,activeModelRawData,activeModel.id);
-  // Guard lokalizacji/modelu: jeśli aktywny model zwrócił degeneracyjną serię
-  // 0% chmur, a alternatywny model ma realne wartości dla tych samych godzin,
-  // używamy wyłącznie jego RAW cloud_cover zamiast pokazywać fałszywe zera.
-  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);
-  S.pipelineDiag=S.pipelineDiag||{};
-  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;
+  // Guard degeneracji jest wykonywany w lockFusionState(), PO skopiowaniu
+  // RAW cloud_cover aktywnego modelu do tablicy używanej przez UI.
   sanitizeHourlyCloudCover(data);
 
   // Diagnostyka musi być zapisana PO wykonaniu korekty prognozy chmur.
@@ -7547,7 +7549,12 @@ async function loadWCore(lat,lng,name,isRef,token){
   // po tej chwili wynik fuzji jest własnością bieżącej generacji.
   // Żaden późniejszy surowy fetch starej generacji nie może go nadpisać.
   if(token!==LOAD_SEQ)return;
-  if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;
+  if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData,cloudCompare))return;
+  // Preserve guard diagnostics after any later whole-object pipelineDiag assignment.
+  if(data?.hourly?.__auraCloudDegenerateGuard){
+    S.pipelineDiag=S.pipelineDiag||{};
+    S.pipelineDiag.cloudDegenerateGuard=data.hourly.__auraCloudDegenerateGuard;
+  }
 
   try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}
   saveHistory(city,lat,lng);
@@ -7812,5 +7819,46 @@ document.addEventListener("visibilitychange",()=>{
 
 </script>
 <script src="./aura-sync.js?v=b0bce97" defer></script>
+
+<!-- AURA_CLOUD_DEGENERATE_GUARD_V2 -->
+<script>
+(function(){
+  function updateAuraCloudGuardNote(){
+    try{
+      const g=window.__AURA_STATE__?.data?.hourly?.__auraCloudDegenerateGuard
+        ||window.S?.data?.hourly?.__auraCloudDegenerateGuard
+        ||window.S?.pipelineDiag?.cloudDegenerateGuard;
+      const existing=document.querySelector('[data-aura-cloud-degenerate-note]');
+      if(!g?.applied){if(existing)existing.remove();return;}
+      const cells=[...document.querySelectorAll('.hi')];
+      if(!cells.length)return;
+      let host=null;
+      for(const cell of cells){
+        let n=cell.parentElement;
+        for(let i=0;i<6&&n;i++,n=n.parentElement){
+          const count=n.querySelectorAll?.('.hi').length||0;
+          if(count>=Math.min(3,cells.length)&&count<=36){host=n;break;}
+        }
+        if(host)break;
+      }
+      if(!host)return;
+      if(existing&&existing.parentElement===host){
+        existing.textContent='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';
+        return;
+      }
+      if(existing)existing.remove();
+      const note=document.createElement('div');
+      note.dataset.auraCloudDegenerateNote='1';
+      note.style.cssText='margin:6px 2px 10px;font-size:11px;line-height:1.35;color:var(--ink3);';
+      note.textContent='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';
+      host.appendChild(note);
+    }catch(e){}
+  }
+  window.__AURA_UPDATE_CLOUD_GUARD_NOTE=updateAuraCloudGuardNote;
+  new MutationObserver(updateAuraCloudGuardNote).observe(document.body,{childList:true,subtree:true});
+  setInterval(updateAuraCloudGuardNote,1000);
+  window.addEventListener('load',updateAuraCloudGuardNote,{once:true});
+})();
+</script>
 </body>
 </html>
