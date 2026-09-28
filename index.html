@@ -6757,7 +6757,10 @@ function demoData(){
   };
 }
 
+let GPS_REQUEST_SEQ=0;
+
 async function handleGPS(){
+  const gpsRequest=++GPS_REQUEST_SEQ;
   gpsErr="";
   netErr=false;
 
@@ -6773,7 +6776,16 @@ async function handleGPS(){
     return;
   }
 
+  // Kliknięcie GPS rozpoczyna nowy cykl lokalizacji. Stary punkt i jego
+  // nazwa nie mogą zostać użyte jako wynik nowego odczytu.
+  LOAD_SEQ++;
+  S.gpsDiag=null;
+  S.lat=null;
+  S.lng=null;
+  S.city="Ustalam lokalizację…";
   S.loading=true;
+  S.refreshing=false;
+  S.loadError=null;
   render();
 
   const getPosition=(options)=>new Promise((resolve,reject)=>{
@@ -6783,19 +6795,24 @@ async function handleGPS(){
   try{
     let position;
     try{
+      // maximumAge:0 = żadnego użycia cache pozycji.
       position=await getPosition({
         enableHighAccuracy:true,
-        timeout:15000,
+        timeout:20000,
         maximumAge:0
       });
     }catch(firstErr){
       if(firstErr?.code===1)throw firstErr;
+      // Druga próba również musi być świeża. Nie wolno wracać do
+      // maximumAge:30000, bo po ruchu urządzenia moglibyśmy dostać starą pozycję.
       position=await getPosition({
         enableHighAccuracy:false,
-        timeout:10000,
-        maximumAge:30000
+        timeout:15000,
+        maximumAge:0
       });
     }
+
+    if(gpsRequest!==GPS_REQUEST_SEQ)return;
 
     const lat=Number(position.coords.latitude);
     const lng=Number(position.coords.longitude);
@@ -6805,10 +6822,13 @@ async function handleGPS(){
       throw new Error("Nieprawidłowe współrzędne lokalizacji.");
     }
 
+    // Dopiero świeże współrzędne trafiają do pipeline'u. Dopiero na ich
+    // podstawie loadW/forcedDisplayLocality ustala nazwę miejscowości.
     S.gpsDiag={lat,lng,accuracy,model:activeModel.id,cloud:null,code:null};
-    console.log("GPS:",S.gpsDiag);
+    console.log("GPS fresh:",S.gpsDiag);
     await loadW(lat,lng,null,false);
   }catch(err){
+    if(gpsRequest!==GPS_REQUEST_SEQ)return;
     S.loading=false;
 
     if(err?.code===1){
