@@ -640,7 +640,8 @@ a.btn{text-decoration:none;color:inherit}
 
 /* sheets */
 .sheet-bg{position:fixed;inset:0;z-index:100;background:rgba(3,7,18,.6);display:flex;align-items:flex-end;justify-content:center;animation:settle .2s ease both}
-.sheet{width:100%;max-width:520px;max-height:86dvh;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior-y:contain;background:rgba(14,22,42,.96);border:1px solid var(--line);border-radius:28px 28px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom));backdrop-filter:blur(24px)}
+.sheet{position:relative;width:100%;max-width:520px;max-height:86dvh;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;background:rgba(14,22,42,.96);border:1px solid var(--line);border-radius:28px 28px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom));backdrop-filter:blur(24px)}
+.sheet .ib.x{position:sticky;top:0;z-index:30;float:none;display:flex;margin:0 0 6px auto;width:36px!important;height:36px!important;align-items:center;justify-content:center;background:rgba(14,22,42,.96);border:1px solid var(--line);border-radius:12px}
 .sheet h3{font-size:18px;font-weight:600;margin-bottom:4px}
 .diag-section{margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025)}
 .diag-section-title{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:8px;display:flex;align-items:center;gap:7px}
@@ -5845,7 +5846,7 @@ function pipelineInspectorHTML(){
     ["Temperatura gruntu",img.temperatura_gruntu,img.temperatura_gruntu_data,img.groundTempAgeMinutes,img.groundTempFresh]
   ];
   const imgwDiag=S.imgwDiag||{}; const imgwFetchedAt=imgwDiag.networkFetchedAt||imgwDiag.fetchedAt||null;
-  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — diagnostyka per pole</div><div class=\"note\">Odpowiedź IMGW odebrana: <b>"+(imgwFetchedAt?esc(formatImgwTimestamp(imgwFetchedAt)):"—")+"</b> · TTL pola: <b>"+fmt(imgw?.fieldFreshnessTtlMinutes??IMGW_MAX_FIELD_AGE_MINUTES)+" min</b></div><div class=\"diag-xscroll\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość RAW</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
+  const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — diagnostyka per pole</div><div class=\"note\">Odpowiedź IMGW odebrana: <b>"+(imgwFetchedAt?esc(formatImgwTimestamp(imgwFetchedAt)):"—")+"</b> · TTL pola: <b>"+fmt(imgwDiag.fieldFreshnessTtlMinutes??IMGW_MAX_FIELD_AGE_MINUTES)+" min</b></div><div class=\"diag-xscroll\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość RAW</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
   const sourceRows=rawModels.map(r=>{
     const md=r.data||{};
     const gridLat=Number(md.latitude),gridLng=Number(md.longitude);
@@ -5870,7 +5871,13 @@ function pipelineInspectorHTML(){
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const cloudSection="<section class=\"diag-section\"><div class=\"diag-section-title\">☁️ Zachmurzenie — wszystkie źródła w jednym miejscu</div>"+cloudModelTable+cloudForecastTable+solarDiagnosticBlock()+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
 }
-function openPipelineInspector(){openSheet(pipelineInspectorHTML());}
+function openPipelineInspector(){
+  try{openSheet(pipelineInspectorHTML());}
+  catch(err){
+    console.error("[AURA PIPELINE DIAGNOSTICS]",err);
+    openSheet('<div class="diag-section"><div class="diag-section-title">🔬 Diagnostyka źródeł</div><div class="err">Diagnostyka nie mogła zostać zbudowana. Błąd: '+esc(String(err?.message||err||"Nieznany błąd"))+'</div></div>');
+  }
+}
 function pipelineDiagnosticsText(){
   const panel=document.querySelector("#sheet-root .sheet");
   const fullPanelText=panel?.innerText?.trim();
