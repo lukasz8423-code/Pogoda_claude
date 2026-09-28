@@ -1588,7 +1588,8 @@ async function apiWeatherModel(lat,lng,modelId,days=10,forceFresh=false){
     "temperature_2m","weather_code","precipitation_probability","precipitation","snowfall",
     "cloud_cover","cloud_cover_low","cloud_cover_mid","cloud_cover_high",
     "apparent_temperature","wind_speed_10m","wind_direction_10m","wind_gusts_10m",
-    "relative_humidity_2m","pressure_msl","visibility","cape","lightning_potential","freezing_level_height"
+    "relative_humidity_2m","pressure_msl","visibility","cape","lightning_potential","freezing_level_height",
+    "sunshine_duration","direct_normal_irradiance","shortwave_radiation_instant"
   ];
   const commonDaily=[
     "weather_code","temperature_2m_max","temperature_2m_min",
@@ -4637,6 +4638,43 @@ function meteogramHTML(X){
   </section>`;
 }
 
+// AURA_HOURLY_OPTICAL_DISPLAY_V1
+function hourlyOpticalCloudDisplay(data,index){
+  try{
+    const targetTime=data?.hourly?.time?.[index];
+    if(targetTime==null)return null;
+    const raw=S.activeModelRaw||data;
+    const h=raw?.hourly;
+    if(!Array.isArray(h?.time))return null;
+    const si=findHourIndexByTime(h.time,targetTime);
+    if(si<0)return null;
+    const valueAt=(key)=>h?.[key]?.[si];
+    const total=Number(valueAt('cloud_cover'));
+    const low=Number(valueAt('cloud_cover_low'));
+    const mid=Number(valueAt('cloud_cover_mid'));
+    const high=Number(valueAt('cloud_cover_high'));
+    if(![total,low,mid,high].every(Number.isFinite))return null;
+    const current={
+      cloud_cover:total,
+      cloud_cover_low:low,
+      cloud_cover_mid:mid,
+      cloud_cover_high:high,
+      is_day:Number.isFinite(Number(valueAt('is_day')))?Number(valueAt('is_day')):(isDayAt(targetTime)?1:0),
+      weather_code:Number.isFinite(Number(valueAt('weather_code')))?Number(valueAt('weather_code')):0,
+      sunshine_duration:Number(valueAt('sunshine_duration')),
+      interval:Number(valueAt('interval'))||900,
+      direct_normal_irradiance:Number(valueAt('direct_normal_irradiance')),
+      shortwave_radiation:Number(valueAt('shortwave_radiation')),
+      shortwave_radiation_instant:Number(valueAt('shortwave_radiation_instant'))
+    };
+    const optical=optiCloudFromModels([{model:raw?.__auraSourceMeta?.requestedModel||activeModel.id,data:{current}}]);
+    if(!optical?.length)return null;
+    return Number.isFinite(Number(optical[0].optical))?Math.round(Number(optical[0].optical)):null;
+  }catch(err){
+    console.debug('[AURA HOURLY OPTICAL CLOUD]',err);
+    return null;
+  }
+}
 function dailyRows(){
   const {daily,hourly}=S.data,X=S.X;
   const idxs=[];
@@ -4658,8 +4696,13 @@ function dailyRows(){
       hourly.time.forEach((t,k)=>{
         if(!String(t).startsWith(dateStr))return;
         const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
-        const c=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
         const hCode=getHourlyCode(hourly,k);
+        const hoursAhead=k-currentIdx;
+        const rawCloud=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
+        const opticalCloud=(hoursAhead>=1&&hoursAhead<=3&&isDayAt(t))
+          ?hourlyOpticalCloudDisplay(S.data,k)
+          :null;
+        const c=Number.isFinite(opticalCloud)?opticalCloud:rawCloud;
         hs+=`<div class="hi"><span class="t tn">${String(t).slice(11,13)}</span>${ico(hCode,isDayAt(t),28,c)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
