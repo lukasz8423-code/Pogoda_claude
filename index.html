@@ -7969,7 +7969,7 @@ document.addEventListener("visibilitychange",()=>{
         });
         if (!res.ok) return null;
         const text = await res.text();
-        const m = text.match(/AURA_SW_BUILD\\s*=\\s*['"]([^'"]+)['"]/);
+        const m = text.match(/AURA_SW_BUILD\s*=\s*['"]([^'"]+)['"]/);
         return m ? m[1] : null;
       } catch (e) {
         console.warn('[AURA SW] version check failed', e);
