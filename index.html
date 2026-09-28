@@ -2828,6 +2828,12 @@ const formatImgwTimestamp=value=>{
   const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 };
+const formatAuraLocalTimestamp=value=>{
+  const ms=value instanceof Date?value.getTime():new Date(value).getTime();
+  if(!Number.isFinite(ms))return "—";
+  try{return new Intl.DateTimeFormat("pl-PL",{timeZone:AURA_TIME_ZONE,day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZoneName:"short"}).format(new Date(ms));}
+  catch{return new Date(ms).toLocaleString("pl-PL");}
+};
 const dash=v=>v==null||Number.isNaN(v)?"–":v;
 const fmtAge=min=>{const m=Math.max(0,Math.round(min));if(m<60)return`${m} min temu`;const h=Math.floor(m/60),r=m%60;return r?`${h} h ${r} min temu`:`${h} h temu`;};
 const fnum=(v,d=0)=>v==null||Number.isNaN(+v)?"–":(+v).toFixed(d).replace(".",",");
@@ -4325,7 +4331,8 @@ function heroInnerHTML(X){
   const satLive=satFusion?.satelliteUsed===true;
   const satPending=!S.satelliteCloud && !satFusion;
   const satClass=satPending?"pending":(satLive?"live":"offline");
-  const satTitle=satPending?"EUMETSAT: oczekiwanie na dane":(satLive?"EUMETSAT: aktywny":"EUMETSAT: brak użytecznych danych");
+  const satObsLocal=satFusion?.satelliteObservationTime?formatAuraLocalTimestamp(satFusion.satelliteObservationTime):null;
+  const satTitle=satPending?"EUMETSAT: oczekiwanie na dane":(satLive?(satObsLocal?"EUMETSAT: aktywny · obserwacja "+satObsLocal:"EUMETSAT: aktywny"):"EUMETSAT: brak użytecznych danych");
   chips.push(`<span class="chip satellite-health ${satClass}" title="${satTitle}" aria-label="${satTitle}">${mini("sat")}<span class="sat-dot"></span><span>Satelita</span></span>`);
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
