@@ -1551,6 +1551,9 @@ const WEATHER_CACHE_POLICY={
 const WEATHER_CACHE=new Map();
 const WEATHER_INFLIGHT=new Map();
 let WEATHER_FORCE_REFRESH=false;
+// Jedna aktywna generacja pipeline'u na kartę — blokuje przypadkowe
+// równoległe loadW() po szybkim klikaniu Odśwież / visibilitychange.
+let LOAD_IN_PROGRESS=false;
 let OPEN_METEO_RATE_LIMIT_UNTIL=0;
 
 function modelRunBucket(modelId,now=Date.now()){
@@ -6971,6 +6974,11 @@ function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null,clo
   return true;
 }
 async function loadW(lat,lng,name,isRef){
+  if(LOAD_IN_PROGRESS){
+    console.warn("[AURA] loadW pominięty — pipeline już trwa");
+    return false;
+  }
+  LOAD_IN_PROGRESS=true;
   const token=++LOAD_SEQ;
   S.isFusionLocked=false;
   S.fusionLock=null;
@@ -6983,6 +6991,7 @@ async function loadW(lat,lng,name,isRef){
     else Object.assign(S,{phase:"error",loadError:{lat,lng,name:name||S.city||null,msg:String(e?.message||e||"Nieznany błąd")}});
     render();
   }
+  LOAD_IN_PROGRESS=false;
 }
 async function loadWCore(lat,lng,name,isRef,token){
   if(token!==LOAD_SEQ)return;
@@ -7024,7 +7033,9 @@ async function loadWCore(lat,lng,name,isRef,token){
     const [weatherResult,imgwResult,cloudResult,satelliteResult,minutelyResult]=await Promise.allSettled([
       apiWeather(lat,lng,isRef),
       findNearestIMGW(lat,lng),
-      fetchAllModelsCompare(lat,lng,isRef),
+      // Ensemble porównawczy ma własny TTL/cache. Ręczne odświeżenie
+      // nie wymusza 6 dodatkowych requestów Open-Meteo jednocześnie.
+      fetchAllModelsCompare(lat,lng,false),
       apiSatelliteCloudMask(lat,lng),
       apiMinutely(lat,lng)
     ]);
