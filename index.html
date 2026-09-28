@@ -6986,6 +6986,9 @@ async function loadWCore(lat,lng,name,isRef,token){
   S.liveHealth=null;
   S.sourceMode=null;
   S.observationFallback=null;
+  // Kanoniczna obserwacja dla całego UI: Głodowo → OBSERVATION_FALLBACK → null/model.
+  // Każdy moduł, diagnostyka i render korzystają z tego samego obiektu.
+  S.effectiveObservation=null;
   S.observationChain=null;
   S.imgwStatus=null;
   S.ensemble=null;
@@ -7188,6 +7191,10 @@ async function loadWCore(lat,lng,name,isRef,token){
         imgwData?.anyUsable===true
       ) ? imgwData : (S.observationFallback?.isFresh===true ? S.observationFallback : null);
 
+      // Jeden kanoniczny obiekt obserwacyjny dla całej Aury.
+      // Hero, kafelki i diagnostyka nie powinny wybierać źródła niezależnie.
+      S.effectiveObservation=effectiveObservation||null;
+
       // Jawny łańcuch źródeł obserwacyjnych: Głodowo → fallback obserwacyjny → model.
       // To jest stan diagnostyczny, a nie kolejna warstwa fuzji.
       S.observationChain={
@@ -7356,6 +7363,13 @@ async function loadWCore(lat,lng,name,isRef,token){
             stationAgeMinutes:obs?.ageMinutes??imgwData.latestAgeMinutes??imgwData.ageMinutes??null,
             stationDistanceKm:obs?.dist??imgwData.dist??null,
             observationChain:S.observationChain||null,
+            effectiveObservation:S.effectiveObservation?{
+              sourceType:S.effectiveObservation.sourceType==="OBSERVATION_FALLBACK"?"OBSERVATION_FALLBACK":"GŁODOWO",
+              station:S.effectiveObservation.station||S.effectiveObservation.stacja||S.effectiveObservation.name||null,
+              distanceKm:Number.isFinite(Number(S.effectiveObservation.dist))?Number(S.effectiveObservation.dist):null,
+              ageMinutes:Number.isFinite(Number(S.effectiveObservation.ageMinutes??S.effectiveObservation.latestAgeMinutes))?Number(S.effectiveObservation.ageMinutes??S.effectiveObservation.latestAgeMinutes):null,
+              fresh:S.effectiveObservation.isFresh===true
+            }:null,
             imgwForecastAvailable:false,
             imgwForecastNote:"Brak publicznego API punktowej prognozy IMGW Hybrid (INCA-PL2/MERGE) na danepubliczne.imgw.pl; prognoza godzinowa korzysta z fuzji modeli Open-Meteo oraz obserwacji stacji IMGW Głodowo.",
             rows:diagRows,
@@ -7704,7 +7718,7 @@ async function loadWCore(lat,lng,name,isRef,token){
 
   if(token!==LOAD_SEQ)return;
   S.lastUpdate=Date.now();
-  Object.assign(S,{phase:"weather",lat,lng,city,data,activeModelRaw:activeModelRawData,isDemo,loading:false,refreshing:false,stationInfo,imgwData,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
+  Object.assign(S,{phase:"weather",lat,lng,city,data,activeModelRaw:activeModelRawData,isDemo,loading:false,refreshing:false,stationInfo,imgwData,effectiveObservation:S.effectiveObservation||null,modelCompare:modelCompareNow,modelCompareNow:modelCompareNow,modelCompareRaw:cloudCompare,confidence:confidenceNow,fusion:S.fusion||null,minutely:null,air:null,expDay:null,enter:!isRef,weatherapi:null,geminiAnalysis:null});
   S.isFusionLocked=true;
   S.fusionLock={...(S.fusionLock||{}),token,lat:Number(lat),lng:Number(lng)};
   render();
