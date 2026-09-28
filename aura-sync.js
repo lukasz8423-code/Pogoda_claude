@@ -206,7 +206,12 @@
     rows.push(fieldDecision('Kierunek wiatru',ic.windDirection,model.windDirection,X.wdeg,wdSource,imgwUsable('windDirection'),ic.windDirection?.fresh?'świeże IMGW; użyto do fuzji':'IMGW poza TTL/zasięgiem; użyto modelu'));
     rows.push(fieldDecision('Porywy',ic.gust,model.gust,X.gusts,gSource,gustUsable,gustUsable?'IMGW poryw jest używany niezależnie; TTL 120 min, zasięg 30 km':'IMGW poza TTL/zasięgiem; zachowano model dla T0.'));
     rows.push(fieldDecision('Opad 10 min',ic.rain10min,null,finalFusion.finalPrecipitation??X.precip,pSource,rainUsable,rainUsable?'świeży opad_10min z Głodowa ma pierwszeństwo dla T0; 0 mm blokuje ghost-rain':'Brak świeżego opadu_10min z Głodowa; guard nie może użyć IMGW.'));
-    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,'Open-Meteo → weather-fusion',false,'brak bezpośredniego pola IMGW; fuzja modeli/obserwacji nie jest polem stacji'));
+    const satCloudDiag=Number.isFinite(Number(model.cloud?.value))&&model.cloud?.satelliteUsed===true;
+    const cloudFinalSource=satCloudDiag?'EUMETSAT CLM → Aura':'Open-Meteo → weather-fusion';
+    const cloudReason=satCloudDiag
+      ?'bezpośrednia obserwacja satelitarna CLM została użyta w fuzji; wiek liczony od czasu obserwacji'
+      :'brak użytecznej obserwacji satelitarnej; wartość pochodzi z fuzji modeli';
+    rows.push(fieldDecision('Zachmurzenie',null,model.cloud,X.cloud,cloudFinalSource,false,cloudReason));
     rows.push(fieldDecision('Temperatura odczuwalna',null,model.apparentFinal,X.feels,'Aura derived',false,'wyliczana po fuzji z temperatury, RH, wiatru i porywów'));
     rows.push(fieldDecision('UV',null,model.uv,X.uv,'Open-Meteo',false,'IMGW Głodowo nie dostarcza pola UV w używanym feedzie'));
     rows.push(fieldDecision('Widoczność',null,model.visibility,X.visKm,'Open-Meteo → visibility guard',false,'wartość końcowa pochodzi z Open-Meteo; guard tylko kontroluje jej wiarygodność'));
@@ -219,19 +224,152 @@
     return {capturedAt:Date.now(),station:window.__AURA_IMGW_COMPONENT_DIAG?.station||im.stacja||'Głodowo',distanceKm:Number.isFinite(distance)?distance:null,ttlMinutes:IMGW_TTL_MIN,canonicalLatestTimestamp:canonicalLatest?.timestamp||null,canonicalLatestTime:canonicalLatest?.time||null,canonicalLatestAgeMinutes:canonicalLatest?.ageMinutes??null,networkSource:diag.networkSource||null,networkFetchedAt:diag.networkFetchedAt||null,networkFetchedAtTime:diag.networkFetchedAt?fmtTime(diag.networkFetchedAt):null,networkStatus:diag.status||null,networkFallback:diag.isFallback===true,rows};
   }
 
-  function heroCanonicalSnapshot(){sync();const d=window.__AURA_IMGW_COMPONENT_DIAG;if(!d)return null;return {station:d.station,distanceKm:d.distanceKm,latestField:d.latestField,latestTimestamp:d.latestTimestamp,latestTime:d.latestTime,latestAgeMinutes:d.latestAgeMinutes,ttlMinutes:d.ttlMinutes};}
-  function patchHeroLabel(){try{const d=heroCanonicalSnapshot();if(!d)return;const hero=document.querySelector('#s-hero');if(!hero)return;const chips=hero.querySelectorAll('.chips .chip');let chip=null;chips.forEach(c=>{if(!chip&&/Głodowo|Glodowo/i.test(c.textContent||''))chip=c;});if(!chip)return;const ageMin=Number(d.latestAgeMinutes),age=d.latestAgeMinutes==null?'wiek nieznany':(Math.max(0,Math.round(d.latestAgeMinutes))<60?Math.max(0,Math.round(d.latestAgeMinutes))+' min temu':fmtAgeSafe(d.latestAgeMinutes)),fresh=Number.isFinite(ageMin)&&ageMin<=Number(d.ttlMinutes??IMGW_TTL_MIN),label=fresh?'ostatni świeży pomiar z':'ostatni odebrany pomiar z';chip.innerHTML=(typeof mini==='function'?mini('sat'):'')+esc2(d.station||'Głodowo')+', '+esc2(String(d.distanceKm??'—'))+', '+label+' '+esc2(d.latestTime||'—')+', '+esc2(age)+(fresh?'':' (nieaktualne)');chip.classList.remove('warn','ok');chip.classList.add(fresh?'ok':'warn');chip.title='Kanoniczny snapshot IMGW: '+String(d.latestTimestamp||'—')+' · pole: '+String(d.latestField||'—');}catch(err){console.debug('[AURA HERO IMGW]',err);}}
-  function fmtAgeSafe(min){const m=Math.max(0,Math.round(Number(min)||0));if(m<60)return m+' min temu';const h=Math.floor(m/60),r=m%60;return r?h+' h '+r+' min temu':h+' h temu';}
-  function observationFallbackDiagnosticsHTML(){const state=window.__AURA_STATE__||S||{};const candidates=Array.isArray(state.observationFallbackCandidates)?state.observationFallbackCandidates:(Array.isArray(window.__AURA_OBSERVATION_FALLBACK_CANDIDATES)?window.__AURA_OBSERVATION_FALLBACK_CANDIDATES:[]);if(!candidates.length)return '<div class="note" style="margin-top:8px"><b>Kandydaci fallbacku:</b> brak kandydatów w zakresie 2,5–45 km.</div>';const rows=candidates.map((c,i)=>{const fresh=c.isFresh===true,eligible=c.eligible===true,used=eligible&&i===0;const fields=c.usableFields||{};const marks=['temperature','humidity','wind','windDirection'].map(k=>fields[k]?'✓':'—').join(' ');const age=c.ageMinutes==null?'wiek —':esc2(String(c.ageMinutes))+' min';const observed=c.observedAt?esc2(fmtTime(c.observedAt)||String(c.observedAt)):'—';const status=used?'✓ UŻYTO':eligible?'✓ KANDYDAT':'✕ ODRZUCONO';const reason=eligible?'świeży + ma używalne pola':(c.rejectReason||'brak powodu');const source=c.sourceLabel||c.station||'—';return '<tr>'+'<td>'+esc2(String(i+1))+'</td>'+'<td><b>'+esc2(c.station||'—')+'</b><br><small>'+esc2(source)+'</small></td>'+'<td>'+esc2(c.dist==null?'—':String(c.dist))+' km</td>'+'<td>'+observed+'<br><small>'+age+'</small></td>'+'<td style="white-space:nowrap">'+esc2(marks)+'</td>'+'<td><b style="color:'+(used?'var(--ok)':eligible?'var(--rain)':'var(--warn)')+'">'+status+'</b><br><small>'+esc2(reason)+'</small></td>'+'</tr>';}).join('');return '<div class="note" style="margin-top:12px;font-weight:700">🔎 KANDYDACI OBSERVATION_FALLBACK ('+candidates.length+')</div>'+'<div class="diag-xscroll" tabindex="0" aria-label="Kandydaci OBSERVATION_FALLBACK — przewijanie poziome">'+'<table style="width:max-content;min-width:760px;border-collapse:collapse;font-size:11px">'+'<thead><tr><th>#</th><th>Stacja / źródło</th><th>Odległość</th><th>Pomiar / wiek</th><th>Pola T RH W K</th><th>Decyzja</th></tr></thead>'+'<tbody>'+rows+'</tbody></table></div>';}
+  function heroCanonicalSnapshot(){
+    sync();
+    const d=window.__AURA_IMGW_COMPONENT_DIAG;
+    if(!d)return null;
+    return {station:d.station,distanceKm:d.distanceKm,latestField:d.latestField,latestTimestamp:d.latestTimestamp,latestTime:d.latestTime,latestAgeMinutes:d.latestAgeMinutes,ttlMinutes:d.ttlMinutes};
+  }
 
-  function componentDiagnosticsHTML(){try{const all=buildAllComponentDiagnostics();if(!all)return '<div class="note">Brak danych diagnostycznych komponentów IMGW.</div>';const rows=all.rows||[];const tr=rows.map(r=>{const img=r.imgw||{},mod=r.model||{},status=r.decisionLabel||(r.decision==='USED'?'✓ UŻYTO IMGW':r.decision==='MODEL_ONLY'?'◉ MODEL':r.decision==='DERIVED'?'◌ WYLICZONO':r.decision==='SYSTEM'?'→ GUARD':r.decision==='SOURCE_ONLY'?'→ ŹRÓDŁO':r.decision==='VALUE'?'✓ WARTOŚĆ':'— BRAK DANYCH'),statusColor=r.decisionColor||(r.decision==='USED'?'var(--ok)':r.decision==='MODEL_ONLY'?'var(--rain)':r.decision==='DERIVED'?'var(--ink2)':r.decision==='SYSTEM'?'var(--ink2)':r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)');const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');const displayNum=(name,value)=>{if(value==null)return '—';const n=Number(value);if(!Number.isFinite(n))return esc2(String(value));if(name==='Widoczność')return esc2(String(Math.round(n/100)/10));if(name==='Promieniowanie')return esc2(String(Math.round(n*10)/10));if(name==='Temperatura odczuwalna'||name==='Temperatura')return esc2(n.toFixed(1));if(name==='Zachmurzenie')return esc2(n.toFixed(0));if(name==='UV')return esc2(n.toFixed(2));return esc2(Number.isInteger(n)?String(n):n.toFixed(1));};const modelText=displayNum(r.name,mod.value),finalText=displayNum(r.name,r.final?.value);return '<tr><td><b>'+esc2(r.name)+'</b></td><td>'+imgText+'<br><small>'+esc2(img.time||'—')+' · '+(img.ageMinutes==null?'wiek —':img.ageMinutes+' min')+' · TTL '+(img.ttlMinutes??IMGW_TTL_MIN)+' min</small></td><td>'+modelText+'<br><small>'+esc2(mod.source||'—')+' · '+(mod.ageMinutes==null?'wiek —':mod.ageMinutes+' min')+'</small></td><td><b>'+finalText+'</b><br><small>'+esc2(r.final?.source||'—')+'</small></td><td><b style="color:'+statusColor+'">'+status+'</b><br><small>'+esc2(r.reason||'—')+'</small></td></tr>';}).join('');return '<div class="diag-xscroll" tabindex="0" aria-label="Diagnostyka komponentów IMGW — przewijanie poziome"><table class="diag-table" style="min-width:1120px"><thead><tr><th>Komponent</th><th>IMGW</th><th>Model / źródło alternatywne</th><th>Wartość końcowa</th><th>Decyzja / źródło</th></tr></thead><tbody>'+tr+'</tbody></table></div>';}catch(err){console.warn('[AURA COMPONENT DIAG]',err);return '<div class="note">Diagnostyka komponentów chwilowo niedostępna.</div>';}}
+  function patchHeroLabel(){
+    try{
+      const d=heroCanonicalSnapshot();if(!d)return;
+      const hero=document.querySelector('#s-hero');if(!hero)return;
+      const chips=hero.querySelectorAll('.chips .chip');let chip=null;
+      chips.forEach(c=>{if(!chip&&/Głodowo|Glodowo/i.test(c.textContent||''))chip=c;});
+      if(!chip)return;
+      const ageMin=Number(d.latestAgeMinutes),age=d.latestAgeMinutes==null?'wiek nieznany':(Math.max(0,Math.round(d.latestAgeMinutes))<60?Math.max(0,Math.round(d.latestAgeMinutes))+' min temu':fmtAgeSafe(d.latestAgeMinutes)),fresh=Number.isFinite(ageMin)&&ageMin<=Number(d.ttlMinutes??IMGW_TTL_MIN),label=fresh?'ostatni świeży pomiar z':'ostatni odebrany pomiar z';
+      chip.innerHTML=(typeof mini==='function'?mini('sat'):'')+esc2(d.station||'Głodowo')+', '+esc2(String(d.distanceKm??'—'))+', '+label+' '+esc2(d.latestTime||'—')+', '+esc2(age)+(fresh?'':' (nieaktualne)');
+      chip.classList.remove('warn','ok');chip.classList.add(fresh?'ok':'warn');chip.title='Kanoniczny snapshot IMGW: '+String(d.latestTimestamp||'—')+' · pole: '+String(d.latestField||'—');
+    }catch(err){console.debug('[AURA HERO IMGW]',err);}
+  }
 
-  window.AURA_COMPONENT_DIAGNOSTICS=buildAllComponentDiagnostics;
-  window.AURA_COMPONENT_DIAGNOSTICS_HTML=componentDiagnosticsHTML;
-  window.AURA_GEMINI_AURA_CONTEXT=geminiAuraContext;
-  window.AURA_OBSERVATION_FALLBACK_HTML=observationFallbackDiagnosticsHTML;
+  function fmtAgeSafe(min){
+    const m=Math.max(0,Math.round(Number(min)||0));if(m<60)return m+' min temu';
+    const h=Math.floor(m/60),r=m%60;return r?h+' h '+r+' min temu':h+' h temu';
+  }
 
-  function patch(){try{const el=document.querySelector('#diag-components');if(el&&typeof window.AURA_COMPONENT_DIAGNOSTICS_HTML==='function')el.innerHTML=window.AURA_COMPONENT_DIAGNOSTICS_HTML();const fb=document.querySelector('#diag-observation-fallback');if(fb&&typeof window.AURA_OBSERVATION_FALLBACK_HTML==='function')fb.innerHTML=window.AURA_OBSERVATION_FALLBACK_HTML();patchHeroLabel();}catch(err){console.debug('[AURA COMPONENT PATCH]',err);}}
-  let patchAttempts=0;const patchTimer=setInterval(()=>{patchAttempts++;patch();if(patchAttempts>=40)clearInterval(patchTimer);},1000);
-  document.addEventListener('DOMContentLoaded',patch,{once:true});
+  function observationFallbackDiagnosticsHTML(){
+    const state=window.__AURA_STATE__||S||{};
+    const candidates=Array.isArray(state.observationFallbackCandidates)?state.observationFallbackCandidates:(Array.isArray(window.__AURA_OBSERVATION_FALLBACK_CANDIDATES)?window.__AURA_OBSERVATION_FALLBACK_CANDIDATES:[]);
+    if(!candidates.length){
+      return '<div class="note" style="margin-top:8px"><b>Kandydaci fallbacku:</b> brak kandydatów w zakresie 2,5–45 km.</div>';
+    }
+    const rows=candidates.map((c,i)=>{
+      const fresh=c.isFresh===true,eligible=c.eligible===true,used=eligible&&i===0;
+      const fields=c.usableFields||{};
+      const marks=['temperature','humidity','wind','windDirection'].map(k=>fields[k]?'✓':'—').join(' ');
+      const age=c.ageMinutes==null?'wiek —':esc2(String(c.ageMinutes))+' min';
+      const observed=c.observedAt?esc2(fmtTime(c.observedAt)||String(c.observedAt)):'—';
+      const status=used?'✓ UŻYTO':eligible?'✓ KANDYDAT':'✕ ODRZUCONO';
+      const reason=eligible?'świeży + ma używalne pola':(c.rejectReason||'brak powodu');
+      const source=c.sourceLabel||c.station||'—';
+      return '<tr>'
+        +'<td>'+esc2(String(i+1))+'</td>'
+        +'<td><b>'+esc2(c.station||'—')+'</b><br><small>'+esc2(source)+'</small></td>'
+        +'<td>'+esc2(c.dist==null?'—':String(c.dist))+' km</td>'
+        +'<td>'+observed+'<br><small>'+age+'</small></td>'
+        +'<td style="white-space:nowrap">'+esc2(marks)+'</td>'
+        +'<td><b style="color:'+(used?'var(--ok)':eligible?'var(--rain)':'var(--warn)')+'">'+status+'</b><br><small>'+esc2(reason)+'</small></td>'
+        +'</tr>';
+    }).join('');
+    return '<div class="note" style="margin-top:12px;font-weight:700">🔎 KANDYDACI OBSERVATION_FALLBACK ('+candidates.length+')</div>'
+      +'<div class="diag-xscroll" tabindex="0" aria-label="Kandydaci OBSERVATION_FALLBACK — przewijanie poziome">'
+      +'<table style="width:max-content;min-width:760px;border-collapse:collapse;font-size:11px">'
+      +'<thead><tr><th>#</th><th>Stacja / źródło</th><th>Odległość</th><th>Pomiar / wiek</th><th>Pola T RH W K</th><th>Decyzja</th></tr></thead>'
+      +'<tbody>'+rows+'</tbody></table></div>';
+  }
+
+  function componentDiagnosticsHTML(){
+    try{
+      const all=buildAllComponentDiagnostics();if(!all)return '<div class="note">Brak danych diagnostycznych komponentów IMGW.</div>';
+      const rows=all.rows||[];
+      const tr=rows.map(r=>{
+        const img=r.imgw||{},mod=r.model||{},status=r.decisionLabel||(r.decision==='USED'?'✓ UŻYTO IMGW':r.decision==='MODEL_ONLY'?'◉ MODEL':r.decision==='DERIVED'?'◌ WYLICZONO':r.decision==='SYSTEM'?'→ GUARD':r.decision==='SOURCE_ONLY'?'→ ŹRÓDŁO':r.decision==='VALUE'?'✓ WARTOŚĆ':'— BRAK DANYCH'),statusColor=r.decisionColor||(r.decision==='USED'?'var(--ok)':r.decision==='MODEL_ONLY'?'var(--rain)':r.decision==='DERIVED'?'var(--ink2)':r.decision==='SYSTEM'?'var(--ink2)':r.decision==='NO_DATA'?'var(--ink3)':'var(--ink2)');
+        const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
+        const displayNum=(name,value)=>{if(value==null)return '—';const n=Number(value);if(!Number.isFinite(n))return esc2(String(value));return esc2(String(['Punkt rosy','Temperatura odczuwalna'].includes(name)?Number(n.toFixed(1)):value));};
+        const modelText=displayNum(r.name,mod.value),finalText=displayNum(r.name,r.final?.value);
+        const modelAge=mod.ageMinutes==null?'wiek —':mod.ageMinutes+' min';
+        const modelSource=mod.source||'—';
+        const modelExtra=mod.satelliteUsed===true
+          ?' · 🛰️ pomiar '+esc2(mod.observationAt?fmtTime(mod.observationAt):'—')
+          :'';
+        const modelCell=modelText+'<br><small>'+esc2(modelSource)+' · '+modelAge+modelExtra+'</small>';
+        return '<tr><td><b>'+esc2(r.name)+'</b></td><td>'+imgText+'<br><small>'+esc2(img.time||'—')+' · '+(img.ageMinutes==null?'wiek —':img.ageMinutes+' min')+' · TTL '+(img.ttlMinutes??IMGW_TTL_MIN)+' min</small></td><td>'+modelCell+'</td><td><b>'+finalText+'</b><br><small>'+esc2(r.final?.source||'—')+'</small></td><td><b style="color:'+statusColor+'">'+status+'</b><br><small>'+esc2(r.reason||'—')+'</small></td></tr>';
+      }).join('');
+      const freshFields=Object.entries(window.__AURA_IMGW_COMPONENT_DIAG?.components||{}).filter(([,x])=>x?.fresh).map(([k,x])=>k+' '+x.time+' ('+x.ageMinutes+' min)').join(' · ');
+      const timeDiag=typeof window.AURA_TIME_DIAGNOSTICS==='function'?window.AURA_TIME_DIAGNOSTICS():null;
+      const canonicalImgwTimestamp=window.__AURA_IMGW_COMPONENT_DIAG?.latestTimestamp??all.canonicalLatest??null;
+      const imgwEpoch=typeof window.AURA_PARSE_TIMESTAMP==='function'?window.AURA_PARSE_TIMESTAMP(canonicalImgwTimestamp):null;
+      const nowEpoch=timeDiag?.nowMs??Date.now(),ageFromEpoch=Number.isFinite(imgwEpoch)?Math.round(((nowEpoch-imgwEpoch)/60000)*10)/10:null,utcNow=Number.isFinite(nowEpoch)?new Date(nowEpoch).toISOString():'—',plNow=timeDiag?.localNow??'—',offsetLabel=Number.isFinite(timeDiag?.offsetMinutes)?(timeDiag.offsetMinutes>=0?'+':'')+timeDiag.offsetMinutes+' min':'—';
+      const auraTimeBlock='<div class="note" style="margin-top:16px;font-weight:700">🕐 CZAS AURY</div><div class="note" style="line-height:1.65"><b>Strefa:</b> Europe/Warsaw · <b>PL:</b> '+esc2(plNow)+' · <b>UTC:</b> '+esc2(utcNow)+' · <b>offset:</b> '+esc2(offsetLabel)+'<br><b>IMGW timestamp:</b> '+esc2(canonicalImgwTimestamp||'—')+' · <b>epoch:</b> '+(Number.isFinite(imgwEpoch)?esc2(String(imgwEpoch)):'—')+'<br><b>Wiek z epoch:</b> '+(ageFromEpoch==null?'—':esc2(String(ageFromEpoch))+' min')+' · <b>Wiek diagnostyki:</b> '+(all.canonicalLatestAgeMinutes==null?'—':esc2(String(all.canonicalLatestAgeMinutes))+' min')+'</div>';
+      const obsFallback=window.__AURA_STATE__?.observationFallback||null;
+      const observationFallbackBlock='<div class="note" style="margin-top:16px;font-weight:700">📡 ŁAŃCUCH OBSERWACJI</div><div class="note" style="line-height:1.65"><b>Ścieżka:</b> Głodowo → OBSERVATION_FALLBACK → MODEL<br><b>Wybrane źródło:</b> '+esc2(window.__AURA_STATE__?.observationChain?.finalMode||'MODEL')+' · <b>stacja:</b> '+esc2(window.__AURA_STATE__?.observationChain?.selected?.station||'—')+' · <b>wiek:</b> '+(window.__AURA_STATE__?.observationChain?.selected?.ageMinutes==null?'—':esc2(String(window.__AURA_STATE__.observationChain.selected.ageMinutes))+' min')+'<br><b>Fallback:</b> '+(obsFallback?.isFresh?'AKTYWNY — używany przed modelem':'brak świeżej obserwacji')+' · <b>źródło:</b> '+esc2(obsFallback?.sourceLabel||'—')+' · <b>odległość:</b> '+(obsFallback?.dist==null?'—':esc2(String(obsFallback.dist))+' km')+' · <b>wiek:</b> '+(obsFallback?.ageMinutes==null?'—':esc2(String(obsFallback.ageMinutes))+' min')+'<br><b>Reguła:</b> Głodowo tylko gdy świeże i używalne → fallback obserwacyjny → model.</div>';
+      return '<div class="note" style="margin-top:16px;font-weight:700">🧭 Pełna diagnostyka komponentów — RAW → źródło użyte → Aura</div>'
+        +observationFallbackBlock
+        +observationFallbackDiagnosticsHTML()
+        +auraTimeBlock
+        +'<div class="note">Kanoniczny snapshot Głodowa: <b>'+esc2(all.canonicalLatestTime||'—')+'</b> · '+(all.canonicalLatestAgeMinutes==null?'wiek —':esc2(String(all.canonicalLatestAgeMinutes))+' min')+' · TTL IMGW <b>'+IMGW_TTL_MIN+' min</b>.</div>'
+        +'<div class="note">Połączenie IMGW: <b>'+esc2(all.networkSource||'—')+'</b> · pobrano odpowiedź: <b>'+esc2(all.networkFetchedAtTime||'—')+'</b> · '+(all.networkFallback?'użyto snapshotu lokalnego':'użyto odpowiedzi live API')+'.</div>'
+        +'<div class="note">Świeże pola IMGW: '+esc2(freshFields||'brak')+'.</div>'
+        +'<div class="note">Legenda: <b style="color:var(--ok)">✓ UŻYTO IMGW</b> · <b style="color:var(--rain)">◉ MODEL</b> · <b>◌ WYLICZONO</b> · <b>→ GUARD</b> · <b>— BRAK DANYCH</b>. „MODEL” oznacza prawidłową wartość końcową bez użycia świeżego IMGW, a nie błąd.</div>'
+        +'<div class="diag-xscroll component-diag-scroll" tabindex="0" aria-label="Pełna diagnostyka komponentów — przewijanie poziome"><table class="component-diag-table" style="width:max-content;min-width:1100px;border-collapse:collapse;font-size:11px"><thead><tr><th>Komponent</th><th>IMGW RAW</th><th>Model / źródło</th><th>Aura final</th><th>Źródło użyte + powód</th></tr></thead><tbody>'+tr+'</tbody></table></div>';
+    }catch(err){console.warn('[AURA COMPONENT DIAG]',err);return '<div class="note">⚠️ Diagnostyka komponentów chwilowo niedostępna.</div>';}
+  }
+
+  function patch(){
+    sync();
+    if(typeof window.render==='function'&&!window.__auraRenderPatched){
+      const originalRender=window.render;
+      window.render=function(){sync();const result=originalRender.apply(this,arguments);setTimeout(patchHeroLabel,0);setTimeout(patchHeroLabel,80);return result;};
+      window.__auraRenderPatched=true;
+    }
+    if(typeof window.softUpdate==='function'&&!window.__auraSoftPatched){
+      const originalSoft=window.softUpdate;
+      window.softUpdate=function(){sync();const result=originalSoft.apply(this,arguments);setTimeout(patchHeroLabel,0);return result;};
+      window.__auraSoftPatched=true;
+    }
+    if(typeof window.pipelineDiagnosticsText==='function'&&!window.__auraDiagTextPatched){
+      const originalText=window.pipelineDiagnosticsText;
+      window.pipelineDiagnosticsText=function(){
+        sync();const base=originalText.apply(this,arguments);
+        try{
+          const obj=JSON.parse(base),d=window.__AURA_IMGW_COMPONENT_DIAG;
+          obj.imgw=obj.imgw||{};obj.imgw.canonicalLatest=d?.latestTimestamp??null;obj.imgw.canonicalLatestTime=d?.latestTime??null;obj.imgw.canonicalLatestAgeMinutes=d?.latestAgeMinutes??null;obj.imgw.canonicalSnapshotCapturedAt=new Date().toISOString();obj.imgw.componentDiagnostics=d?.components??null;
+          const cc=d?.components||{},cv=k=>cc?.[k]?.value??null,ct=k=>cc?.[k]?.timestamp??null,ca=k=>cc?.[k]?.ageMinutes??null,cf=k=>cc?.[k]?.fresh===true;
+          obj.imgw.station=d?.station??obj.imgw.station??"Głodowo";obj.imgw.distanceKm=d?.distanceKm??obj.imgw.distanceKm??null;obj.imgw.status="online";obj.imgw.ageMinutes=d?.latestAgeMinutes??null;obj.imgw.temperature=cv("temperature");obj.imgw.humidity=cv("humidity");obj.imgw.wind=cv("wind");obj.imgw.gust=cv("gust");obj.imgw.rain10min=cv("rain10min");
+          obj.imgw.fields={temperature:{value:cv("temperature"),timestamp:ct("temperature"),ageMinutes:ca("temperature"),fresh:cf("temperature")},humidity:{value:cv("humidity"),timestamp:ct("humidity"),ageMinutes:ca("humidity"),fresh:cf("humidity")},wind:{value:cv("wind"),timestamp:ct("wind"),ageMinutes:ca("wind"),fresh:cf("wind")},windDirection:{value:cv("windDirection"),timestamp:ct("windDirection"),ageMinutes:ca("windDirection"),fresh:cf("windDirection")},gust:{value:cv("gust"),timestamp:ct("gust"),ageMinutes:ca("gust"),fresh:cf("gust")},rain10min:{value:cv("rain10min"),timestamp:ct("rain10min"),ageMinutes:ca("rain10min"),fresh:cf("rain10min")}};
+          obj.imgw.timestamps={temperature:ct("temperature"),humidity:ct("humidity"),wind:ct("wind"),windDirection:ct("windDirection"),gust:ct("gust"),rain10min:ct("rain10min")};
+          obj.imgw.freshness={temperature:cf("temperature"),humidity:cf("humidity"),wind:cf("wind"),windDirection:cf("windDirection"),gust:cf("gust"),rain10min:cf("rain10min")};
+          obj.geminiAnalysis=obj.geminiAnalysis||{};obj.geminiAnalysis.auraAtAnalysis=geminiAuraContext();obj.allComponentDiagnostics=buildAllComponentDiagnostics();obj.allComponentDiagnostics.observationFallbackCandidates=(window.__AURA_STATE__?.observationFallbackCandidates||window.__AURA_OBSERVATION_FALLBACK_CANDIDATES||[]);
+          return JSON.stringify(obj,null,2);
+        }catch{return base;}
+      };
+      window.__auraDiagTextPatched=true;
+    }
+    if(typeof window.openPipelineInspector==='function'&&!window.__auraOpenInspectorPatched){
+      const originalOpen=window.openPipelineInspector;
+      window.openPipelineInspector=function(){
+        sync();const result=originalOpen.apply(this,arguments);
+        setTimeout(()=>{
+          const sheet=document.querySelector('#sheet-root .sheet');
+          if(sheet){
+            const old=sheet.querySelector('[data-aura-component-diagnostics]');if(old)old.remove();
+            const wrap=document.createElement('div');wrap.dataset.auraComponentDiagnostics='1';wrap.innerHTML=componentDiagnosticsHTML();sheet.appendChild(wrap);
+            Array.from(sheet.childNodes).forEach(node=>{if(node.nodeType===Node.TEXT_NODE&&String(node.nodeValue||'').trim()==='undefined')node.remove();});
+            patchHeroLabel();
+          }
+        },0);
+        return result;
+      };
+      window.__auraOpenInspectorPatched=true;
+    }
+    setTimeout(patchHeroLabel,0);
+  }
+
+  patch();
+  window.addEventListener('load',patch,{once:true});
+  setTimeout(patch,50);
+  setTimeout(patch,500);
+  setInterval(()=>{sync();patchHeroLabel();},30000);
 })();
