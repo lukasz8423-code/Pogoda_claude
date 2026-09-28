@@ -1,0 +1,51 @@
+name: Patch cloud guard order
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-cloud-guard.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch index.html
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          old='''  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);\n  S.pipelineDiag=S.pipelineDiag||{};\n  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;\n  sanitizeHourlyCloudCover(data);'''
+          new='''  // Degenerate hourly-cloud guard is intentionally executed after lockFusionState().\n  // lockFusionState copies the active model RAW cloud_cover into targetHourly;\n  // running the guard before that copy would inspect the pre-lock consensus and be a no-op.\n  sanitizeHourlyCloudCover(data);'''
+          if old not in s: raise SystemExit('OLD_GUARD_BLOCK_NOT_FOUND')
+          s=s.replace(old,new,1)
+
+          old='''  if(token!==LOAD_SEQ)return;\n  if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;\n\n  try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}'''
+          new='''  if(token!==LOAD_SEQ)return;\n  if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;\n\n  // FINAL HOURLY CLOUD GUARD: lockFusionState() has now copied the active\n  // model RAW cloud_cover into targetHourly. Only here can we reliably detect\n  // a degenerate all-zero active-model series and replace it with an eligible\n  // alternative model. Keep the diagnostic on pipelineDiag after the lock.\n  const cloudDegenerateGuard=repairDegenerateHourlyCloudCover(data,cloudCompare,activeModel.id);\n  S.pipelineDiag=S.pipelineDiag||{};\n  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;\n\n  try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}'''
+          if old not in s: raise SystemExit('LOCK_ANCHOR_NOT_FOUND')
+          s=s.replace(old,new,1)
+
+          old='''  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span></div></div><div class="hstrip">${out}</div></section>`;'''
+          new='''  const cloudGuard=S.pipelineDiag?.cloudDegenerateGuard||S.data?.hourly?.__auraCloudDegenerateGuard||null;\n  const cloudGuardNote=cloudGuard?.applied\n    ?`<div class="note" style="margin-top:8px">Chmury z modelu <b>${esc(cloudGuard.replacementModel||"alternatywnego")}</b>, bo model podstawowy <b>${esc(cloudGuard.activeModel||"aktywny")}</b> zwrócił same zera.</div>`\n    :"";\n  return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span></div></div><div class="hstrip">${out}</div>${cloudGuardNote}</section>`;'''
+          if old not in s: raise SystemExit('HOURLY_UI_ANCHOR_NOT_FOUND')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+      - name: Verify
+        shell: bash
+        run: |
+          node --check index.html
+          git diff --check
+      - name: Commit and remove patch workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --check
+          git commit -m 'Fix hourly cloud degenerate guard order'
+          git rm .github/workflows/patch-cloud-guard.yml
+          git commit -m 'Remove one-shot cloud guard patch workflow'
+          git push
