@@ -1699,16 +1699,105 @@ async function apiWeather(lat,lng,forceFresh=false){
   return apiWeatherModel(lat,lng,activeModel.id,10,forceFresh);
 }
 
+function classifyEumetviewClmFeature(feature){
+  const p=feature?.properties||feature||{};
+  const directKeys=["cloudMaskCode","cloud_mask_code","CLM","clm","cloudMask","cloud_mask","class_code"];
+  for(const k of directKeys){
+    const n=Number(p[k]);
+    if(Number.isFinite(n)&&n>=0&&n<=3)return n;
+  }
+  const text=String(p.class||p.CLASS||p.classification||"").toLowerCase();
+  if(/cloud|chmur/.test(text)&&!/clear|bezchmur/.test(text))return 2;
+  if(/clear.?land|clear.?sky.?land/.test(text))return 1;
+  if(/clear.?water|clear.?sky.?water/.test(text))return 0;
+  if(/no.?data|not.?processed/.test(text))return 3;
+  return null;
+}
+
+function clmRgbClass(feature){
+  const p=feature?.properties||feature||{};
+  const r=Number(p.RED_BAND),g=Number(p.GREEN_BAND),b=Number(p.BLUE_BAND);
+  if(![r,g,b].every(Number.isFinite))return null;
+  // EUMETView CLM exposes its categorical palette through RGB values.
+  // Green (0,192,0) is clear land — the palette is intentionally handled
+  // conservatively: unknown colours are NOT guessed as clouds.
+  if(r===0&&g===192&&b===0)return 1;
+  if(r===0&&g===0&&b===192)return 0;
+  return null;
+}
+
+async function apiSatelliteCloudMaskWms(lat,lng){
+  const la=Number(lat),lo=Number(lng);
+  if(!Number.isFinite(la)||!Number.isFinite(lo))return null;
+  // 3x3 local sample, roughly 2 km spacing. CLM is a pixel-level product;
+  // EUMETSAT reports MSG/SEVIRI CLM at roughly 15-minute cadence.
+  const dLat=0.018,dLon=0.030;
+  const points=[
+    [la-dLat,lo-dLon],[la-dLat,lo],[la-dLat,lo+dLon],
+    [la,lo-dLon],[la,lo],[la,lo+dLon],
+    [la+dLat,lo-dLon],[la+dLat,lo],[la+dLat,lo+dLon]
+  ];
+  const slot=new Date(Math.floor(Date.now()/900000)*900000).toISOString();
+  const results=await Promise.all(points.map(async([pla,plo])=>{
+    const bbox=[pla-0.006,plo-0.010,pla+0.006,plo+0.010].join(",");
+    const url="https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo"
+      +"&LAYERS=msg_fes%3Aclm&QUERY_LAYERS=msg_fes%3Aclm&CRS=EPSG%3A4326"
+      +"&BBOX="+encodeURIComponent(bbox)+"&WIDTH=3&HEIGHT=3&I=1&J=1"
+      +"&INFO_FORMAT=application%2Fjson&TIME="+encodeURIComponent(slot);
+    try{
+      const r=await fetch(url,{mode:"cors",cache:"no-store",signal:AbortSignal.timeout(4500)});
+      if(!r.ok)return null;
+      const j=await r.json();
+      const feature=j?.features?.[0];
+      if(!feature)return null;
+      let code=classifyEumetviewClmFeature(feature);
+      if(code==null)code=clmRgbClass(feature);
+      return code==null?null:{code,raw:feature.properties||{}};
+    }catch{return null;}
+  }));
+  const valid=results.filter(Boolean);
+  if(valid.length<3)return null;
+  const usable=valid.filter(x=>x.code!==3);
+  if(usable.length<3)return null;
+  const cloudPixels=usable.filter(x=>x.code===2).length;
+  const clearPixels=usable.filter(x=>x.code===0||x.code===1).length;
+  if(cloudPixels+clearPixels<3)return null;
+  const cloudFraction=100*cloudPixels/(cloudPixels+clearPixels);
+  return {
+    source:"EUMETSAT EUMETView",
+    collection:"EO:EUM:DAT:MSG:CLM",
+    layer:"msg_fes:clm",
+    lat:la,lon:lo,
+    cloudFraction:+cloudFraction.toFixed(1),
+    classification:"cloud_fraction_from_live_EUMETView_CLM_GetFeatureInfo",
+    cloudMaskCodes:{0:"clear_water",1:"clear_land",2:"cloud",3:"no_data"},
+    sampleCount:valid.length,cloudPixels,clearPixels,
+    observationAt:slot,generatedAt:new Date().toISOString(),
+    observationTimeStatus:"LIVE_EUMETVIEW_WMS",
+    status:"OK",
+    live:true,
+    note:"Live location-specific EUMETView CLM sample; unknown/no-data pixels are excluded."
+  };
+}
+
 async function apiSatelliteCloudMask(lat,lng){
   try{
     const r=await fetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(5000)});
-    if(!r.ok)return null;
-    const d=await r.json();
-    const slat=Number(d.lat),slng=Number(d.lon);
-    if(!Number.isFinite(slat)||!Number.isFinite(slng))return null;
-    const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
-    return {...d,distanceKm:+distanceKm.toFixed(2)};
-  }catch{return null;}
+    if(r.ok){
+      const d=await r.json();
+      const slat=Number(d.lat),slng=Number(d.lon);
+      if(Number.isFinite(slat)&&Number.isFinite(slng)){
+        const distanceKm=Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2));
+        // Static snapshot is valid only for the location it was generated for.
+        if(distanceKm<=15)return {...d,distanceKm:+distanceKm.toFixed(2),locationMatch:true,live:false};
+      }
+    }
+  }catch{}
+  // Different city/location: query EUMETView for THAT location instead of
+  // reusing the Głodowo snapshot.
+  const live=await apiSatelliteCloudMaskWms(lat,lng);
+  if(!live)return null;
+  return {...live,distanceKm:0,locationMatch:true};
 }
 function sameLocationSnapshot(lat,lng){
   return Number.isFinite(Number(S.lat))&&Number.isFinite(Number(S.lng))&&
