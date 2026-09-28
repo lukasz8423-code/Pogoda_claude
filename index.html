@@ -7876,12 +7876,11 @@ document.addEventListener("visibilitychange",()=>{
       setInterval(() => reg.update().catch(()=>{}), 15 * 60 * 1000);
     }).catch(err => console.error('SW Registration Error:', err));
 
-    // Nowy SW po skipWaiting() przejmuje stronę. Przeładuj ją tylko po faktycznej zmianie kontrolera.
-    let swReloading = false;
+    // Nowy SW może przejąć stronę w trakcie pobierania danych.
+    // Nie wymuszamy location.reload(): na telefonie przerywało to bieżący pipeline
+    // i mogło zostawić aplikację pozornie zawieszoną podczas odświeżania.
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (swReloading) return;
-      swReloading = true;
-      location.reload();
+      console.info('[AURA SW] controller changed — bez wymuszonego reloadu');
     });
   }
 })();
@@ -7912,7 +7911,8 @@ document.addEventListener("visibilitychange",()=>{
       }
       if(!host)return;
       if(existing&&existing.parentElement===host){
-        existing.textContent='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';
+        const nextText='Chmury z modelu '+String(g.replacementModel||'alternatywnego')+', bo model podstawowy zwrócił same zera';
+        if(existing.textContent!==nextText)existing.textContent=nextText;
         return;
       }
       if(existing)existing.remove();
