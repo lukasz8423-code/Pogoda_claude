@@ -6764,6 +6764,27 @@ async function handleGPS(){
   gpsErr="";
   netErr=false;
 
+  // GPS MUSI zaczynać od czystego stanu. Nie pozwalamy, aby zapisany
+  // snapshot lokalizacji/pogody z poprzedniej pozycji wrócił do UI
+  // podczas ustalania nowego fixa.
+  try{
+    localStorage.removeItem("aura_v9");
+    localStorage.removeItem("aura_v7");
+    localStorage.removeItem("aura_v6");
+    localStorage.removeItem("aura_displayed_state");
+  }catch(e){
+    console.warn("[AURA GPS] nie udało się wyczyścić cache lokalizacji",e);
+  }
+  S.lat=null;
+  S.lng=null;
+  S.city="Ustalam lokalizację…";
+  S.data=null;
+  S.imgwData=null;
+  S.stationInfo=null;
+  S.effectiveObservation=null;
+  S.observationFallback=null;
+  S.gpsDiag=null;
+
   if(!window.isSecureContext){
     gpsErr="Lokalizacja GPS wymaga bezpiecznego połączenia HTTPS.";
     render();
@@ -6798,7 +6819,7 @@ async function handleGPS(){
       // maximumAge:0 = żadnego użycia cache pozycji.
       position=await getPosition({
         enableHighAccuracy:true,
-        timeout:20000,
+        timeout:10000,
         maximumAge:0
       });
     }catch(firstErr){
@@ -6807,7 +6828,7 @@ async function handleGPS(){
       // maximumAge:30000, bo po ruchu urządzenia moglibyśmy dostać starą pozycję.
       position=await getPosition({
         enableHighAccuracy:false,
-        timeout:15000,
+        timeout:10000,
         maximumAge:0
       });
     }
