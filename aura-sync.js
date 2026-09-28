@@ -32,7 +32,41 @@
     const t=parseLocalTs(ts);
     if(t==null)return null;
     const a=(Date.now()-t)/60000;
-    return Number.isFinite(a)?Math.round(a*10)/10:null;
+    return Number.isFinite(a)?Math.max(0,Math.round(a*10)/10):null;
+  }
+
+  // Open-Meteo przy timezone=auto zwraca lokalny czas bez offsetu.
+  // Nie przepuszczamy go przez parser IMGW (który ma inną semantykę czasu).
+  // Dla modelu rozdzielamy AGE od HORIZON: przyszły valid time nie jest
+  // "ujemnym wiekiem", tylko czasem do początku obowiązywania prognozy.
+  function modelTimeRelation(ts,timeZone){
+    if(ts==null||ts==='')return {ageMinutes:null,horizonMinutes:null,timeStatus:'UNKNOWN_TIMESTAMP'};
+    const raw=String(ts).trim();
+    const hasOffset=/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw);
+    if(hasOffset){
+      const ms=Date.parse(raw);
+      if(!Number.isFinite(ms))return {ageMinutes:null,horizonMinutes:null,timeStatus:'INVALID_TIMESTAMP'};
+      const diff=(Date.now()-ms)/60000;
+      return diff>=0
+        ?{ageMinutes:Math.round(diff*10)/10,horizonMinutes:0,timeStatus:diff<1?'NOW':'PAST'}
+        :{ageMinutes:0,horizonMinutes:Math.round(-diff*10)/10,timeStatus:'FUTURE'};
+    }
+    const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if(!m)return {ageMinutes:null,horizonMinutes:null,timeStatus:'INVALID_TIMESTAMP'};
+    const targetOrd=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+    try{
+      const p=new Intl.DateTimeFormat('en-CA',{
+        timeZone:timeZone||'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',
+        hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
+      }).formatToParts(new Date());
+      const nowParts={};for(const x of p)if(x.type!=='literal')nowParts[x.type]=Number(x.value);
+      const nowOrd=Date.UTC(nowParts.year,nowParts.month-1,nowParts.day,nowParts.hour,nowParts.minute,nowParts.second);
+      const diff=(nowOrd-targetOrd)/60000;
+      if(diff>=0)return {ageMinutes:Math.round(diff*10)/10,horizonMinutes:0,timeStatus:diff<1?'NOW':'PAST'};
+      return {ageMinutes:0,horizonMinutes:Math.round(-diff*10)/10,timeStatus:'FUTURE'};
+    }catch{
+      return {ageMinutes:null,horizonMinutes:null,timeStatus:'INVALID_TIMEZONE'};
+    }
   }
 
   function fmtTime(ts){
@@ -47,18 +81,24 @@
   }
 
   function component(value,timestamp,unit,extra){
-    const age=ageMinutes(timestamp);
-    const fresh=age!=null&&age>=-10&&age<=IMGW_TTL_MIN;
+    const opts=extra||{};
+    const rel=opts.modelTime===true
+      ?modelTimeRelation(timestamp,opts.timeZone)
+      :{ageMinutes:ageMinutes(timestamp),horizonMinutes:0,timeStatus:'OBSERVATION'};
+    const age=rel.ageMinutes;
+    const fresh=opts.modelTime===true ? age!=null : age!=null&&age<=IMGW_TTL_MIN;
     return Object.assign({
       value:value??null,
       timestamp:timestamp??null,
       time:fmtTime(timestamp),
       ageMinutes:age,
+      horizonMinutes:rel.horizonMinutes,
+      timeStatus:rel.timeStatus,
       fresh,
       ttlMinutes:IMGW_TTL_MIN,
       unit:unit||'',
       source:'IMGW Głodowo'
-    },extra||{});
+    },opts);
   }
 
   function buildImgwComponents(im){
@@ -135,9 +175,10 @@
   function modelComponentDiagnostics(){
     try{
       const d=S.data||{},c=d.current||{},h=d.hourly||{},ci=typeof currentHourIndex==='function'?currentHourIndex(d,new Date()):0,currentTime=c.time||h.time?.[ci]||null,X=S.X||{},num=v=>Number.isFinite(Number(v))?Number(v):null;
+      const modelMeta={modelTime:true,timeZone:d.timezone||'Europe/Warsaw'};
       return {
         temperature:component(c.temperature_2m??h.temperature_2m?.[ci]??null,currentTime,'°C',{source:'Open-Meteo current'}),
-        feelsLike:component(c.apparent_temperature??h.apparent_temperature?.[ci]??null,currentTime,'°C',{source:'Open-Meteo current'}),
+        feelsLike:component(c.apparent_temperature??h.apparent_temperature?.[ci]??null,currentTime,'°C',{...modelMeta,source:'Open-Meteo current'}),
         uv:component(c.uv_index??h.uv_index?.[ci]??null,currentTime,'index',{source:'Open-Meteo current'}),
         cloud:component(
           Number.isFinite(Number(S.cloudSource?.fusion?.satelliteCloud))
@@ -158,13 +199,13 @@
             }
             :{source:'Aura weather-fusion',sourceType:'MODEL_FUSION'}
         ),
-        visibility:component(c.visibility??h.visibility?.[ci]??null,currentTime,'m',{source:'Open-Meteo current'}),
+        visibility:component(c.visibility??h.visibility?.[ci]??null,currentTime,'m',{...modelMeta,source:'Open-Meteo current'}),
         wind:component(c.wind_speed_10m??h.wind_speed_10m?.[ci]??null,currentTime,'km/h',{source:'Open-Meteo current'}),
-        gust:component(c.wind_gusts_10m??h.wind_gusts_10m?.[ci]??null,currentTime,'km/h',{source:'Open-Meteo current'}),
+        gust:component(c.wind_gusts_10m??h.wind_gusts_10m?.[ci]??null,currentTime,'km/h',{...modelMeta,source:'Open-Meteo current'}),
         humidity:component(c.relative_humidity_2m??h.relative_humidity_2m?.[ci]??null,currentTime,'%',{source:'Open-Meteo current'}),
-        windDirection:component(c.wind_direction_10m??h.wind_direction_10m?.[ci]??null,currentTime,'°',{source:'Open-Meteo current'}),
+        windDirection:component(c.wind_direction_10m??h.wind_direction_10m?.[ci]??null,currentTime,'°',{...modelMeta,source:'Open-Meteo current'}),
         pressure:component(c.pressure_msl??h.pressure_msl?.[ci]??null,currentTime,'hPa',{source:'Open-Meteo current'}),
-        radiation:component(c.shortwave_radiation_instant??h.shortwave_radiation?.[ci]??null,currentTime,'W/m²',{source:'Open-Meteo current'}),
+        radiation:component(c.shortwave_radiation_instant??h.shortwave_radiation?.[ci]??null,currentTime,'W/m²',{...modelMeta,source:'Open-Meteo current'}),
         dewPoint:component(null,null,'°C',{source:'Aura derived'}),
         apparentFinal:component(num(X.feels),null,'°C',{source:'Aura derived: temperature + RH + wind + gust'}),
         sunShade:component(num(X.sunShade?.sun??null),null,'°C',{source:'Aura derived: solar radiation + wind'}),
@@ -289,7 +330,9 @@
         const imgText=img.value==null?'—':esc2(String(img.value))+(r.name==='Wiatr'||r.name==='Porywy'?' km/h':r.name==='Temperatura'?' °C':r.name==='Wilgotność'?' %':r.name==='Opad 10 min'?' mm':r.name==='Kierunek wiatru'?'°':'');
         const displayNum=(name,value)=>{if(value==null)return '—';const n=Number(value);if(!Number.isFinite(n))return esc2(String(value));return esc2(String(['Punkt rosy','Temperatura odczuwalna'].includes(name)?Number(n.toFixed(1)):value));};
         const modelText=displayNum(r.name,mod.value),finalText=displayNum(r.name,r.final?.value);
-        const modelAge=mod.ageMinutes==null?'wiek —':mod.ageMinutes+' min';
+        const modelAge=mod.horizonMinutes>0
+          ?'horyzont +'+fnum(mod.horizonMinutes,0)+' min'
+          :(mod.ageMinutes==null?'czas —':mod.ageMinutes<1?'teraz':mod.ageMinutes+' min temu');
         const modelSource=mod.source||'—';
         const modelExtra=mod.satelliteUsed===true
           ?' · 🛰️ pomiar '+esc2(mod.observationAt?fmtTime(mod.observationAt):'—')
