@@ -17,10 +17,10 @@ self.addEventListener('fetch',(event)=>{
       if(!res.ok) return res;
       const type=res.headers.get('content-type')||'';
       if(!type.includes('text/html')) return res;
-      let html=await res.text();
-      const tag=`<script src="${AURA_SYNC}"></script>`;
-      if(!html.includes('aura-sync.js')) html=html.replace('</body>',tag+'</body>');
-      return new Response(html,{status:res.status,statusText:res.statusText,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+      // index.html ładuje aura-sync.js jawnie. Nie wstrzykujemy go drugi raz,
+      // bo podwójny MutationObserver + setInterval potrafił obciążyć telefon
+      // podczas zwykłego przeładowania strony.
+      return res;
     }catch(e){
       return fetch(req);
     }
