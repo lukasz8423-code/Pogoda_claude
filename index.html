@@ -6911,6 +6911,15 @@ function lockFusionState(token,lat,lng,data,imgwData,activeModelRawData=null,clo
   S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;
 
   S.fusionLockedHourly=data?.hourly||null;
+
+  // Sukces musi jawnie odblokować UI. Wcześniej S.refreshing było
+  // zerowane wyłącznie w catch(), więc po poprawnym pobraniu przycisk
+  // Odśwież pozostawał zablokowany i kolejne odświeżenie nie startowało.
+  if(token===LOAD_SEQ){
+    S.loading=false;
+    S.refreshing=false;
+    WEATHER_FORCE_REFRESH=false;
+  }
   return true;
 }
 async function loadW(lat,lng,name,isRef){
