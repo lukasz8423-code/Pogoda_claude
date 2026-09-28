@@ -7960,11 +7960,22 @@ document.addEventListener("visibilitychange",()=>{
       setInterval(() => reg.update().catch(()=>{}), 15 * 60 * 1000);
     }).catch(err => console.error('SW Registration Error:', err));
 
-    // Nowy SW może przejąć stronę w trakcie pobierania danych.
-    // Nie wymuszamy location.reload(): na telefonie przerywało to bieżący pipeline
-    // i mogło zostawić aplikację pozornie zawieszoną podczas odświeżania.
+    // Po przejęciu karty przez nowy SW wykonujemy dokładnie jeden kontrolowany reload.
+    // Dzięki temu bieżący dokument przechodzi na nową wersję bez pętli reloadów.
+    let auraSwReloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      console.info('[AURA SW] controller changed — bez wymuszonego reloadu');
+      console.info('[AURA SW] controller changed — kontrolowany reload');
+      if (auraSwReloading) return;
+      if (!navigator.serviceWorker.controller) return;
+      try {
+        const key = 'aura_sw_controller_reload';
+        const current = navigator.serviceWorker.controller.scriptURL || '';
+        const previous = sessionStorage.getItem(key);
+        if (previous === current) return;
+        sessionStorage.setItem(key, current);
+      } catch {}
+      auraSwReloading = true;
+      setTimeout(() => window.location.reload(), 0);
     });
   }
 })();
