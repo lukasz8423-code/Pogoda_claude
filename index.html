@@ -1875,7 +1875,19 @@ function parseImgwMeteoTimestamp(value){
   return Number.isFinite(parsed)?parsed:null;
 }
 
-// Kanoniczny parser czasu Aury: timestampy IMGW bez offsetu oznaczają\n// lokalny czas stacji w Europe/Warsaw. Wiek zawsze liczymy z epoch ms.\nwindow.AURA_TIME_ZONE=AURA_TIME_ZONE;\nwindow.AURA_PARSE_TIMESTAMP=parseImgwMeteoTimestamp;\nwindow.AURA_TIME_DIAGNOSTICS=function(){\n  const now=Date.now();\n  const tz=AURA_TIME_ZONE;\n  let offset=null;\n  try{\n    const parts=new Intl.DateTimeFormat("en-US",{timeZone:tz,timeZoneName:"longOffset",hour:"2-digit",minute:"2-digit"}).formatToParts(new Date(now));\n    const z=parts.find(x=>x.type==="timeZoneName")?.value||"";\n    const m=z.match(/GMT([+-])(\\d{2}):(\\d{2})/);\n    if(m)offset=(m[1]==="-"?-1:1)*(Number(m[2])*60+Number(m[3]));\n  }catch{}\n  return {timeZone:tz,nowMs:now,nowIso:new Date(now).toISOString(),localNow:hhmm(now),offsetMinutes:offset};\n};\n\n// Centralna normalizacja rekordu stacji IMGW telemetrycznej / snapshotu.
+// Kanoniczny parser czasu Aury: timestampy IMGW bez offsetu oznaczają\n// lokalny czas stacji w Europe/Warsaw. Wiek zawsze liczymy z epoch ms.\nwindow.AURA_TIME_ZONE=AURA_TIME_ZONE;\nwindow.AURA_PARSE_TIMESTAMP=parseImgwMeteoTimestamp;\nfunction auraTimeZoneOffsetMinutes(ms,tz=AURA_TIME_ZONE){
+  try{
+    const parts=new Intl.DateTimeFormat("en-GB",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date(ms));
+    const p={}; for(const x of parts)if(x.type!=="literal")p[x.type]=Number(x.value);
+    const wall=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);
+    return Math.round((wall-ms)/60000);
+  }catch{return null;}
+}
+window.AURA_TIMEZONE_OFFSET_MINUTES=auraTimeZoneOffsetMinutes;
+window.AURA_TIME_DIAGNOSTICS=function(){
+  const now=Date.now(),tz=AURA_TIME_ZONE,offset=auraTimeZoneOffsetMinutes(now,tz);
+  return {timeZone:tz,nowMs:now,nowIso:new Date(now).toISOString(),localNow:hhmm(now),offsetMinutes:offset,localIso:new Intl.DateTimeFormat("sv-SE",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(new Date(now)).replace(" ","T")};
+};\n};\n\n// Centralna normalizacja rekordu stacji IMGW telemetrycznej / snapshotu.
 // Żadne brakujące pole nie jest zastępowane sztucznymi stałymi.
 function normalizeImgwStationRecord(rawStation,nowMs=Date.now(),maxAgeMinutes=IMGW_MAX_FIELD_AGE_MINUTES,isSnapshot=false){
   if(!rawStation||typeof rawStation!=="object")return null;
@@ -7904,7 +7916,7 @@ document.addEventListener("visibilitychange",()=>{
 })();
 
 </script>
-<script src="./aura-sync.js?v=b0bce97" defer></script>
+<script src="./aura-sync.js?v=20260928-timefix1" defer></script>
 
 <!-- AURA_CLOUD_DEGENERATE_GUARD_V2 -->
 <script>
