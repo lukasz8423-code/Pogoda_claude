@@ -82,18 +82,26 @@
 
   function component(value,timestamp,unit,extra){
     const opts=extra||{};
+    const isDerived=String(opts.sourceType||'').toUpperCase()==='DERIVED';
+    const computedAt=isDerived
+      ?(Number.isFinite(Number(opts.computedAt))?Number(opts.computedAt):Date.now())
+      :null;
+    const effectiveTimestamp=isDerived?computedAt:timestamp;
     const rel=opts.modelTime===true
       ?modelTimeRelation(timestamp,opts.timeZone)
-      :{ageMinutes:ageMinutes(timestamp),horizonMinutes:0,timeStatus:'OBSERVATION'};
+      :{ageMinutes:ageMinutes(effectiveTimestamp),horizonMinutes:0,timeStatus:isDerived?'DERIVED':'OBSERVATION'};
     const age=rel.ageMinutes;
-    const fresh=opts.modelTime===true ? age!=null : age!=null&&age<=IMGW_TTL_MIN;
+    const fresh=isDerived ? age!=null : (opts.modelTime===true ? age!=null : age!=null&&age<=IMGW_TTL_MIN);
     return Object.assign({
       value:value??null,
-      timestamp:timestamp??null,
-      time:fmtTime(timestamp),
+      timestamp:isDerived?effectiveTimestamp:(timestamp??null),
+      time:fmtTime(isDerived?effectiveTimestamp:timestamp),
+      computedAt:isDerived?computedAt:null,
+      basedOnTimestamp:isDerived?(opts.basedOnTimestamp??timestamp??null):null,
       ageMinutes:age,
       horizonMinutes:rel.horizonMinutes,
       timeStatus:rel.timeStatus,
+      ageBasis:isDerived?'computation_time':(opts.ageBasis||null),
       fresh,
       ttlMinutes:IMGW_TTL_MIN,
       unit:unit||'',
@@ -206,9 +214,47 @@
         windDirection:component(c.wind_direction_10m??h.wind_direction_10m?.[ci]??null,currentTime,'°',{...modelMeta,source:'Open-Meteo current'}),
         pressure:component(c.pressure_msl??h.pressure_msl?.[ci]??null,currentTime,'hPa',{source:'Open-Meteo current'}),
         radiation:component(c.shortwave_radiation_instant??h.shortwave_radiation?.[ci]??null,currentTime,'W/m²',{...modelMeta,source:'Open-Meteo current'}),
-        dewPoint:component(null,null,'°C',{source:'Aura derived'}),
-        apparentFinal:component(num(X.feels),null,'°C',{source:'Aura derived: temperature + RH + wind + gust'}),
-        sunShade:component(num(X.sunShade?.sun??null),null,'°C',{source:'Aura derived: solar radiation + wind'}),
+        dewPoint:component(
+          num(X.dewStation??X.dew),
+          null,
+          '°C',
+          {
+            source:'Aura derived',
+            sourceType:'DERIVED',
+            computedAt:Date.now(),
+            basedOnTimestamp:currentTime,
+            basedOn:'temperature + relative humidity'
+          }
+        ),
+        apparentFinal:component(num(X.feels),null,'°C',{
+          source:'Aura derived: temperature + RH + wind + gust',
+          sourceType:'DERIVED',
+          computedAt:Date.now(),
+          basedOnTimestamp:currentTime
+        }),
+        sunShade:(()=>{
+          try{
+            const sh=typeof calcSunShadeTemp==='function'
+              ?calcSunShadeTemp(num(X.T),num(X.feels),num(X.rad),num(X.wind),num(X.hum))
+              :null;
+            const value=Number.isFinite(Number(sh?.sun))?Number(sh.sun):null;
+            return component(value,null,'°C',{
+              source:'Aura derived: calcSunShadeTemp()',
+              sourceType:'DERIVED',
+              computedAt:Date.now(),
+              basedOnTimestamp:currentTime,
+              calculation:'calcSunShadeTemp',
+              shade:Number.isFinite(Number(sh?.shade))?Number(sh.shade):null,
+              radiation:Number.isFinite(Number(sh?.radiation))?Number(sh.radiation):null
+            });
+          }catch{return component(null,null,'°C',{
+            source:'Aura derived: calcSunShadeTemp()',
+            sourceType:'DERIVED',
+            computedAt:Date.now(),
+            basedOnTimestamp:currentTime,
+            calculation:'calcSunShadeTemp'
+          });}
+        })(),
         cloudFinal:component(num(X.cloud),null,'%',{source:'Aura weather-fusion final'}),
         cloudConsensus:component(num(S.cloudSource?.consensus),null,'%',{source:'Multi-model diagnostic consensus'}),
         soilMoisture:component(null,null,'m³/m³',{source:'Open-Meteo',reason:'brak pola soil_moisture w aktualnym API pobierania'})
