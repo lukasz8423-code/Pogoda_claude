@@ -6692,9 +6692,10 @@ function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=acti
   const hourly=data?.hourly;
   if(!hourly?.time?.length || !Array.isArray(hourly.cloud_cover)) return null;
 
-  // Nie poprawiamy normalnych prognoz. Guard uruchamia się wyłącznie wtedy,
-  // gdy aktywny model zwraca niemal same zera dla całego horyzontu, a inne
-  // modele mają dla tych samych godzin realne wartości > 0.
+  // 0% zachmurzenia jest prawidłową wartością meteorologiczną.
+  // Guard NIE może traktować samych zer jako błędu. Podmiana jest dozwolona
+  // wyłącznie wtedy, gdy aktywny model jest wyraźnym odstającym punktem
+  // względem co najmniej 3 innych modeli.
   const ci=currentHourIndex(data,new Date());
   const horizon=Math.min(hourly.time.length,ci+24);
   const future=hourly.cloud_cover.slice(ci,horizon).map(Number);
@@ -6702,7 +6703,7 @@ function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=acti
   if(finite.length<8)return null;
 
   const zeroRatio=finite.filter(v=>v<=0.5).length/finite.length;
-  if(zeroRatio<0.80)return null;
+  if(zeroRatio<0.90)return null;
 
   const activeId=String(activeModelId||"best_match");
   const candidates=(Array.isArray(modelResults)?modelResults:[])
@@ -6717,6 +6718,8 @@ function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=acti
     return {model:r.model,map};
   });
 
+  // Potrzebujemy minimum 3 niezależnych modeli z sensownym pokryciem.
+  // Sam fakt, że jeden model ma >0%, nie jest wystarczającym dowodem błędu.
   const usable=maps.filter(m=>{
     let n=0,nonZero=0;
     for(let i=ci;i<horizon;i++){
@@ -6726,11 +6729,25 @@ function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=acti
     }
     return n>=8 && nonZero/n>=0.20;
   });
-  if(!usable.length)return null;
+  if(usable.length<3)return null;
 
-  // Wybieramy alternatywny model z największym pokryciem i największą
-  // zgodnością z pozostałymi modelami. Nie stosujemy lokalizacji ani stałej
-  // wartości zachmurzenia.
+  // Aktywny model musi być wyraźnym outlierem:
+  // w większości wspólnych slotów pozostałe modele muszą mieć medianę
+  // >=15%, a różnica względem aktywnego modelu musi wynosić >=15 pp.
+  let comparable=0, strongDisagreement=0;
+  for(let i=ci;i<horizon;i++){
+    const t=String(hourly.time[i]);
+    const active=Number(hourly.cloud_cover[i]);
+    if(!Number.isFinite(active))continue;
+    const peers=usable.map(x=>x.map.get(t)).filter(Number.isFinite);
+    if(peers.length<3)continue;
+    peers.sort((a,b)=>a-b);
+    const median=peers[Math.floor(peers.length/2)];
+    comparable++;
+    if(median>=15 && median-active>=15) strongDisagreement++;
+  }
+  if(comparable<8 || strongDisagreement/comparable<0.60)return null;
+
   const ranked=usable.map(m=>{
     let coverage=0,nonZero=0,agreement=0,agreementN=0;
     for(let i=ci;i<horizon;i++){
@@ -6763,10 +6780,12 @@ function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=acti
   if(!replaced)return null;
   hourly.__auraCloudDegenerateGuard={
     applied:true,
-    reason:"ACTIVE_MODEL_DEGENERATE_ZERO_CLOUD",
+    reason:"ACTIVE_MODEL_ZERO_CLOUD_CONFIRMED_OUTLIER",
     activeModel:activeId,
     replacementModel:winner.m.model,
     zeroRatio:Math.round(zeroRatio*100),
+    strongDisagreementRatio:Math.round((strongDisagreement/comparable)*100),
+    comparableHours:comparable,
     replaced,
     checkedHours:finite.length
   };
