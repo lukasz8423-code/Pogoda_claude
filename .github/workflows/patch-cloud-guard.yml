@@ -49,3 +49,6 @@ jobs:
           git rm .github/workflows/patch-cloud-guard.yml
           git commit -m 'Remove one-shot cloud guard patch workflow'
           git push
+
+      # Emergency re-trigger after the earlier one-shot patch was left pending.
+      # 2026-09-29
