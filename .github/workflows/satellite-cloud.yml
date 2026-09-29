@@ -64,3 +64,7 @@ jobs:
 
           echo "Nie udało się opublikować danych po 3 próbach."
           exit 1
+
+      # Force a fresh run when this workflow is touched; keeps the satellite
+      # snapshot alive even after GitHub temporarily drops scheduled runs.
+      # 2026-09-29 emergency refresh trigger.
