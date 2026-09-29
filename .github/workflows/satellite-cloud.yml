@@ -6,8 +6,10 @@ on:
     paths:
       - "scripts/update_satellite_cloud.py"
       - ".github/workflows/satellite-cloud.yml"
+  # GitHub can delay/drop scheduled jobs during high-load periods.
+  # Stagger the run away from the quarter-hour marks.
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
 
 permissions:
   contents: write
