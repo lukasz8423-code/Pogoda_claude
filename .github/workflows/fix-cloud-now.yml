@@ -1,0 +1,144 @@
+name: Fix cloud 0-100 and satellite status
+on:
+  push:
+    paths:
+      - ".github/workflows/fix-cloud-now.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch cloud and satellite logic
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p=Path("index.html")
+          s=p.read_text(encoding="utf-8")
+
+          # 1. The previous hourly guard only handled a 0% degeneracy.
+          # The real failure seen in production is the opposite: Best Match
+          # can return an almost-all-99/100 series while the other local models
+          # are clear. Add a symmetric, evidence-based high-cloud outlier repair.
+          marker="function repairDegenerateHourlyCloudCover(data, modelResults, activeModelId=activeModel.id){"
+          if marker not in s:
+              raise SystemExit("REPAIR_FUNCTION_NOT_FOUND")
+          helper=r'''function repairHighCloudOutlier(data,modelResults,activeModelId=activeModel.id){
+  const hourly=data?.hourly;
+  if(!hourly?.time?.length||!Array.isArray(hourly.cloud_cover))return null;
+  const ci=currentHourIndex(data,new Date());
+  const horizon=Math.min(hourly.time.length,ci+25);
+  const activeId=String(activeModelId||"best_match");
+  const candidates=(Array.isArray(modelResults)?modelResults:[])
+    .filter(r=>r?.model&&r.model!==activeId&&r?.data?.hourly?.time?.length&&Array.isArray(r.data.hourly.cloud_cover));
+  if(candidates.length<3)return null;
+
+  const maps=candidates.map(r=>{
+    const map=new Map();
+    r.data.hourly.time.forEach((t,i)=>{
+      const v=Number(r.data.hourly.cloud_cover?.[i]);
+      if(Number.isFinite(v))map.set(String(t),clamp(v,0,100));
+    });
+    return {model:r.model,map};
+  });
+
+  let comparable=0,strong=0;
+  const peerByTime=new Map();
+  for(let i=ci;i<horizon;i++){
+    const t=String(hourly.time[i]);
+    const active=Number(hourly.cloud_cover?.[i]);
+    if(!Number.isFinite(active)||active<85)continue;
+    const peers=maps.map(m=>m.map.get(t)).filter(Number.isFinite);
+    if(peers.length<3)continue;
+    peers.sort((a,b)=>a-b);
+    const median=peers[Math.floor(peers.length/2)];
+    comparable++;
+    peerByTime.set(t,{median,peers});
+    if(median<=85 && active-median>=15)strong++;
+  }
+  if(comparable<8 || strong/comparable<0.60)return null;
+
+  let replaced=0;
+  for(let i=ci;i<horizon;i++){
+    const t=String(hourly.time[i]);
+    const n=Number(hourly.cloud_cover?.[i]);
+    const peer=peerByTime.get(t);
+    if(!peer||!Number.isFinite(n)||n<85)continue;
+    // Only replace when the independent-model median is materially lower.
+    if(n-peer.median<15)continue;
+    hourly.cloud_cover[i]=Math.round(clamp(peer.median,0,100));
+    replaced++;
+  }
+  if(!replaced)return null;
+  hourly.__auraCloudHighOutlierGuard={
+    applied:true,
+    reason:"ACTIVE_MODEL_HIGH_CLOUD_CONFIRMED_OUTLIER",
+    activeModel:activeId,
+    peerModels:maps.map(x=>x.model),
+    comparableHours:comparable,
+    strongDisagreementRatio:Math.round(strong/comparable*100),
+    replaced
+  };
+  return hourly.__auraCloudHighOutlierGuard;
+}
+
+'''
+          if "function repairHighCloudOutlier" not in s:
+              s=s.replace(marker,helper+marker,1)
+
+          # Call the high-side repair before the existing zero-side early return.
+          needle="  if(finite.length<8)return null;\n\n  const zeroRatio="
+          replacement="  if(finite.length<8)return null;\n\n  const highCloudRepair=repairHighCloudOutlier(data,modelResults,activeModelId);\n  if(highCloudRepair)return highCloudRepair;\n\n  const zeroRatio="
+          if needle not in s:
+              raise SystemExit("HIGH_REPAIR_CALL_ANCHOR_NOT_FOUND")
+          s=s.replace(needle,replacement,1)
+
+          # 2. lockFusionState used to overwrite any repaired hourly cloud
+          # series with the raw active-model array. Preserve the evidence-based
+          # high/low repair instead of undoing it at the atomic commit boundary.
+          old="  if(targetHourly?.time?.length&&sourceHourly?.time?.length&&Array.isArray(sourceHourly.cloud_cover)){"
+          new="  if(targetHourly?.time?.length&&sourceHourly?.time?.length&&Array.isArray(sourceHourly.cloud_cover)&&!targetHourly.__auraCloudHighOutlierGuard?.applied&&!targetHourly.__auraCloudDegenerateGuard?.applied){"
+          if old not in s:
+              raise SystemExit("LOCK_CLOUD_OVERWRITE_ANCHOR_NOT_FOUND")
+          s=s.replace(old,new,1)
+
+          # 3. The satellite chip was red unless cloud fusion actually USED the
+          # satellite. A valid fresh satellite observation can be healthy even
+          # when the fusion layer elects not to use it. Show green for a fresh
+          # valid snapshot/live observation.
+          old="  const satLive=satFusion?.satelliteUsed===true;"
+          new="  const satData=S.satelliteCloud||null;\n  const satFresh=satData?.status===\"OK\"&&Number.isFinite(Number(satData?.cloudFraction))&&Number(satData.cloudFraction)>=0&&Number(satData.cloudFraction)<=100&&(satData?.freshness===\"FRESH_SNAPSHOT\"||satData?.freshness===\"LIVE_FALLBACK\"||satData?.live===true);\n  const satLive=satFusion?.satelliteUsed===true||satFresh;"
+          if old not in s:
+              raise SystemExit("SATELLITE_CHIP_ANCHOR_NOT_FOUND")
+          s=s.replace(old,new,1)
+
+          # 4. Keep diagnostics explicit so a future regression cannot be
+          # mistaken for a successful repair.
+          marker2="  S.pipelineDiag.cloudDegenerateGuard=cloudDegenerateGuard;"
+          if marker2 in s and "cloudHighOutlierGuard" not in s:
+              s=s.replace(marker2,marker2+"\n  S.pipelineDiag.cloudHighOutlierGuard=data?.hourly?.__auraCloudHighOutlierGuard||null;",1)
+
+          p.write_text(s,encoding="utf-8")
+
+      - name: Verify
+        run: |
+          node --check index.html
+          git diff --check
+
+      - name: Publish and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --check
+          git commit -m "Napraw 99-100 procent chmur i status satelity"
+          git push origin HEAD:main
+          git rm .github/workflows/fix-cloud-now.yml
+          git commit -m "Usuń jednorazowy workflow naprawczy chmur"
+          git push origin HEAD:main
