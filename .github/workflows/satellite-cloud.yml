@@ -2,19 +2,11 @@ name: Update satellite cloud mask
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/update_satellite_cloud.py"
-      - ".github/workflows/satellite-cloud.yml"
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
-
-concurrency:
-  group: aura-satellite-main
-  cancel-in-progress: false
 
 jobs:
   satellite-cloud:
@@ -29,118 +21,15 @@ jobs:
       - name: Install satellite tools
         run: pip install --disable-pip-version-check requests
 
-      - name: Synchronize with main before generating data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
-
       - name: Fetch latest MSG/SEVIRI Cloud Mask
         run: python scripts/update_satellite_cloud.py
 
-      - name: Repair cloud pipeline permanently
-        shell: python
-        run: |
-          from pathlib import Path
-          import re
-          p=Path("index.html")
-          s=p.read_text(encoding="utf-8")
-
-          # A stale snapshot is not a valid satellite observation. If the
-          # generated snapshot is older than 120 minutes, the browser must
-          # fall back to live EUMETView instead of marking the satellite dead.
-          pattern=re.compile(r'async function apiSatelliteCloudMask\(lat,lng\)\{.*?\n\}\nfunction sameLocationSnapshot',re.S)
-          replacement=r'''async function apiSatelliteCloudMask(lat,lng){
-  const now=Date.now();
-  let snapshot=null;
-  try{
-    const r=await fetch("./satellite-cloud.json?ts="+now,{cache:"no-store",signal:AbortSignal.timeout(5000)});
-    if(r.ok)snapshot=await r.json();
-  }catch{}
-
-  if(snapshot){
-    const slat=Number(snapshot.lat),slng=Number(snapshot.lon);
-    const distanceKm=Number.isFinite(slat)&&Number.isFinite(slng)
-      ?Math.sqrt(Math.pow((slat-Number(lat))*111,2)+Math.pow((slng-Number(lng))*111*Math.cos(Number(lat)*Math.PI/180),2))
-      :Infinity;
-    const cloud=Number(snapshot.cloudFraction??snapshot.cloud_fraction??snapshot.cloudCover??snapshot.cloud_cover??snapshot.cloudiness);
-    const observationAt=snapshot.observationAt??snapshot.observedAt??snapshot.acquisitionAt??snapshot.sensingStart??snapshot.sensing_start??snapshot.time??snapshot.timestamp??snapshot.date??null;
-    const obsMs=observationAt?new Date(observationAt).getTime():NaN;
-    const ageMin=Number.isFinite(obsMs)?(now-obsMs)/60000:Infinity;
-    const locationMatch=Number.isFinite(distanceKm)&&distanceKm<=15;
-    const fresh=Number.isFinite(cloud)&&cloud>=0&&cloud<=100&&Number.isFinite(obsMs)&&ageMin>=0&&ageMin<=120;
-    if(locationMatch&&fresh){
-      return {...snapshot,cloudFraction:cloud,observationAt:String(observationAt),dataAvailable:true,valueFallback:cloud,status:"OK",distanceKm:+distanceKm.toFixed(2),locationMatch:true,live:false,freshness:"FRESH_SNAPSHOT",ageMinutes:+ageMin.toFixed(1)};
-    }
-  }
-
-  const live=await apiSatelliteCloudMaskWms(lat,lng);
-  if(live)return {...live,distanceKm:0,locationMatch:true,freshness:"LIVE_FALLBACK"};
-  return null;
-}
-function sameLocationSnapshot'''
-          s2=pattern.sub(replacement,s,count=1)
-          if s2==s: raise SystemExit("SATELLITE_FUNCTION_ANCHOR_NOT_FOUND")
-          s=s2
-
-          if "function enforceHourlyCloudInvariant" not in s:
-            marker="function repairDegenerateHourlyCloudCover"
-            if marker not in s: raise SystemExit("HOURLY_GUARD_FUNCTION_NOT_FOUND")
-            invariant=r'''function enforceHourlyCloudInvariant(data){
-  const a=data?.hourly?.cloud_cover;
-  if(!Array.isArray(a)||a.length<4)return {applied:false,reason:"no-series"};
-  const vals=a.map(Number).filter(Number.isFinite).map(v=>clamp(v,0,100));
-  if(vals.length<4)return {applied:false,reason:"insufficient"};
-  const extreme=vals.filter(v=>v<=1||v>=99).length/vals.length;
-  const alternating=vals.slice(1).filter((v,i)=>(vals[i]<=1&&v>=99)||(vals[i]>=99&&v<=1)).length/Math.max(1,vals.length-1);
-  if(extreme<0.80&&alternating<0.50)return {applied:false,reason:"normal"};
-  const repaired=a.map((v,i)=>{
-    const n=Number(v); if(!Number.isFinite(n))return v;
-    const prev=i>0?Number(a[i-1]):n, next=i+1<a.length?Number(a[i+1]):n;
-    if(!(n<=1||n>=99))return clamp(n,0,100);
-    const neighbours=[prev,next].filter(x=>Number.isFinite(x)&&x>1&&x<99);
-    return neighbours.length?Math.round(neighbours.reduce((x,y)=>x+y,0)/neighbours.length):n;
-  });
-  const changed=repaired.some((v,i)=>Number(v)!==Number(a[i]));
-  if(changed)data.hourly.cloud_cover=repaired;
-  return {applied:changed,extremeShare:Math.round(extreme*100),alternatingShare:Math.round(alternating*100)};
-}
-
-'''
-            s=s.replace(marker,invariant+marker,1)
-
-          anchor='if(!lockFusionState(token,lat,lng,data,imgwData,activeModelRawData))return;'
-          old=anchor+'\n\n  try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}'
-          new=anchor+'''\n\n  const hourlyCloudInvariant=enforceHourlyCloudInvariant(data);\n  S.pipelineDiag=S.pipelineDiag||{};\n  S.pipelineDiag.hourlyCloudInvariant=hourlyCloudInvariant;\n\n  try{localStorage.setItem("aura_v7",JSON.stringify({data,city,lat,lng,ts:Date.now()}));}catch{}'''
-          if old not in s: raise SystemExit("LOCK_STORAGE_ANCHOR_NOT_FOUND")
-          s=s.replace(old,new,1)
-          p.write_text(s,encoding="utf-8")
-
-      - name: Verify source before publishing
-        run: |
-          node --check index.html
-          python -m py_compile scripts/update_satellite_cloud.py
-          git diff --check
-
-      - name: Publish satellite and cloud repair safely
-        shell: bash
+      - name: Publish satellite observation
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for attempt in 1 2 3; do
-            git add satellite-cloud.json public/satellite-cloud.json index.html
-            if git diff --cached --quiet; then
-              echo "Brak zmian danych satelitarnych ani kodu."
-              exit 0
-            fi
-            git commit -m "Aktualizuj satelitę i uszczelnij pipeline chmur" || true
-            if git push origin HEAD:main; then
-              echo "Publikacja zakończona."
-              exit 0
-            fi
-            git fetch origin main
-            git rebase origin/main
-            python scripts/update_satellite_cloud.py
-          done
-          echo "Nie udało się opublikować zmian po 3 próbach."
-          exit 1
+          git add satellite-cloud.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Aktualizuj obserwację zachmurzenia satelitarnego"
+          git pull --rebase origin main || true
+          git push
