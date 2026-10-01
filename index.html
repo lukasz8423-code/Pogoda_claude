@@ -236,8 +236,9 @@ svg{display:block}
 button.chip:active{background:var(--glass2)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s ease infinite}
 .satellite-health{display:inline-flex;align-items:center;gap:6px}
-.satellite-health .sat-dot{width:7px;height:7px;border-radius:50%;background:var(--bad);box-shadow:0 0 6px var(--bad)}
+.satellite-health .sat-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);box-shadow:none}
 .satellite-health.live .sat-dot{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:pulse 1.35s ease-in-out infinite}
+.satellite-health.offline .sat-dot{background:var(--bad);box-shadow:0 0 6px var(--bad)}
 .satellite-health.pending .sat-dot{background:var(--ink3);box-shadow:none;animation:none}
 .sunline{margin:14px 2px 18px}
 .sunline svg{width:100%;height:auto;overflow:visible}
@@ -1357,14 +1358,29 @@ function optiCloudFromModels(records){
         optical=clamp(Math.min(total,Math.round(visualEstimate*visualBlend)),0,100);
         opticalMethod="solar-optical-v2";
       } else {
+        if(l<=35 && m<=40 && h>l+m){
+          const highWeight=isDay?0.08:0.15;
+          const midWeight=isDay?0.35:0.45;
+          const lowWeight=isDay?0.65:0.75;
+          const layerEst=clamp(Math.round(l*lowWeight + m*midWeight + h*highWeight),0,100);
+          optical=Math.min(total,layerEst);
+          opticalMethod="cirrus-layer-v1";
+        } else {
+          const lowDominance=l-Math.max(m,h);
+          const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
+          optical=clamp(total+structuralAdjustment,0,100);
+        }
+      }
+    } else {
+      if(l<=35 && m<=40 && h>l+m && !isRainCode(Number(cur.weather_code))){
+        const layerEst=clamp(Math.round(l*0.75 + m*0.45 + h*0.15),0,100);
+        optical=Math.min(total,layerEst);
+        opticalMethod="night-cirrus-layer-v1";
+      } else {
         const lowDominance=l-Math.max(m,h);
         const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
         optical=clamp(total+structuralAdjustment,0,100);
       }
-    } else {
-      const lowDominance=l-Math.max(m,h);
-      const structuralAdjustment=lowDominance>=30 ? 2 : (m>=l+20 ? -2 : 0);
-      optical=clamp(total+structuralAdjustment,0,100);
     }
 
     const layerActivity=(l+m+h)/3;
@@ -1772,12 +1788,18 @@ function clmRgbClass(feature){
   const p=feature?.properties||feature||{};
   const r=Number(p.RED_BAND),g=Number(p.GREEN_BAND),b=Number(p.BLUE_BAND);
   if(![r,g,b].every(Number.isFinite))return null;
-  // EUMETView CLM exposes its categorical palette through RGB values.
-  // Green (0,192,0) is clear land — the palette is intentionally handled
-  // conservatively: unknown colours are NOT guessed as clouds.
-  if(r===0&&g===192&&b===0)return 1;
-  if(r===0&&g===0&&b===192)return 0;
-  return null;
+  const palette={
+    1:[0,192,0],    // clear land
+    0:[0,0,192],    // clear water
+    2:[255,255,255],// cloud
+    3:[0,0,0]       // no data
+  };
+  let best=null,bestDist=1e9;
+  for(const [code,ref] of Object.entries(palette)){
+    const dist=Math.abs(r-ref[0])+Math.abs(g-ref[1])+Math.abs(b-ref[2]);
+    if(dist<bestDist){bestDist=dist;best=Number(code);}
+  }
+  return bestDist<=35?best:null;
 }
 
 async function apiSatelliteCloudMaskWms(lat,lng){
@@ -1791,23 +1813,25 @@ async function apiSatelliteCloudMaskWms(lat,lng){
     [la,lo-dLon],[la,lo],[la,lo+dLon],
     [la+dLat,lo-dLon],[la+dLat,lo],[la+dLat,lo+dLon]
   ];
-  const slot=new Date(Math.floor(Date.now()/900000)*900000).toISOString();
+  let observedSlot=null;
   const results=await Promise.all(points.map(async([pla,plo])=>{
     const bbox=[pla-0.006,plo-0.010,pla+0.006,plo+0.010].join(",");
+    // Omit TIME param: GeoServer WMS serves the newest available 15-min CLM product reliably.
     const url="https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo"
       +"&LAYERS=msg_fes%3Aclm&QUERY_LAYERS=msg_fes%3Aclm&CRS=EPSG%3A4326"
       +"&BBOX="+encodeURIComponent(bbox)+"&WIDTH=3&HEIGHT=3&I=1&J=1"
-      +"&INFO_FORMAT=application%2Fjson&TIME="+encodeURIComponent(slot);
+      +"&INFO_FORMAT=application%2Fjson";
     try{
-      const r=await fetch(url,{mode:"cors",cache:"no-store",signal:AbortSignal.timeout(4500)});
+      const r=await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(4500)});
       if(!r.ok)return null;
       const j=await r.json();
+      if(j?.timeStamp && !observedSlot) observedSlot=j.timeStamp;
       const feature=j?.features?.[0]||j?.feature||j?.data?.features?.[0]||j?.data||null;
       if(!feature)return null;
       let code=classifyEumetviewClmFeature(feature);
       if(code==null)code=clmRgbClass(feature);
       const p=feature?.properties||feature||{};
-      const observationAt=p.observationAt??p.observedAt??p.acquisitionAt??p.sensingStart??p.sensing_start??p.time??p.timestamp??p.date??null;
+      const observationAt=p.observationAt??p.observedAt??p.acquisitionAt??p.sensingStart??p.sensing_start??p.time??p.timestamp??p.date??j?.timeStamp??null;
       return code==null?null:{code,raw:p,observationAt:observationAt?String(observationAt):null};
     }catch{return null;}
   }));
@@ -1819,6 +1843,7 @@ async function apiSatelliteCloudMaskWms(lat,lng){
   const clearPixels=usable.filter(x=>x.code===0||x.code===1).length;
   if(cloudPixels+clearPixels<3)return null;
   const cloudFraction=100*cloudPixels/(cloudPixels+clearPixels);
+  const finalObsAt=observedSlot||valid.find(x=>x.observationAt)?.observationAt||new Date().toISOString();
   return {
     source:"EUMETSAT EUMETView",
     collection:"EO:EUM:DAT:MSG:CLM",
@@ -1828,7 +1853,7 @@ async function apiSatelliteCloudMaskWms(lat,lng){
     classification:"cloud_fraction_from_live_EUMETView_CLM_GetFeatureInfo",
     cloudMaskCodes:{0:"clear_water",1:"clear_land",2:"cloud",3:"no_data"},
     sampleCount:valid.length,cloudPixels,clearPixels,
-    observationAt:slot,generatedAt:new Date().toISOString(),
+    observationAt:finalObsAt,generatedAt:new Date().toISOString(),
     observationTimeStatus:"LIVE_EUMETVIEW_WMS",
     status:"OK",
     live:true,
@@ -4230,13 +4255,13 @@ function heroInnerHTML(X){
   chips.push(`<span class="chip satellite-health ${satClass}" title="${satTitle}" aria-label="${satTitle}">${mini("sat")}<span class="sat-dot"></span><span>Satelita</span></span>`);
   chips.push(`<button class="chip" data-act="model">${mini("layers")}${esc(activeModel.name)}</button>`);
   if(S.isDemo)chips.push(`<span class="chip warn">Tryb offline, dane przykładowe</span>`);
-  else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("sat")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
+  else if(S.imgwStatus==="OFFLINE")chips.push(`<span class="chip warn">${mini("alert")}IMGW Offline — prognoza nadal live z Open-Meteo</span>`);
   else if(S.imgwData){
     const im=S.imgwData,stale=im.isFresh===false;
     const age=im.ageMinutes!=null?fmtAge(im.ageMinutes):"wiek ostatniego pomiaru nieznany";
     const obsAt=im.observedAt!=null?`ostatni pomiar z ${hhmm(im.observedAt)}, `:"";
     const used=!stale&&im.dist<=80;
-    chips.push(`<span class="chip ${stale?"warn":used?"ok":""}">${mini("sat")}${esc(im.stacja||im.name)}, ${im.dist} km, ${obsAt}${age}${stale?" (nieaktualne)":""}</span>`);
+    chips.push(`<span class="chip ${stale?"warn":used?"ok":""}">${mini("station")}${esc(im.stacja||im.name)}, ${im.dist} km, ${obsAt}${age}${stale?" (nieaktualne)":""}</span>`);
   }
   const o=oknoStats();
   if(o&&o.bias!=null&&Math.abs(o.bias)>=.5)chips.push(`<a class="chip link" href="okno.html" style="text-decoration:none">${mini("window")}Wg Twojego okna ok. ${Math.round(X.T-o.bias)}°</a>`);
@@ -4488,21 +4513,18 @@ function hourlyHTML(X){
     const prNow = Number(hourly.precipitation?.[idx] ?? 0);
     const cloudNow = Number(hourly.cloud_cover?.[idx] ?? 0);
     const hoursAhead=i;
-    // T0 pozostaje X.cloud. Dla najbliższych 1–3 godzin dziennych
-    // pokazujemy tę samą korektę optyczną co „Teraz”, ale wyłącznie w UI.
-    const opticalCloud=(hoursAhead>=1&&hoursAhead<=3&&isDayAt(hourly.time[idx]))
-      ?hourlyOpticalCloudDisplay(S.data,idx)
-      :null;
+    // Dla godzin przyszłych wyznaczamy rzeczywiste zachmurzenie optyczno-percepcyjne (uwzględniające cienkie cirrusy vs niskie chmury)
+    const opticalCloud=hourlyOpticalCloudDisplay(S.data,idx);
     const displayCloud=Number.isFinite(opticalCloud)
       ?opticalCloud
       :cloudNow;
     const cloudForCode = i === 0
       ? (Number.isFinite(Number(X.cloud)) ? Number(X.cloud) : 0)
-      : cloudNow;
+      : displayCloud;
     let code = (i === 0)
       ? (currentRainMm(X) > 0.05 ? (X.currentState?.code ?? 61) : (cloudForCode <= 15 ? 0 : cloudForCode <= 40 ? 1 : cloudForCode <= 70 ? 2 : 3))
       : getHourlyCode(hourly, idx);
-    if(prNow <= 0.05 && isRainCode(code)){
+    if(prNow <= 0.05 && (isRainCode(code) || code === 3)){
       code = cloudForCode <= 15 ? 0 : cloudForCode <= 40 ? 1 : cloudForCode <= 70 ? 2 : 3;
     }
     const pop=Math.round(clamp(Number(hourly.precipitation_probability?.[idx]??0),0,100));
@@ -4513,15 +4535,12 @@ function hourlyHTML(X){
       ?Math.round(Number(i===0?X.gusts:hourly.wind_gusts_10m[idx]))
       :null;
     // "Teraz" pochodzi wyłącznie z kanału obserwacyjnego X.cloud.
-    // hourly.cloud_cover pozostaje osobnym snapshotem prognozy, także dla
-    // slotu, który właśnie stał się bieżącą godziną.
+    // Dla godzin przyszłych UI używa percepcji optycznej displayCloud.
     const rawCloud=i===0&&Number.isFinite(Number(X.cloud))
       ?Number(X.cloud)
-      :Number(hourly.cloud_cover?.[idx]??0);
+      :displayCloud;
     const cloud=Math.round(clamp(
-      i===0
-        ?rawCloud
-        :displayCloud,
+      rawCloud,
       0,100));
     const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
     const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
@@ -4634,10 +4653,8 @@ function hourlyOpticalCloudDisplay(data,index){
       is_day:Number.isFinite(Number(valueAt('is_day')))?Number(valueAt('is_day')):(isDayAt(targetTime)?1:0),
       weather_code:Number.isFinite(Number(valueAt('weather_code')))?Number(valueAt('weather_code')):0,
       sunshine_duration:Number(valueAt('sunshine_duration')),
-      // „interval” jest metadanymi odpowiedzi modelu, nie polem hourly.
-      // Dla godzinowego slotu używamy tego samego interwału, który obowiązuje
-      // dla bieżącego modelu; fallback 900 s zachowuje dotychczasowy próg.
-      interval:Number(raw?.interval)||900,
+      // Dane hourly mają krok 1-godzinny (3600 sekund).
+      interval:3600,
       direct_normal_irradiance:Number(valueAt('direct_normal_irradiance')),
       shortwave_radiation:Number(valueAt('shortwave_radiation')),
       shortwave_radiation_instant:Number(valueAt('shortwave_radiation_instant'))
@@ -4681,13 +4698,14 @@ function dailyRows(){
       hourly.time.forEach((t,k)=>{
         if(!String(t).startsWith(dateStr))return;
         const p=Math.round(clamp(Number(hourly.precipitation_probability?.[k]??0),0,100));
-        const hCode=getHourlyCode(hourly,k);
-        const hoursAhead=k-currentIdx;
+        let hCode=getHourlyCode(hourly,k);
         const rawCloud=Math.round(clamp(Number(hourly.cloud_cover?.[k]??0),0,100));
-        const opticalCloud=(hoursAhead>=1&&hoursAhead<=3&&isDayAt(t))
-          ?hourlyOpticalCloudDisplay(S.data,k)
-          :null;
+        const opticalCloud=hourlyOpticalCloudDisplay(S.data,k);
         const c=Number.isFinite(opticalCloud)?opticalCloud:rawCloud;
+        const prK=Number(hourly.precipitation?.[k]??0);
+        if(prK<=0.05 && (isRainCode(hCode) || hCode===3)){
+          hCode=c<=15?0:c<=40?1:c<=70?2:3;
+        }
         hs+=`<div class="hi"><span class="t tn">${String(t).slice(11,13)}</span>${ico(hCode,isDayAt(t),28,c)}<span class="v tn">${Math.round(hourly.temperature_2m[k])}°</span><span class="p tn ${p>0?"active":""}">${mini("drop")}${p}%</span><span class="c tn">${mini("cloud")}${c}%</span></div>`;
       });
       const kv=[];
