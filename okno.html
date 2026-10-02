@@ -241,7 +241,7 @@ async function findNearestIMGW(lat,lng){
   let ageMinutes = null;
   if(best.data_pomiaru && best.godzina_pomiaru!=null){
     try{
-      const obsDate = new Date(`${best.data_pomiaru}T${String(best.godzina_pomiaru).padStart(2,"0")}:00:00`);
+      const obsDate = new Date(`${best.data_pomiaru}T${String(best.godzina_pomiaru).padStart(2,"0")}:00:00Z`);
       ageMinutes = Math.round((Date.now()-obsDate.getTime())/60000);
     }catch(e){}
   }
@@ -356,7 +356,10 @@ async function fetchNow(lat,lng){
   const r=await fetch("https://api.open-meteo.com/v1/forecast?"+p,{signal:AbortSignal.timeout(10000)});
   if(!r.ok)throw new Error("HTTP "+r.status);
   const d=await r.json(),c=d.current;
-  const hi=(d.hourly?.time||[]).findIndex(t=>t.startsWith(`${new Date().getFullYear()}-${pad(new Date().getMonth()+1)}-${pad(new Date().getDate())}T${pad(new Date().getHours())}`));
+  const nowP=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Warsaw",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
+  const pMap=Object.fromEntries(nowP.map(x=>[x.type,x.value]));
+  const targetTimePfx=`${pMap.year}-${pMap.month}-${pMap.day}T${pMap.hour}`;
+  const hi=(d.hourly?.time||[]).findIndex(t=>t.startsWith(targetTimePfx));
   const vis=hi>=0&&d.hourly.visibility?d.hourly.visibility[hi]/1000:null;
   const m={temp:c.temperature_2m,app:c.apparent_temperature,cloud:c.cloud_cover,code:c.weather_code,mm:+(c.precipitation||0),kmh:c.wind_speed_10m,gust:c.wind_gusts_10m,hum:c.relative_humidity_2m,isDay:c.is_day===1,vis,ts:Date.now()};
   m.sky=skyOf(m.cloud,m.code,vis);m.pre=preOf(m.code,m.mm);m.wind=windIdx(m.kmh);m.feel=feelIdx(m.app);
