@@ -2112,19 +2112,23 @@ function parseImgwMeteoTimestamp(value){
 
 function parseImgwSynopTimestamp(value){
   if(value==null||value==="")return null;
+  if(value instanceof Date){
+    const ms=value.getTime();
+    return Number.isFinite(ms)?ms:null;
+  }
+  if(typeof value==="number"){
+    const ms=Number(value);
+    if(!Number.isFinite(ms))return null;
+    return ms<1e11?ms*1000:ms;
+  }
   const raw=String(value).trim();
+  if(!raw)return null;
   const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
   if(m){
+    // IMGW SYNOP: godzina_pomiaru w publicznym API IMGW jest podawana w UTC (standard synoptyczny WMO).
+    // Odczyt o 5:00 UTC to 7:00 czasu polskiego (UTC+2 w lecie/jesieni).
     const y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],s=+(m[6]||0);
-    const localAsUtc=Date.UTC(y,mo-1,d,h,mi,s);
-    const parts=new Intl.DateTimeFormat("en-GB",{
-      timeZone:"Europe/Warsaw",year:"numeric",month:"2-digit",day:"2-digit",
-      hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"
-    }).formatToParts(new Date(localAsUtc));
-    const p={};
-    for(const x of parts)if(x.type!=="literal")p[x.type]=Number(x.value);
-    const shownAsUtc=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);
-    return localAsUtc-(shownAsUtc-localAsUtc);
+    return Date.UTC(y,mo-1,d,h,mi,s);
   }
   const parsed=Date.parse(raw);
   return Number.isFinite(parsed)?parsed:null;
@@ -2746,6 +2750,20 @@ function localWallOrdinal(value){
   if(!m)return NaN;
   return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);
 }
+function parseOpenMeteoWallTime(str, tz=dataTimeZone(S.data)){
+  if(!str) return null;
+  if(str instanceof Date) return str.getTime();
+  if(typeof str==="number") return Number.isFinite(str)?str:null;
+  const s=String(str).trim();
+  const m=s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(!m){
+    const p=Date.parse(s);
+    return Number.isFinite(p)?p:null;
+  }
+  const wall=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  const offset=auraTimeZoneOffsetMinutes(wall,tz)??120;
+  return wall - offset * 60000;
+}
 function hhmm(value,data=S.data){
   if(typeof value==="string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)){
     return value.slice(11,16);
@@ -2925,11 +2943,18 @@ function oknoStats(){
 // ═══════════════════════════════════════════════
 // v6 — niebo zależne od pory dnia i pogody
 // ═══════════════════════════════════════════════
-function sunInfo(daily,now=new Date()){
-  const sr=daily?.sunrise?.[0]?new Date(daily.sunrise[0]):null;
-  const ss=daily?.sunset?.[0]?new Date(daily.sunset[0]):null;
-  if(!sr||!ss||isNaN(sr)||isNaN(ss)){
-    const h=now.getHours()+now.getMinutes()/60;
+function sunInfo(daily,now=new Date(),data=S.data){
+  const tz=dataTimeZone(data);
+  const srStr=daily?.sunrise?.[0];
+  const ssStr=daily?.sunset?.[0];
+  const srMs=srStr?parseOpenMeteoWallTime(srStr,tz):null;
+  const ssMs=ssStr?parseOpenMeteoWallTime(ssStr,tz):null;
+  const sr=srMs!=null?new Date(srMs):null;
+  const ss=ssMs!=null?new Date(ssMs):null;
+  if(!sr||!ss||isNaN(sr.getTime())||isNaN(ss.getTime())){
+    const nowParts=new Intl.DateTimeFormat("en-GB",{timeZone:tz,hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(now);
+    const np=Object.fromEntries(nowParts.map(x=>[x.type,Number(x.value)]));
+    const h=(np.hour||12)+(np.minute||0)/60;
     return{sr:null,ss:null,f:null,day:h>=6&&h<19,e:h>=6&&h<19?Math.sin(Math.PI*(h-6)/13):-1};
   }
   const t=+now,a=+sr,b=+ss;
@@ -4321,7 +4346,10 @@ function sunlineHTML(X){
   if(s.day){const m=Math.round((+s.ss-now)/60000);txt=`Do zachodu ${Math.floor(m/60)} h ${m%60} min`;}
   else{
     let target=+s.sr;
-    if(now>+s.ss&&S.data.daily.sunrise?.[1])target=+new Date(S.data.daily.sunrise[1]);
+    if(now>+s.ss&&S.data?.daily?.sunrise?.[1]){
+      const nextSr=parseOpenMeteoWallTime(S.data.daily.sunrise[1]);
+      if(nextSr)target=nextSr;
+    }
     const m=Math.max(0,Math.round((target-now)/60000));txt=`Do wschodu ${Math.floor(m/60)} h ${m%60} min`;
   }
   return`<div class="sunline"><svg viewBox="0 0 300 44" aria-hidden="true"><line x1="0" y1="36" x2="300" y2="36" stroke="rgba(255,255,255,.3)" stroke-width="1"/><path d="M10 36Q150 -14 290 36" fill="none" stroke="rgba(255,255,255,.42)" stroke-width="1.4" stroke-dasharray="2 5" stroke-linecap="round"/>${marker}</svg><div class="lbl tn"><span>Wschód ${hhmm(s.sr)}</span><span>${txt}</span><span>Zachód ${hhmm(s.ss)}</span></div></div>`;
@@ -5755,7 +5783,7 @@ function solarPositionDiagnostic(lat,lng,date=new Date()){
   const zen=Math.acos(clamp(Math.sin(latr)*Math.sin(dec)+Math.cos(latr)*Math.cos(dec)*Math.cos(ha),-1,1));
   const elevation=90-zen/rad;
   let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(latr)-Math.tan(dec)*Math.cos(latr))/rad+180; az=(az+360)%360;
-  return {elevation:+elevation.toFixed(2),azimuth:+az.toFixed(1),isDay:elevation>0,localTime:date.toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}),calculatedAt:date.toISOString()};
+  return {elevation:+elevation.toFixed(2),azimuth:+az.toFixed(1),isDay:elevation>0,localTime:new Intl.DateTimeFormat("pl-PL",{hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:AURA_TIME_ZONE}).format(date),calculatedAt:date.toISOString()};
 }
 function solarDiagnosticBlock(){
   const solar=solarPositionDiagnostic(S.lat,S.lng,new Date()),cur=S.data?.current||{};
@@ -5959,7 +5987,7 @@ function openRawSheet(){
   }):[];
   const raw={miejsce:{nazwa:S.city,lat:S.lat,lng:S.lng},model:activeModel.id,aktualne:S.data.current,stacja_IMGW:S.imgwData||null,porownanie_modeli:S.modelCompare||null,modele_OpenMeteo:rawModels,aura_final:{cloud_cover:S.data.current?.cloud_cover??null,optical_cloud_cover:S.X?.optiCloud??null,weather_code:S.data.current?.weather_code??null,cloudSource:S.cloudSource||null,satelliteCloud:S.satelliteCloud||null},zgodnosc:S.confidence||null,powietrze:S.air||null};
   const txt=JSON.stringify(raw,null,2);
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${S.lat}&longitude=${S.lng}&current=temperature_2m,weather_code,wind_speed_10m&models=${activeModel.id}`;
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${S.lat}&longitude=${S.lng}&current=temperature_2m,weather_code,wind_speed_10m&models=${activeModel.id}&timezone=auto`;
   openSheet(`<h3>Surowe dane źródłowe</h3><div class="sd">Dokładnie to, co aplikacja dostała z modelu i ze stacji.</div><pre class="raw" id="rawtxt">${esc(txt)}</pre>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" data-act="copy">${mini("copy")}Kopiuj</button><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open-Meteo</a><a class="btn" href="https://danepubliczne.imgw.pl/api/data/synop/" target="_blank" rel="noopener">IMGW</a></div>`);
 }
