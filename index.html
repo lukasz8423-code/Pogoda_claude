@@ -5193,6 +5193,26 @@ function modelsHTML(){
   if(stTemp!=null||auraTemp!=null){
     body+=`<div class="note" style="margin:4px 0 8px;padding:6px 10px;background:rgba(255,255,255,.06);border-radius:8px;font-weight:600">📍 Pomiar stacji IMGW (${esc(S.imgwData?.stacja||S.imgwData?.name||"Głodowo")}): ${stTemp!=null?fnum(stTemp,1)+"°C":"—"}${auraTemp!=null?` · Wynik Aury: ${fnum(auraTemp,1)}°C`:""}</div>`;
   }
+  const ds=S.dataSync;
+  if(ds){
+    const syncResults=ds.syncResults||{};
+    const activeResults=Object.entries(syncResults).filter(([,r])=>r.active);
+    if(activeResults.length>0){
+      const activeText=activeResults.map(([k,r])=>{
+        const name=k==="temp"?"Temperatura":k==="hum"?"Wilgotność":k==="wind"?"Wiatr":"Ciśnienie";
+        return `${name}: ${r.offset>0?"+":""}${fnum(r.offset,1)}`;
+      }).join(" · ");
+      body+=`<div class="note" style="margin:8px 0;padding:8px 10px;background:rgba(0,180,255,.12);border-left:3px solid var(--ok);border-radius:8px;font-size:12.5px">
+        <b>🔄 Auto-synchronizacja IMGW ↔ Best Match</b><br>
+        Wykryto trwałe odchylenie przez 3 kolejne godziny. Nałożono automatyczny offset: <b>${activeText}</b>.
+      </div>`;
+    }else{
+      const count=ds.last3Slots?.length||0;
+      body+=`<div class="note" style="margin:8px 0;padding:6px 10px;background:rgba(255,255,255,.05);border-radius:8px;font-size:12px;color:var(--ink2)">
+        🔄 <b>Synchronizacja w czasie rzeczywistym</b>: Stacja ${esc(ds.stationName)} ↔ ${esc(names[ds.modelId]||ds.modelId)} (${count}/3 godz. odczytów). ${count>=3?"Brak trwałego odchylenia (odchylenia < 0,8°C).":"Zbieranie 3 kolejnych godzin do auto-offsetu."}
+      </div>`;
+    }
+  }
   if(mc&&mc.length){
     const ts=mc.map(m=>m.temp),lo=Math.min(...ts),hi=Math.max(...ts),sp=Math.max(.5,hi-lo);
     body+=mc.map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((m.temp-lo)/sp*80+10).toFixed(1)}%"></u></div><b class="tn">${fnum(m.temp,1)}°</b></div>`).join("");
@@ -5911,6 +5931,19 @@ function pipelineInspectorHTML(){
   ];
   const imgwDiag=S.imgwDiag||{}; const imgwFetchedAt=imgwDiag.networkFetchedAt||imgwDiag.fetchedAt||null;
   const imgwFieldTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">📡 IMGW Głodowo — diagnostyka per pole</div><div class=\"note\">Odpowiedź IMGW odebrana: <b>"+(imgwFetchedAt?esc(formatImgwTimestamp(imgwFetchedAt)):"—")+"</b> · TTL pola: <b>"+fmt(imgwDiag.fieldFreshnessTtlMinutes??IMGW_MAX_FIELD_AGE_MINUTES)+" min</b></div><div class=\"diag-xscroll\"><table style=\"width:100%;min-width:650px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Pole</th><th>Wartość RAW</th><th>Timestamp pomiaru</th><th>Wiek</th><th>Status</th></tr></thead><tbody>"+imgwFieldRows.map(r=>"<tr><td><b>"+r[0]+"</b></td><td>"+fmt(r[1])+"</td><td>"+(r[2]?esc(formatImgwTimestamp(r[2])):"—")+"</td><td>"+(r[3]==null?"—":fmt(r[3])+" min")+"</td><td><b>"+(r[4]===true?"FRESH":"STALE / BRAK")+"</b></td></tr>").join("")+"</tbody></table></div>";
+
+  const ds=S.dataSync||S.pipelineDiag?.dataSync||null;
+  let dataSyncTable="";
+  if(ds){
+    const slots=Array.isArray(ds.last3Slots)?ds.last3Slots:[];
+    const res=ds.syncResults||{};
+    dataSyncTable="<div class=\"note\" style=\"margin-top:14px;font-weight:700\">🔄 Auto-synchronizacja IMGW ↔ "+esc(ds.modelId)+"</div>"+
+      "<div class=\"note\">Krzyżowanie odczytów ze stacji <b>"+esc(ds.stationName)+"</b> w czasie rzeczywistym. Sprawdzanie trwałości odchylenia przez 3 kolejne godziny.</div>"+
+      "<div class=\"diag-xscroll\"><table style=\"width:100%;min-width:620px;border-collapse:collapse;font-size:11px\"><thead><tr><th>Godzina slotu</th><th>IMGW Temp</th><th>Model Temp</th><th>Δ Temp</th><th>IMGW Wilg.</th><th>Model RH</th><th>Δ RH</th></tr></thead><tbody>"+
+      (slots.length?slots.map(s=>"<tr><td><b>"+esc(s.slotHour)+"</b></td><td>"+fmt(s.obs?.temp)+"°C</td><td>"+fmt(s.model?.temp)+"°C</td><td><b>"+(s.diff?.temp!=null?(s.diff.temp>0?"+":"")+fnum(s.diff.temp,1)+"°":"—")+"</b></td><td>"+fmt(s.obs?.hum)+"%</td><td>"+fmt(s.model?.hum)+"%</td><td>"+(s.diff?.hum!=null?(s.diff.hum>0?"+":"")+fnum(s.diff.hum,0)+"%":"—")+"</td></tr>").join(""): "<tr><td colspan=\"7\">Brak zarejestrowanych slotów synchronizacji.</td></tr>")+
+      "</tbody></table></div>"+
+      "<div class=\"note\" style=\"margin-top:6px\"><b>Status auto-offsetu:</b> "+(ds.active?"<b style='color:var(--ok)'>AKTYWNY OFFSET</b>":"Brak trwałego odchylenia przez 3 kolejne h")+(res.temp?.active?" · Offset temperatury: <b>"+(res.temp.offset>0?"+":"")+fnum(res.temp.offset,1)+"°C</b>":"")+"</div>";
+  }
   const sourceRows=rawModels.map(r=>{
     const md=r.data||{};
     const gridLat=Number(md.latitude),gridLng=Number(md.longitude);
@@ -5934,6 +5967,7 @@ function pipelineInspectorHTML(){
     +"</tbody></table></div>"
     :"<div class=\"note\" style=\"margin-top:14px\">Brak krótkiej diagnostyki przyszłego zachmurzenia — odśwież surowe dane.</div>";
   const cloudSection="<section class=\"diag-section\"><div class=\"diag-section-title\">☁️ Zachmurzenie — wszystkie źródła w jednym miejscu</div>"+cloudModelTable+cloudForecastTable+solarDiagnosticBlock()+"<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:12px\"><button class=\"btn pri\" data-act=\"pipeline-refresh\">Odśwież surowe dane</button><button class=\"btn\" data-act=\"copy-pipeline\">Kopiuj diagnostykę</button></div>";
+  return "<div class=\"diag-section\"><div class=\"diag-section-title\">🔬 Diagnostyka źródeł Aury</div>"+sourceTable+imgwFieldTable+dataSyncTable+sourceDiagTable+modelTable+"</div>"+cloudSection;
 }
 function openPipelineInspector(){
   try{openSheet(pipelineInspectorHTML());}
@@ -6231,6 +6265,155 @@ function correctWeatherFusion(data,imgwData,cloudFusion){
     finalPrecipitation:Number.isFinite(Number(cur.precipitation))?Number(cur.precipitation):null,
     finalCloudCover:Number.isFinite(Number(cur.cloud_cover))?Number(cur.cloud_cover):null
   };
+}
+
+const DATA_SYNC_STORAGE_KEY="aura_data_sync_layer_v1";
+
+function getDataSyncHistory(){
+  try{
+    const raw=localStorage.getItem(DATA_SYNC_STORAGE_KEY);
+    if(raw){const p=JSON.parse(raw);if(Array.isArray(p))return p;}
+  }catch{}
+  return [];
+}
+
+function saveDataSyncHistory(history){
+  try{
+    const trimmed=Array.isArray(history)?history.slice(-100):[];
+    localStorage.setItem(DATA_SYNC_STORAGE_KEY,JSON.stringify(trimmed));
+  }catch{}
+}
+
+function processDataSyncLayer(data,imgwData,activeModelId,activeModelRawData=null){
+  if(!data?.current||!imgwData)return null;
+
+  const stationId=String(imgwData.kod_stacji||imgwData.stacja||imgwData.name||"station_1");
+  const stationName=String(imgwData.stacja||imgwData.name||"Stacja IMGW");
+  const modelId=String(activeModelId||"best_match");
+
+  const rawSource=activeModelRawData||data;
+  const ci=currentHourIndex(rawSource,new Date());
+  const slotHour=localHourKey(rawSource,Date.now());
+
+  const obsTemp=parseImgwNumber(imgwData.temperatura);
+  const obsHum=parseImgwNumber(imgwData.wilgotnosc_wzgledna);
+  const obsWindMs=parseImgwNumber(imgwData.predkosc_wiatru);
+  const obsWind=obsWindMs!==null?obsWindMs*3.6:null;
+  const obsPress=parseImgwNumber(imgwData.cisnienie);
+
+  const hTime=rawSource?.hourly?.time;
+  const hSi=(Array.isArray(hTime)&&hTime.length>0)?findHourIndexByTime(hTime,slotHour):-1;
+  const si=hSi>=0?hSi:ci;
+
+  const modelTemp=toFiniteNumber(rawSource?.hourly?.temperature_2m?.[si]??data.current?.temperature_2m);
+  const modelHum=toFiniteNumber(rawSource?.hourly?.relative_humidity_2m?.[si]??data.current?.relative_humidity_2m);
+  const modelWind=toFiniteNumber(rawSource?.hourly?.wind_speed_10m?.[si]??data.current?.wind_speed_10m);
+  const modelPress=toFiniteNumber(rawSource?.hourly?.pressure_msl?.[si]??data.current?.pressure_msl);
+
+  const diffTemp=(obsTemp!==null&&modelTemp!==null)?obsTemp-modelTemp:null;
+  const diffHum=(obsHum!==null&&modelHum!==null)?obsHum-modelHum:null;
+  const diffWind=(obsWind!==null&&modelWind!==null)?obsWind-modelWind:null;
+  const diffPress=(obsPress!==null&&modelPress!==null)?obsPress-modelPress:null;
+
+  const sample={
+    stationId,stationName,distKm:toFiniteNumber(imgwData.dist),modelId,slotHour,
+    timestampMs:Date.now(),
+    obs:{temp:obsTemp,hum:obsHum,wind:obsWind,press:obsPress},
+    model:{temp:modelTemp,hum:modelHum,wind:modelWind,press:modelPress},
+    diff:{
+      temp:diffTemp!==null?+diffTemp.toFixed(1):null,
+      hum:diffHum!==null?+diffHum.toFixed(1):null,
+      wind:diffWind!==null?+diffWind.toFixed(1):null,
+      press:diffPress!==null?+diffPress.toFixed(1):null
+    }
+  };
+
+  let history=getDataSyncHistory();
+  history=history.filter(s=>!(s.stationId===stationId&&s.modelId===modelId&&s.slotHour===slotHour));
+  history.push(sample);
+  saveDataSyncHistory(history);
+
+  const stationModelHistory=history.filter(s=>s.stationId===stationId&&s.modelId===modelId);
+  stationModelHistory.sort((a,b)=>String(a.slotHour).localeCompare(String(b.slotHour)));
+
+  const last3=stationModelHistory.slice(-3);
+
+  const evalParam=(key,minThreshold)=>{
+    if(last3.length<3)return {active:false,offset:0,count:last3.length,reason:`odczyty ${last3.length}/3 h`};
+    const t0=localWallOrdinal(last3[0].slotHour);
+    const t2=localWallOrdinal(last3[2].slotHour);
+    const hourSpan=Number.isFinite(t0)&&Number.isFinite(t2)?(t2-t0)/3600000:100;
+    if(!Number.isFinite(hourSpan)||hourSpan>3.5)return {active:false,offset:0,count:last3.length,reason:"brak 3 kolejnych godzin"};
+
+    const diffs=last3.map(s=>s.diff[key]).filter(Number.isFinite);
+    if(diffs.length<3)return {active:false,offset:0,count:diffs.length,reason:"brak pełnych danych"};
+
+    const allPos=diffs.every(d=>d>=minThreshold);
+    const allNeg=diffs.every(d=>d<=-minThreshold);
+    if(!allPos&&!allNeg)return {active:false,offset:0,count:3,reason:"brak trwałego kierunku"};
+
+    const meanDiff=diffs.reduce((a,b)=>a+b,0)/3;
+    const offset=+meanDiff.toFixed(1);
+
+    return {
+      active:true,offset,count:3,
+      direction:meanDiff>0?"UNDERESTIMATED":"OVERESTIMATED",
+      meanDiff:offset,
+      historyDiffs:diffs
+    };
+  };
+
+  const syncResults={
+    temp:evalParam("temp",0.8),
+    hum:evalParam("hum",5.0),
+    wind:evalParam("wind",3.0),
+    press:evalParam("press",0.8)
+  };
+
+  const activeSyncs=Object.entries(syncResults).filter(([,r])=>r.active);
+
+  if(syncResults.temp.active&&Math.abs(syncResults.temp.offset)>=0.8){
+    const offset=syncResults.temp.offset;
+    data.current.temperature_2m=+clamp(Number(data.current.temperature_2m)+offset,-50,60).toFixed(1);
+    const fade=[1,1,0.8,0.5,0.25,0.1,0];
+    if(data.hourly?.temperature_2m){
+      for(let step=0;step<=6;step++){
+        const idx=ci+step;
+        if(idx<data.hourly.temperature_2m.length&&Number.isFinite(data.hourly.temperature_2m[idx])){
+          data.hourly.temperature_2m[idx]=+clamp(data.hourly.temperature_2m[idx]+offset*(fade[step]||0),-50,60).toFixed(1);
+        }
+      }
+    }
+  }
+
+  if(syncResults.hum.active&&Math.abs(syncResults.hum.offset)>=5){
+    const offset=syncResults.hum.offset;
+    data.current.relative_humidity_2m=Math.round(clamp(Number(data.current.relative_humidity_2m)+offset,0,100));
+  }
+
+  if(syncResults.wind.active&&Math.abs(syncResults.wind.offset)>=3){
+    const offset=syncResults.wind.offset;
+    data.current.wind_speed_10m=+clamp(Number(data.current.wind_speed_10m)+offset,0,200).toFixed(1);
+  }
+
+  if(syncResults.press.active&&Math.abs(syncResults.press.offset)>=0.8){
+    const offset=syncResults.press.offset;
+    data.current.pressure_msl=+clamp(Number(data.current.pressure_msl)+offset,800,1200).toFixed(1);
+  }
+
+  const meta={
+    active:activeSyncs.length>0,
+    activeSyncCount:activeSyncs.length,
+    stationId,stationName,
+    distKm:toFiniteNumber(imgwData.dist),
+    modelId,slotHour,
+    last3Slots:last3.map(s=>({slotHour:s.slotHour,diff:s.diff,obs:s.obs,model:s.model})),
+    syncResults
+  };
+
+  S.dataSync=meta;
+  if(S.pipelineDiag)S.pipelineDiag.dataSync=meta;
+  return meta;
 }
 
 function findHourIndexByTime(times,time){
@@ -7687,6 +7870,9 @@ async function loadWCore(lat,lng,name,isRef,token){
     S.cloudSource?.fusion||null
   );
   S.finalWeatherFusion=finalWeatherFusion;
+
+  // Warstwa automatycznej synchronizacji danych: IMGW ↔ Best Match
+  const dataSyncResult=processDataSyncLayer(data,imgwData,activeModel.id,activeModelRawData);
 
   if(data?.current){
     // Weryfikacja integralności wyniku — stan finalny musi być identyczny
