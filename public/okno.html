@@ -481,7 +481,9 @@ function histHTML(){
   const log=getLog().slice(-8).reverse();if(!log.length)return"";
   return`<section class="card"><div class="ch">${ic("clock")}<span class="grow">Dziennik</span></div><div class="hist">${log.map(x=>{
     const z=["sky","precip","wind","temp"].filter(k=>x.score[k]===0).length,d=new Date(x.ts);
-    return`<div class="hrow"><div>${d.toLocaleDateString("pl-PL",{day:"numeric",month:"short"})}, ${pad(d.getHours())}:${pad(d.getMinutes())}<small>${esc(x.city||"")}, ${lab(SKY,x.obs.sky).toLowerCase()}, ${lab(PRE,x.obs.pre).toLowerCase()}${x.obs.temp!=null?", "+f1(x.obs.temp)+"°":""}</small></div><span class="tn" style="font-weight:600">${z}/4</span><button class="x" data-act="del" data-ts="${x.ts}" aria-label="Usuń wpis">${ic("close")}</button></div>`;}).join("")}</div>
+    const dateStr=d.toLocaleDateString("pl-PL",{timeZone:"Europe/Warsaw",day:"numeric",month:"short"});
+    const timeStr=new Intl.DateTimeFormat("pl-PL",{timeZone:"Europe/Warsaw",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(d);
+    return`<div class="hrow"><div>${dateStr}, ${timeStr}<small>${esc(x.city||"")}, ${lab(SKY,x.obs.sky).toLowerCase()}, ${lab(PRE,x.obs.pre).toLowerCase()}${x.obs.temp!=null?", "+f1(x.obs.temp)+"°":""}</small></div><span class="tn" style="font-weight:600">${z}/4</span><button class="x" data-act="del" data-ts="${x.ts}" aria-label="Usuń wpis">${ic("close")}</button></div>`;}).join("")}</div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" data-act="export">${ic("copy")}Kopiuj dziennik</button><button class="btn" data-act="clear">${St.confirmClear?"Na pewno? Kliknij jeszcze raz":"Wyczyść dziennik"}</button></div></section>`;
 }
 function locPanel(){

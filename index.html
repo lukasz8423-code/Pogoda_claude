@@ -734,7 +734,6 @@ a.btn{text-decoration:none;color:inherit}
 </defs></svg>
 <div id="sky"></div>
 <div id="amb"></div>
-</div>
 <div id="app"></div>
 <div id="sheet-root"></div>
 <script>
@@ -951,12 +950,16 @@ function advice(city,cur,hourly,ci=0,currentStateOrX=null){
 
   // Godzina i pora dnia (Daypart)
   const hour = (() => {
-    if(hourly?.time?.[ci]){
-      try {
-        const d = new Date(hourly.time[ci]);
-        if(!isNaN(d.getHours())) return d.getHours();
-      } catch(e){}
+    const ht = hourly?.time?.[ci];
+    if(typeof ht === "string"){
+      const m = ht.match(/T(\d{2})/);
+      if(m) return parseInt(m[1], 10);
     }
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB",{timeZone:AURA_TIME_ZONE,hour:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
+      const h = parts.find(p=>p.type==="hour")?.value;
+      if(h) return parseInt(h, 10);
+    } catch(e){}
     return new Date().getHours();
   })();
 
@@ -2679,7 +2682,7 @@ function buildSimRadar(code,precip){
   [["＋",.5],["－",-.5]].forEach(([l,d])=>{const b=document.createElement("button");b.textContent=l;b.onclick=()=>{zoom=Math.max(1,Math.min(2.5,zoom+d));};zd.appendChild(b);});
   wrap.appendChild(zd);
   const tl=document.createElement("div");tl.className="rtime";tl.id="rtl";wrap.appendChild(tl);
-  const clk=setInterval(()=>{const e=document.getElementById("rtl");if(!e){clearInterval(clk);return;}const n=new Date();e.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;},1000);
+  const clk=setInterval(()=>{const e=document.getElementById("rtl");if(!e){clearInterval(clk);return;}try{const parts=new Intl.DateTimeFormat("en-GB",{timeZone:AURA_TIME_ZONE,hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date());const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));e.textContent=`${p.hour}:${p.minute}:${p.second}`;}catch{const n=new Date();e.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;}},1000);
   sec.appendChild(wrap);
 
   const leg=document.createElement("div");leg.className="rleg";
@@ -2906,19 +2909,22 @@ async function apiMinutely(lat,lng){
     if(!t||!p)return null;
     const now=Date.now();
     let idx=-1;
-    for(let i=0;i<t.length;i++){if(new Date(t[i]).getTime()<=now)idx=i;else break;}
+    for(let i=0;i<t.length;i++){
+      const tm=parseOpenMeteoWallTime(t[i],AURA_TIME_ZONE)||new Date(t[i]).getTime();
+      if(tm<=now)idx=i;else break;
+    }
     if(idx<0)return null;
     const out=[];
     // Każdy slot 15-min pokazujemy jako własny przedział czasowy.
     // Prawdopodobieństwo (POP) jest pobierane z godziny zawierającej slot.
     for(let i=idx;i<=idx+16&&i<t.length;i++){
-      const tm=new Date(t[i]).getTime();
+      const tm=parseOpenMeteoWallTime(t[i],AURA_TIME_ZONE)||new Date(t[i]).getTime();
       // Przypisujemy 15-min slot do godziny, w której faktycznie leży.
       // findIndex(>=) przesuwało np. 09:15 na dane godziny 10:00.
       let hi=-1;
       if(Array.isArray(ht)){
         for(let j=0;j<ht.length;j++){
-          const htm=new Date(ht[j]).getTime();
+          const htm=parseOpenMeteoWallTime(ht[j],AURA_TIME_ZONE)||new Date(ht[j]).getTime();
           if(Number.isFinite(htm)&&htm<=tm)hi=j;else if(htm>tm)break;
         }
       }
@@ -3054,7 +3060,12 @@ function applyTheme(X){
     const tc=document.querySelector('meta[name="theme-color"]');if(tc)tc.setAttribute("content","#93c5fd");
   }else{
     const now=new Date();
-    const h=now.getHours()+now.getMinutes()/60;
+    let h=now.getHours()+now.getMinutes()/60;
+    try{
+      const parts=new Intl.DateTimeFormat("en-GB",{timeZone:AURA_TIME_ZONE,hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(now);
+      const pMap=Object.fromEntries(parts.map(x=>[x.type,Number(x.value)]));
+      if(pMap.hour!=null&&pMap.minute!=null)h=pMap.hour+pMap.minute/60;
+    }catch{}
     let e,cloud=25,precip=0,storm=false;
     if(X){e=X.sun.e;cloud=X.cloud;precip=X.precip>0.05||X.code>=51&&X.code<=82?1:0;storm=X.code>=95;}
     else e=h>=6&&h<19?Math.sin(Math.PI*(h-6)/13):-.9;
@@ -3233,7 +3244,7 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
       if(!slot || !slot.t) return;
       const d = new Date(slot.t);
       if(!Number.isFinite(d.getTime())) return;
-      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      const key = typeof slot.t === "string" && slot.t.length >= 13 ? slot.t.slice(0, 13) + ":00" : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
       if(!hourlyMap.has(key)) hourlyMap.set(key, { mm: 0, maxPop: 0, count: 0, codes: [] });
       const entry = hourlyMap.get(key);
       const slotMm = Number(slot.mm ?? slot.rain ?? 0);
@@ -3247,7 +3258,7 @@ function syncUnifiedPrecipitationEngine(data, minutely, imgwData){
     hourly.time.forEach((ht, idx) => {
       const d = new Date(ht);
       if(!Number.isFinite(d.getTime())) return;
-      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+      const key = typeof ht === "string" && ht.length >= 13 ? ht.slice(0, 13) + ":00" : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
       if(hourlyMap.has(key)){
         const entry = hourlyMap.get(key);
         hourly.precipitation[idx] = +entry.mm.toFixed(2);
@@ -3565,8 +3576,17 @@ function cardinalDirName(d){
 function fmtAlertTimeRange(ci, addHours=8){
   const now = new Date();
   const end = new Date(now.getTime() + addHours*3600*1000);
-  const p = n => String(n).padStart(2,"0");
-  return `Ważność: ${p(now.getHours())}:${p(now.getMinutes())} (${p(now.getDate())}.${p(now.getMonth()+1)}) – ${p(end.getHours())}:00 (${p(end.getDate())}.${p(end.getMonth()+1)})`;
+  const fmt = (d, hZero=false) => {
+    try {
+      const parts = new Intl.DateTimeFormat("pl-PL",{timeZone:AURA_TIME_ZONE,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(d);
+      const p = Object.fromEntries(parts.map(x=>[x.type,x.value]));
+      return `${p.hour}:${hZero?"00":p.minute} (${p.day}.${p.month})`;
+    } catch {
+      const p = n => String(n).padStart(2,"0");
+      return `${p(d.getHours())}:${hZero?"00":p(d.getMinutes())} (${p(d.getDate())}.${p(d.getMonth()+1)})`;
+    }
+  };
+  return `Ważność: ${fmt(now,false)} – ${fmt(end,true)}`;
 }
 
 // ═══════════════════════════════════════════════
@@ -4380,7 +4400,7 @@ function unifiedPrecipitationTimeline(){
   if(m.length){
     const nowMs=Date.now();
     const slots=m.map(x=>{
-      const t=new Date(x.t);
+      const t=new Date(parseOpenMeteoWallTime(x.t,AURA_TIME_ZONE)||x.t);
       const mm=Number(x.mm??x.rain??0);
       return {t,mm:Number.isFinite(mm)?Math.max(0,mm):0,pop:Number.isFinite(Number(x.pop))?Number(x.pop):null,code:Number.isFinite(Number(x.code))?Number(x.code):null};
     }).sort((a,b)=>a.t-b.t);
@@ -4388,8 +4408,8 @@ function unifiedPrecipitationTimeline(){
     const future=slots.filter(x=>x.t.getTime()>=nowMs);
     const hourly=new Map();
     slots.forEach(x=>{
-      const key=x.t.getFullYear()+"-"+pad(x.t.getMonth()+1)+"-"+pad(x.t.getDate())+"T"+pad(x.t.getHours());
-      if(!hourly.has(key))hourly.set(key,{t:new Date(x.t.getFullYear(),x.t.getMonth(),x.t.getDate(),x.t.getHours()),mm:0,pop:null,slots:0});
+      const key=typeof x.t==="string"&&x.t.length>=13?x.t.slice(0,13):`${x.t.getFullYear()}-${pad(x.t.getMonth()+1)}-${pad(x.t.getDate())}T${pad(x.t.getHours())}`;
+      if(!hourly.has(key))hourly.set(key,{t:x.t,mm:0,pop:null,slots:0});
       const h=hourly.get(key);
       h.mm+=x.mm;
       h.slots++;
@@ -4404,7 +4424,7 @@ function unifiedPrecipitationTimeline(){
   const slots=[];
   const hours=[];
   for(let i=ci;i<Math.min(ci+25,hourly.time.length);i++){
-    const ht=new Date(hourly.time[i]);
+    const ht=new Date(parseOpenMeteoWallTime(hourly.time[i],AURA_TIME_ZONE)||hourly.time[i]);
     const hMm=Math.max(0,Number(hourly.precipitation?.[i]??0)||0);
     const hPop=Math.max(0,Number(hourly.precipitation_probability?.[i]??0)||0);
     const hCode=Number.isFinite(Number(hourly.weather_code?.[i]))?Number(hourly.weather_code[i]):null;
@@ -4606,10 +4626,12 @@ function hourlyHTML(X){
     const cloud=Math.round(clamp(
       rawCloud,
       0,100));
-    const safeIso=hourly.time?.[idx]||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
+    const timeKey=String(hourly.time?.[idx]||"");
+    const hourLabel=/^\d{4}-\d{2}-\d{2}T\d{2}/.test(timeKey)?timeKey.slice(11,13):pad(t.getHours());
+    const safeIso=timeKey||`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
     const kind=prNow>0.05?precipKindLabel(prNow, pop, code):"";
 
-    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":pad(t.getHours())}</span>${ico(code,isDayAt(safeIso),30,cloud)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span><span class="w tn" title="Wiatr">${mini("wind")}<b>${wind??"—"}</b> km/h</span>${gust!==null?`<span class="g tn" title="Poryw wiatru">↗ <b>${gust}</b> km/h</span>`:""}</div>`;
+    out+=`<div class="hi ${i===0?"now":""}"><span class="t tn">${i===0?"Teraz":hourLabel}</span>${ico(code,isDayAt(safeIso),30,cloud)}<span class="v tn">${Math.round(temp)}°</span><span class="p tn ${pop>0?"active":""}" title="Prawdopodobieństwo opadu: ${pop}%">${mini("drop")}${pop}%</span>${kind?`<span class="p-type">${kind}</span>`:""}<span class="c tn" title="Zachmurzenie: ${cloud}%">${mini("cloud")}${cloud}%</span><span class="w tn" title="Wiatr">${mini("wind")}<b>${wind??"—"}</b> km/h</span>${gust!==null?`<span class="g tn" title="Poryw wiatru">↗ <b>${gust}</b> km/h</span>`:""}</div>`;
   }
 
   return `<section class="card"><div class="ch">${mini("clock")}<span class="grow">Prognoza godzinowa</span><div class="h-legend"><span class="h-leg-item rain">${mini("drop")} Opad</span><span class="h-leg-item cloud">${mini("cloud")} Chmury</span><span class="h-leg-item wind">${mini("wind")} Wiatr</span><span class="h-leg-item gust">↗ Porywy</span></div></div><div class="hstrip">${out}</div></section>`;
@@ -5414,7 +5436,7 @@ function stationCockpitHTML(X){
         </div>
       </div>
       <div style="text-align:right">
-        <div class="tn" style="font-size:15px;font-weight:700;color:var(--ink)">${pad(upd.getHours())}:${pad(upd.getMinutes())}</div>
+        <div class="tn" style="font-size:15px;font-weight:700;color:var(--ink)">${hhmm(upd)}</div>
         <div style="font-size:10.5px;color:var(--ink3)">Synch. czujników</div>
       </div>
     </div>
@@ -5599,7 +5621,7 @@ function weatherHTML(){
     return`<div class="${S.enter?"enter":""}">
       ${topHTML(X)}
       ${stationCockpitHTML(X)}
-      <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${pad(upd.getHours())}:${pad(upd.getMinutes())}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
+      <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${hhmm(upd)}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
     </div>`;
   }
 
@@ -5618,7 +5640,7 @@ function weatherHTML(){
     ${imgwDiagHTML()}
     ${oknoHTML()}
     <div id="s-models">${modelsHTML()}</div>
-    <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${pad(upd.getHours())}:${pad(upd.getMinutes())}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
+    <div class="foot">Dane: Open-Meteo, IMGW-PIB, RainViewer.${upd?`<br>Ostatnia aktualizacja ${hhmm(upd)}. Modele odświeżają się co 1 do 3 godzin.`:""}<br>Pułap chmur jest szacowany z punktu rosy, nie mierzony.</div>
   </div>`;
 }
 
@@ -5792,9 +5814,10 @@ function runLiveDataQualityGuard(){
   if(!d){S.liveHealth=null;return null;}
   const rows=d.rows||[],alerts=[];
   const add=(code,severity,message,step=null)=>alerts.push({code,severity,message,step});
-  const now=new Date(),expected=new Date(now);expected.setMinutes(0,0,0);
-  const expectedHour=expected.getHours();
-  if(d.uiCurrentHour!==d.fusionCurrentHour||rows[0]&&new Date(rows[0].time).getHours()!==expectedHour)
+  const now=new Date();
+  const expectedKey=localHourKey(S.data,now.getTime()).slice(11,13);
+  const rowHour=rows[0]?.time?String(rows[0].time).slice(11,13):null;
+  if(d.uiCurrentHour!==d.fusionCurrentHour||(rowHour&&rowHour!==expectedKey))
     add("CRITICAL_TIME_DESYNC","critical","Bieżący slot UI/Fusion nie odpowiada lokalnej pełnej godzinie.",0);
   if(Math.abs(Number(d.fusionBias?.temperature||0))>2){
     const a=rows.slice(1,3).find(r=>Number.isFinite(Number(r.auraFinal))&&Number.isFinite(Number(r.openMeteo))&&Math.abs(r.auraFinal-r.openMeteo)>2);
@@ -5833,8 +5856,7 @@ function solarPositionDiagnostic(lat,lng,date=new Date()){
   const gamma=2*Math.PI/365*(day-1+(utcHour-12)/24);
   const eq=229.18*(.000075+.001868*Math.cos(gamma)-.032077*Math.sin(gamma)-.014615*Math.cos(2*gamma)-.040849*Math.sin(2*gamma));
   const dec=.006918-.399912*Math.cos(gamma)+.070257*Math.sin(gamma)-.006758*Math.cos(2*gamma)+.000907*Math.sin(2*gamma)-.002697*Math.cos(3*gamma)+.00148*Math.sin(3*gamma);
-  const mins=date.getHours()*60+date.getMinutes()+date.getSeconds()/60,tz=-date.getTimezoneOffset();
-  const tst=((mins+eq+4*lo-tz)%1440+1440)%1440,ha=(tst/4-180)*rad,latr=la*rad;
+  const tst=((utcHour*60+eq+4*lo)%1440+1440)%1440,ha=(tst/4-180)*rad,latr=la*rad;
   const zen=Math.acos(clamp(Math.sin(latr)*Math.sin(dec)+Math.cos(latr)*Math.cos(dec)*Math.cos(ha),-1,1));
   const elevation=90-zen/rad;
   let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(latr)-Math.tan(dec)*Math.cos(latr))/rad+180; az=(az+360)%360;
