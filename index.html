@@ -5154,21 +5154,36 @@ function oknoHTML(){
 
 function modelsHTML(){
   const c=S.confidence,mc=S.modelCompare,acc=getAccuracyStats();
-  const names={icon_seamless:"ICON (DWD)",ecmwf_ifs025:"ECMWF IFS",gfs_seamless:"GFS (NOAA)"};
+  const names={
+    icon_seamless:"ICON (DWD)",
+    icon_eu:"ICON-EU (DWD)",
+    ecmwf_ifs025:"ECMWF IFS",
+    gfs_seamless:"GFS (NOAA)",
+    dmi_harmonie_arome_europe:"DMI HARMONIE (Dania)",
+    knmi_harmonie_arome_europe:"KNMI HARMONIE (Holandia)"
+  };
   let body="";
   if(c){
     const col=c.pct>=85?"var(--ok)":c.pct>=65?"var(--warn)":"var(--bad)";
     const lb=c.pct>=85?"Modele są zgodne":c.pct>=65?"Zgodność umiarkowana":"Modele się rozjeżdżają";
     body+=`<div style="display:flex;align-items:baseline;gap:10px"><span class="wv tn" style="font-size:34px;color:${col}">${c.pct}%</span><span style="font-weight:600">${lb}</span></div><div class="meter"><i style="width:${c.pct}%;background:${col}"></i></div>${c.spread>0?`<div class="note" style="margin:0 0 6px">Rozrzut temperatury między modelami: ${fnum(c.spread,1)}°</div>`:""}`;
   }
+  const stTemp=parseImgwNumber(S.imgwData?.temperatura);
+  const auraTemp=S.X?.T;
+  if(stTemp!=null||auraTemp!=null){
+    body+=`<div class="note" style="margin:4px 0 8px;padding:6px 10px;background:rgba(255,255,255,.06);border-radius:8px;font-weight:600">📍 Pomiar stacji IMGW (${esc(S.imgwData?.stacja||S.imgwData?.name||"Głodowo")}): ${stTemp!=null?fnum(stTemp,1)+"°C":"—"}${auraTemp!=null?` · Wynik Aury: ${fnum(auraTemp,1)}°C`:""}</div>`;
+  }
   if(mc&&mc.length){
     const ts=mc.map(m=>m.temp),lo=Math.min(...ts),hi=Math.max(...ts),sp=Math.max(.5,hi-lo);
     body+=mc.map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((m.temp-lo)/sp*80+10).toFixed(1)}%"></u></div><b class="tn">${fnum(m.temp,1)}°</b></div>`).join("");
+    if(c&&c.spread>=3.0){
+      body+=`<div class="note" style="margin:6px 0 0;color:var(--ink2)">Dla tej pory dnia (np. inwersja poranna) modele globalne jak GFS mogą wykazywać odchylenia. Pomiary ze stacji IMGW oraz rzetelne modele gęstej siatki (DMI/KNMI) pomagają Aurze wyświetlać rzeczywistą temperaturę.</div>`;
+    }
     const clouds=mc.filter(m=>Number.isFinite(Number(m.cloud))).map(m=>Number(m.cloud));
     if(clouds.length){
       const clo=Math.min(...clouds),chi=Math.max(...clouds),csp=Math.max(1,chi-clo);
       const cavg=clouds.reduce((a,b)=>a+b,0)/clouds.length;
-      body+=`<div class="note" style="margin:10px 0 6px;font-weight:600;color:var(--ink2)">Aktualne zachmurzenie modeli</div>`;
+      body+=`<div class="note" style="margin:12px 0 6px;font-weight:600;color:var(--ink2)">Aktualne zachmurzenie modeli</div>`;
       body+=mc.filter(m=>Number.isFinite(Number(m.cloud))).map(m=>`<div class="mrow"><span>${names[m.name]||m.name}</span><div class="mtrack"><u style="left:${((Number(m.cloud)-clo)/csp*80+10).toFixed(1)}%"></u></div><b class="tn">${Math.round(Number(m.cloud))}%</b></div>`).join("");
       body+=`<div class="note" style="margin:4px 0 0">Średnia modeli: ${Math.round(cavg)}% · rozrzut: ${Math.round(chi-clo)} pkt. To diagnostyka; główne zachmurzenie aplikacji pochodzi z aktywnego modelu.</div>`;
     }
