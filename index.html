@@ -1863,20 +1863,38 @@ async function apiSatelliteCloudMaskWms(lat,lng){
   };
 }
 
-async function apiSatelliteCloudMask(lat,lng){
+const SATELLITE_CACHE=new Map();
+
+async function apiSatelliteCloudMask(lat,lng,forceFresh=false){
+  const la=Number(lat),lo=Number(lng);
+  if(!Number.isFinite(la)||!Number.isFinite(lo))return null;
+
+  const cacheKey=`${la.toFixed(2)}_${lo.toFixed(2)}`;
+  const cached=SATELLITE_CACHE.get(cacheKey);
+  const now=Date.now();
+
+  if(!forceFresh&&cached&&(now-cached.cachedAt<600000)){ // 10 min TTL
+    return cached.data;
+  }
+
   // 1. Zawsze w pierwszej kolejności odpytujemy satelitę EUMETSAT na żywo przez WMS GetFeatureInfo.
-  // EUMETSAT GeoServer obsługuje CORS (*) i natychmiast zwraca aktualną 15-minutową obserwację dla DOWOLNEGO punktu.
   try{
     const live=await apiSatelliteCloudMaskWms(lat,lng);
     if(live && Number.isFinite(live.cloudFraction)){
-      return {...live,distanceKm:0,locationMatch:true,live:true};
+      const res={...live,distanceKm:0,locationMatch:true,live:true};
+      SATELLITE_CACHE.set(cacheKey,{cachedAt:now,data:res});
+      return res;
     }
   }catch(err){
     console.warn("EUMETView Live WMS query error:", err);
   }
 
-  // 2. Awaryjny fallback: Jeśli zapytanie bezpośrednie do EUMETSAT nie powiodło się (brak internetu lub timeout),
-  // sprawdzamy lokalny snapshot satellite-cloud.json, ale WYŁĄCZNIE wtedy, gdy jest świeży (<= 180 min).
+  // Jeśli zapytanie na żywo zawiodło (np. chwilowy timeout WMS), użyj niedawnego cache (do 30 min)
+  if(cached&&(now-cached.cachedAt<1800000)){
+    return cached.data;
+  }
+
+  // 2. Awaryjny fallback: lokalny snapshot satellite-cloud.json
   try{
     const r=await fetch("./satellite-cloud.json?ts="+Date.now(),{cache:"no-store",signal:AbortSignal.timeout(3500)});
     if(r.ok){
@@ -1889,9 +1907,8 @@ async function apiSatelliteCloudMask(lat,lng){
           const observationAt=d.observationAt??d.observedAt??d.acquisitionAt??d.sensingStart??d.sensing_start??d.time??d.timestamp??d.date??null;
           const obsTime=observationAt!=null?new Date(observationAt).getTime():NaN;
           const ageMin=Number.isFinite(obsTime)?(Date.now()-obsTime)/60000:null;
-          // Ignoruj przedawniony snapshot, żeby nie wprowadzać w błąd przestarzałymi danymi
           if(Number.isFinite(cloud)&&cloud>=0&&cloud<=100&&(ageMin===null||ageMin<=180)){
-            return {...d,
+            const res={...d,
               cloudFraction:cloud,
               observationAt:observationAt?String(observationAt):null,
               dataAvailable:true,
@@ -1899,12 +1916,15 @@ async function apiSatelliteCloudMask(lat,lng){
               status:ageMin!=null&&ageMin>90?"AGED":"OK",
               distanceKm:+distanceKm.toFixed(2),locationMatch:true,live:false
             };
+            SATELLITE_CACHE.set(cacheKey,{cachedAt:now,data:res});
+            return res;
           }
         }
       }
     }
   }catch{}
-  return null;
+
+  return cached?.data||null;
 }
 function sameLocationSnapshot(lat,lng){
   return Number.isFinite(Number(S.lat))&&Number.isFinite(Number(S.lng))&&
@@ -4731,7 +4751,7 @@ function dailyRows(){
     const dayPrecip=Number(daily.precipitation_sum?.[i]??0);
     const pop=Number(daily.precipitation_probability_max?.[i]??0);
     const rawDailyCode=daily.weather_code?.[i]??0;
-    const dailyCode=i===0&&X?.currentState?.code!=null?X.currentState.code:((dayPrecip<=0.05&&isRainCode(rawDailyCode))?3:rawDailyCode);
+    const dailyCode=(dayPrecip<=0.05&&isRainCode(rawDailyCode))?3:rawDailyCode;
     const open=S.expDay===i;
     const label=i===0?"Dziś":i===1?"Jutro":DAY_SHORT(daily.time[i]);
     const left=((mn-gmin)/span*100).toFixed(1),width=Math.max(4,(mx-mn)/span*100).toFixed(1);
@@ -7107,8 +7127,8 @@ async function loadWCore(lat,lng,name,isRef,token){
       findNearestIMGW(lat,lng),
       // Ensemble porównawczy ma własny TTL/cache. Ręczne odświeżenie
       // nie wymusza 6 dodatkowych requestów Open-Meteo jednocześnie.
-      fetchAllModelsCompare(lat,lng,false),
-      apiSatelliteCloudMask(lat,lng),
+      fetchAllModelsCompare(lat,lng,isRef),
+      apiSatelliteCloudMask(lat,lng,isRef),
       apiMinutely(lat,lng)
     ]);
     // CRITICAL: po Promise.all/Promise.allSettled starsza generacja może być już nieaktualna.
