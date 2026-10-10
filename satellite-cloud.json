@@ -12,81 +12,57 @@
     "2": "cloud",
     "3": "no_data"
   },
-  "sampleCount": 9,
-  "cloudPixels": 9,
+  "sampleCount": 3,
+  "cloudPixels": 3,
   "clearPixels": 0,
   "samples": [
     {
       "lat": 52.77816396396396,
       "lon": 19.152117340406765,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:38.314Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.77816396396396,
       "lon": 19.21174,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:39.005Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.77816396396396,
       "lon": 19.271362659593233,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:45.314Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.8142,
       "lon": 19.152117340406765,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:45.913Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.8142,
       "lon": 19.21174,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:46.530Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.8142,
       "lon": 19.271362659593233,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:47.123Z\",\"crs\":null}"
+      "class": "unknown",
+      "cloudMaskCode": null,
+      "rgb": null,
+      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
     },
     {
       "lat": 52.85023603603604,
@@ -98,7 +74,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:47.703Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-10T05:17:17.924Z\",\"crs\":null}"
     },
     {
       "lat": 52.85023603603604,
@@ -110,7 +86,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:48.477Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-10T05:17:18.660Z\",\"crs\":null}"
     },
     {
       "lat": 52.85023603603604,
@@ -122,16 +98,16 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-09T23:54:49.122Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-10T05:17:19.374Z\",\"crs\":null}"
     }
   ],
-  "generatedAt": "2026-10-09T23:54:37.521036+00:00",
-  "observationAt": "2026-10-09T23:45:00Z",
+  "generatedAt": "2026-10-10T05:17:13.865371+00:00",
+  "observationAt": "2026-10-10T05:15:00Z",
   "observationTimeStatus": "LATEST_AVAILABLE_CLM_PRODUCT",
   "lookbackAttempts": [
     {
-      "observationAt": "2026-10-09T23:45:00Z",
-      "sampleCount": 9
+      "observationAt": "2026-10-10T05:15:00Z",
+      "sampleCount": 3
     }
   ],
   "status": "OK",
