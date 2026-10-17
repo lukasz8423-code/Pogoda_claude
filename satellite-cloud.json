@@ -26,7 +26,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:42.270Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:28.597Z\",\"crs\":null}"
     },
     {
       "lat": 52.77816396396396,
@@ -38,7 +38,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:43.319Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:29.626Z\",\"crs\":null}"
     },
     {
       "lat": 52.77816396396396,
@@ -50,7 +50,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:44.179Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:36.109Z\",\"crs\":null}"
     },
     {
       "lat": 52.8142,
@@ -62,7 +62,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:45.101Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:36.767Z\",\"crs\":null}"
     },
     {
       "lat": 52.8142,
@@ -74,7 +74,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:45.779Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:37.547Z\",\"crs\":null}"
     },
     {
       "lat": 52.8142,
@@ -86,7 +86,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:46.959Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:38.211Z\",\"crs\":null}"
     },
     {
       "lat": 52.85023603603604,
@@ -98,7 +98,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:47.613Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:38.891Z\",\"crs\":null}"
     },
     {
       "lat": 52.85023603603604,
@@ -110,7 +110,7 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:48.371Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:39.511Z\",\"crs\":null}"
     },
     {
       "lat": 52.85023603603604,
@@ -122,15 +122,15 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T16:14:49.042Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-10-17T18:34:40.289Z\",\"crs\":null}"
     }
   ],
-  "generatedAt": "2026-10-17T16:14:40.357000+00:00",
-  "observationAt": "2026-10-17T16:00:00Z",
+  "generatedAt": "2026-10-17T18:34:27.880212+00:00",
+  "observationAt": "2026-10-17T18:30:00Z",
   "observationTimeStatus": "LATEST_AVAILABLE_CLM_PRODUCT",
   "lookbackAttempts": [
     {
-      "observationAt": "2026-10-17T16:00:00Z",
+      "observationAt": "2026-10-17T18:30:00Z",
       "sampleCount": 9
     }
   ],
