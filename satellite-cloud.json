@@ -12,71 +12,49 @@
     "2": "cloud",
     "3": "no_data"
   },
-  "sampleCount": 2,
-  "cloudPixels": 2,
+  "sampleCount": 1,
+  "cloudPixels": 1,
   "clearPixels": 0,
   "samples": [
     {
       "lat": 52.77816396396396,
       "lon": 19.152117340406765,
-      "class": "unknown",
-      "cloudMaskCode": null,
-      "rgb": null,
-      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
+      "class": "error",
+      "error": "The read operation timed out"
     },
     {
       "lat": 52.77816396396396,
       "lon": 19.21174,
-      "class": "unknown",
-      "cloudMaskCode": null,
-      "rgb": null,
-      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
+      "class": "error",
+      "error": "The read operation timed out"
     },
     {
       "lat": 52.77816396396396,
       "lon": 19.271362659593233,
-      "class": "unknown",
-      "cloudMaskCode": null,
-      "rgb": null,
-      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
+      "class": "error",
+      "error": "The read operation timed out"
     },
     {
       "lat": 52.8142,
-      "lon": 19.152117340406765,
-      "class": "unknown",
-      "cloudMaskCode": null,
-      "rgb": null,
-      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
-    },
-    {
-      "lat": 52.8142,
-      "lon": 19.21174,
-      "class": "unknown",
-      "cloudMaskCode": null,
-      "rgb": null,
-      "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ServiceExceptionReport version=\"1.3.0\" xmlns=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.opengis.net/ogc https://view.eumetsat.int/geoserver/schemas/wms/1.3.0/exceptions_1_3_0.xsd\"> <ServiceException> Failed to run GetFeatureInfo on layer msg_fes:clm No nearest match found on msg_fes:clm for time dimension </ServiceException></ServiceExceptionReport>"
-    },
-    {
-      "lat": 52.8142,
-      "lon": 19.271362659593233,
-      "class": "cloud",
-      "cloudMaskCode": 2,
-      "rgb": [
-        255,
-        255,
-        255
-      ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-11-12T12:46:58.402Z\",\"crs\":null}"
-    },
-    {
-      "lat": 52.85023603603604,
       "lon": 19.152117340406765,
       "class": "error",
       "error": "The read operation timed out"
     },
     {
-      "lat": 52.85023603603604,
+      "lat": 52.8142,
       "lon": 19.21174,
+      "class": "error",
+      "error": "The read operation timed out"
+    },
+    {
+      "lat": 52.8142,
+      "lon": 19.271362659593233,
+      "class": "error",
+      "error": "The read operation timed out"
+    },
+    {
+      "lat": 52.85023603603604,
+      "lon": 19.152117340406765,
       "class": "cloud",
       "cloudMaskCode": 2,
       "rgb": [
@@ -84,7 +62,13 @@
         255,
         255
       ],
-      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-11-12T12:47:17.340Z\",\"crs\":null}"
+      "raw": "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":\"\",\"geometry\":null,\"properties\":{\"RED_BAND\":255,\"GREEN_BAND\":255,\"BLUE_BAND\":255}}],\"totalFeatures\":\"unknown\",\"numberReturned\":1,\"timeStamp\":\"2026-11-12T20:46:36.870Z\",\"crs\":null}"
+    },
+    {
+      "lat": 52.85023603603604,
+      "lon": 19.21174,
+      "class": "error",
+      "error": "The read operation timed out"
     },
     {
       "lat": 52.85023603603604,
@@ -93,13 +77,17 @@
       "error": "The read operation timed out"
     }
   ],
-  "generatedAt": "2026-11-12T12:46:06.175131+00:00",
-  "observationAt": "2026-11-12T12:45:00Z",
+  "generatedAt": "2026-11-12T20:42:36.927044+00:00",
+  "observationAt": "2026-11-12T20:15:00Z",
   "observationTimeStatus": "LATEST_AVAILABLE_CLM_PRODUCT",
   "lookbackAttempts": [
     {
-      "observationAt": "2026-11-12T12:45:00Z",
-      "sampleCount": 2
+      "observationAt": "2026-11-12T20:30:00Z",
+      "sampleCount": 0
+    },
+    {
+      "observationAt": "2026-11-12T20:15:00Z",
+      "sampleCount": 1
     }
   ],
   "status": "OK",
